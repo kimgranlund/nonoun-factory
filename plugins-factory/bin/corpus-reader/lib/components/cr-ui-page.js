@@ -115,9 +115,13 @@ export class UIPage extends UIElement {
       .then((text) => {
         if (token !== this.#token) return; // a newer route superseded this load
         const fm = splitFrontmatter(text);
-        const bodyHtml = window.marked
-          ? window.marked.parse(fm.body)
-          : "<pre>" + esc(fm.body) + "</pre>";
+        // Corpus markdown is untrusted and marked does not sanitize → scrub the
+        // rendered HTML with DOMPurify. If marked or DOMPurify is unavailable
+        // (CDN/SRI failure), never inject raw HTML — degrade to escaped source.
+        const bodyHtml =
+          window.marked && window.DOMPurify
+            ? window.DOMPurify.sanitize(window.marked.parse(fm.body))
+            : "<pre>" + esc(fm.body) + "</pre>";
         this.#article.innerHTML =
           this.#meta(route, fm.meta) +
           "<div class='cr-md'>" +
