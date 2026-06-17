@@ -1,0 +1,174 @@
+name: ci
+
+# nonoun-factory gates — the builder/operator toolchain validates itself: plugins-factory gates itself +
+# its two siblings (harness-forge, agent-ops) + the marketplace manifest. The nested dev-factory marketplace
+# has its own path-filtered workflow (dev-factory.yml). Stdlib Python only; clean-checkout-true.
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      PF: plugins-factory
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: validator selftest
+        run: python3 "$PF/bin/validate_plugin.py" selftest
+
+      - name: validate plugin — plugins-factory (the harness self-validates)
+        run: python3 "$PF/bin/validate_plugin.py" plugin "$PF" --strict
+
+      - name: validate plugin — harness-forge
+        run: python3 "$PF/bin/validate_plugin.py" plugin harness-forge --strict
+
+      - name: validate plugin — agent-ops
+        run: python3 "$PF/bin/validate_plugin.py" plugin agent-ops --strict
+
+      - name: validate marketplace
+        run: python3 "$PF/bin/validate_plugin.py" marketplace .
+
+      - name: factory index.html — selftest (R-1 guard) + up to date
+        run: |
+          python3 gen-index.py selftest
+          python3 gen-index.py --check
+
+      - name: workflow path liveness (selftest + check)
+        run: |
+          python3 check-ci-paths.py selftest
+          python3 check-ci-paths.py
+
+      - name: foundations ↔ rubrics coverage
+        run: cd "$PF" && python3 bin/check-foundations-coverage.py
+
+      - name: host-detect (host-harness awareness) + vendored copy in sync
+        run: |
+          python3 tools/host-detect/host_detect.py selftest
+          python3 tools/sync-host-detect.py --check
+          python3 tools/sync-dev-kernel.py --check   # harness-forge kernel vendored into dev-factory, byte-identical
+
+      - name: plugins-factory — eval suite (behavioral gates + calibration-fixture isolation)
+        run: |
+          python3 "$PF/evals/behavioral-gates.py"
+          python3 "$PF/evals/council-calibration/build-fixture.py" /tmp/pf-council-fixture
+          python3 "$PF/bin/validate_plugin.py" plugin /tmp/pf-council-fixture --strict
+          python3 "$PF/evals/council-calibration/check.py" "$PF/evals/council-calibration/runs/2026-06-04-mega-helper-baseline.md"
+
+      - name: reference-lint — plugins-factory / harness-forge / agent-ops
+        run: |
+          python3 "$PF/bin/reference-lint.py" "$PF"
+          python3 "$PF/bin/reference-lint.py" harness-forge
+          python3 "$PF/bin/reference-lint.py" agent-ops
+
+      - name: manifest-sync gate (selftest + every plugin)
+        run: |
+          python3 "$PF/bin/check-manifest-sync.py" selftest
+          for p in plugins-factory harness-forge agent-ops; do
+            python3 "$PF/bin/check-manifest-sync.py" "$p"
+          done
+
+      - name: MCP liveness gate (selftest + every bundled server actually serves)
+        run: |
+          python3 "$PF/bin/check-mcp-liveness.py" selftest
+          python3 "$PF/bin/check-mcp-liveness.py" marketplace . --trusted-source
+
+      - name: trust-boundary gate (every reviewer carries the untrusted-DATA-never-instructions guard)
+        run: |
+          python3 "$PF/bin/check-trust-boundary.py" selftest
+          python3 "$PF/bin/check-trust-boundary.py" marketplace .
+
+      - name: integration-contract gate (entry/router thinness + advisory bundled hook)
+        run: |
+          python3 "$PF/bin/check-integration-contract.py" selftest
+          python3 "$PF/bin/check-integration-contract.py" marketplace .
+          python3 "$PF/bin/check-integration-contract.py" marketplace . --trusted-source
+
+      - name: marketplace-DX gate (scannable browse card + category/tag hygiene)
+        run: |
+          python3 "$PF/bin/check-marketplace-dx.py" selftest
+          python3 "$PF/bin/check-marketplace-dx.py" marketplace .
+
+      - name: context-cost audit (P6 always-on context tax)
+        run: |
+          python3 "$PF/bin/context-cost.py" selftest
+          python3 "$PF/bin/context-cost.py" marketplace .
+          python3 "$PF/bin/context-cost.py" marketplace . --with-mcp --trusted-source
+
+      - name: bake-safety gate (the path-generic XSS gate proves itself)
+        run: python3 "$PF/bin/check-bake-safety.py" selftest
+
+      - name: checker-recall gate (council-calibration checkers aren't brittle)
+        run: |
+          python3 "$PF/bin/check-recall.py" selftest
+          python3 "$PF/bin/check-recall.py"
+
+      - name: score-record gate (the judge's durable D8 audit trail is well-formed)
+        run: |
+          python3 "$PF/bin/score-record.py" selftest
+          for f in "$PF"/scores/*.json; do python3 "$PF/bin/score-record.py" validate "$f"; done
+
+      - name: assemble-marketplace gate (the carve publish step + a factory round-trip)
+        run: |
+          python3 "$PF/bin/assemble-marketplace.py" selftest
+          python3 "$PF/bin/assemble-marketplace.py" assemble . --name nonoun-factory --owner "Kim Granlund" --out /tmp/assembled.json
+          python3 -c "import json; m=json.load(open('/tmp/assembled.json')); names={p['name'] for p in m['plugins']}; assert {'plugins-factory','harness-forge','agent-ops'} <= names, m; print('assembled', len(m['plugins']), 'plugins, valid')"
+
+      - name: agent-ops — gates (sourcing + self-contained + selftests)
+        run: |
+          python3 agent-ops/bin/check-sourcing.py selftest
+          python3 agent-ops/bin/check-sourcing.py agent-ops
+          python3 agent-ops/bin/check-self-contained.py selftest
+          python3 agent-ops/bin/check-self-contained.py agent-ops
+          python3 agent-ops/bin/doc-hygiene selftest
+          python3 agent-ops/bin/audit-history.py selftest
+          python3 agent-ops/bin/repo-memory-mcp.py selftest
+
+      - name: harness-forge — kernel selftests (the lattice machinery proves itself)
+        run: |
+          python3 harness-forge/bin/naming.py selftest
+          python3 harness-forge/bin/lattice.py selftest
+          python3 harness-forge/bin/ledger.py selftest
+          python3 harness-forge/bin/validate.py selftest
+          python3 harness-forge/bin/harness-hook selftest
+          python3 harness-forge/bin/gate-signal selftest
+          python3 harness-forge/bin/gate-budget selftest
+          python3 harness-forge/bin/emit-ledger selftest
+          python3 harness-forge/bin/propagate-staleness selftest
+          python3 harness-forge/bin/wire.py selftest
+          python3 harness-forge/bin/run-budget.py selftest
+          python3 harness-forge/bin/council-precheck.py selftest
+          python3 harness-forge/bin/harness-status.py selftest
+          python3 harness-forge/bin/survey.py selftest
+          python3 harness-forge/bin/assess-record.py selftest
+          python3 harness-forge/bin/lattice-mcp.py selftest
+          D="$(mktemp -d)"
+          python3 harness-forge/bin/lattice.py init ci-demo --dir "$D/.agents/harness"
+          python3 harness-forge/bin/lattice.py scan --dir "$D/.agents/harness"
+          python3 harness-forge/bin/lattice.py check --dir "$D/.agents/harness"
+          python3 harness-forge/bin/wire.py apply --confirm --project "$D"
+          python3 harness-forge/bin/wire.py check --project "$D"
+
+      - name: harness-forge — evals (calibration · baselines · first-slice · stop-gate · global-bound)
+        run: |
+          python3 harness-forge/evals/calibration/check_fixtures.py
+          python3 harness-forge/evals/calibration/check_baselines.py
+          python3 harness-forge/evals/first-slice-walkthrough/replay.py
+          python3 harness-forge/evals/stop-gate/check.py
+          python3 harness-forge/evals/global-bound/check.py
+
+      - name: agent-ops — council-calibration (both fixtures gate-clean + baselines)
+        run: |
+          python3 agent-ops/bin/check_blueprint.py agent-ops/evals/council-calibration/fixtures/overnight-refactor-blueprint.md
+          python3 agent-ops/evals/council-calibration/check.py agent-ops/evals/council-calibration/runs/2026-06-10-nightshift-baseline.md
+          python3 agent-ops/bin/check_blueprint.py agent-ops/evals/council-calibration/fixtures/monolith-support-agent-blueprint.md
+          python3 agent-ops/evals/council-calibration/check-monolith.py agent-ops/evals/council-calibration/runs/2026-06-10-monolith-baseline.md
+
+      - name: agent-ops — repo-review calibration (fixture builds + baseline)
+        run: |
+          python3 agent-ops/evals/repo-review-calibration/build-seeded-repo.py /tmp/seeded-smell-repo
+          python3 agent-ops/evals/repo-review-calibration/check.py agent-ops/evals/repo-review-calibration/runs/2026-06-11-seeded-repo-baseline.md

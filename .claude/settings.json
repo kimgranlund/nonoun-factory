@@ -1,0 +1,6 @@
+{
+  "extraKnownMarketplaces": {
+    "nonoun-factory": { "source": { "source": "github", "repo": "kimgranlund/nonoun-factory" } }
+  },
+  "enabledPlugins": { "plugins-factory@nonoun-factory": true }
+}

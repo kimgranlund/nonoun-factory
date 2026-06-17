@@ -1,0 +1,33 @@
+{
+  "name": "nonoun-factory",
+  "owner": {
+    "name": "Kim",
+    "email": "kim.granlund@gmail.com"
+  },
+  "metadata": {
+    "description": "The builder/operator toolchain — Claude Code plugins for authoring & red-teaming plugins, running latticed agentic workflows, and operating agentic systems and the repos they live in. Self-contained worked examples of the five-primitive model, each authored and red-teamed with plugins-factory. The brand/product plugins live in the sibling nonoun-plugins marketplace; the self-hosting dark factory built on these is the nested dev-factory marketplace."
+  },
+  "plugins": [
+    {
+      "name": "plugins-factory",
+      "source": "./plugins-factory",
+      "description": "Run the Claude Code plugin lifecycle against one 9-dimension architecture standard — component fit, boundary cohesion, dependency legality — judged by a 9-critic council that runs as parallel isolated agents. Build with /plugin-author·carve·edit; judge with /plugin-score·critique·promote. Bundles an advisory hook that validates plugin.json/marketplace.json on save (never blocks).",
+      "category": "developer-tools",
+      "tags": ["plugins", "claude-code", "marketplace", "packaging", "lifecycle", "carve", "meta"]
+    },
+    {
+      "name": "harness-forge",
+      "source": "./harness-forge",
+      "description": "Hydrate a project to run looping, latticed agentic workflows: a kernel that scaffolds and operates a typed knowledge lattice (9 layers × 5 scopes × a maturity machine), plus a bounded autonomous loop whose caps are enforced in code by a consent-wired stop-gate — not by the agent's counting. Ships an operating agent roster, a 7-critic structural council, stdlib lattice machinery, a consent-gated wiring installer, a /harness-status dashboard, and a read-only lattice-query MCP.",
+      "category": "developer-tools",
+      "tags": ["agentic", "harness", "lattice", "agent-loops", "orchestration", "evals", "verification", "autonomy", "ledger", "kernel", "meta"]
+    },
+    {
+      "name": "agent-ops",
+      "source": "./agent-ops",
+      "description": "Author, operate, and review full-spectrum agentic systems and the repos they live in — agent loops & teams, the control plane, harness & context engineering, agentic-workflow UX, and repo memory/docs + architecture review — with a named-practitioner council, verifiable gates (loop blueprints, audit ledgers), and a repo-memory MCP for per-instance retrieval over a repo's agent docs + audit ledger.",
+      "category": "developer-tools",
+      "tags": ["agent", "agentic", "agent-loops", "orchestration", "harness", "context-engineering", "repo-ops", "agents-md", "repo-review", "council"]
+    }
+  ]
+}

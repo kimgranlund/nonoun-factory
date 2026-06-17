@@ -78,10 +78,10 @@ def _selftest():
         "      - run: python3 \"$PF/bin/validate_plugin.py\" selftest\n"
         "      - run: python3 gone-plugin/bin/tool.py selftest\n"
         "      - run: python3 gone-plugin/bin/some-lint selftest\n"        # extensionless — the R-1 shape
-        "      - run: python3 product-forge/bin/product-lint selftest\n"  # extensionless, exists
+        "      - run: python3 harness-forge/bin/gate-signal selftest\n"     # extensionless, exists
         "      - run: cd \"$PF\" && python3 bin/check-foundations-coverage.py\n"
         "      - run: test -f /tmp/demo/site/lib/sitemap.json\n"
-        "      - run: for f in tools/corpus-reader/lib/components/*.js; do true; done\n"
+        "      - run: for f in harness-forge/schemas/*.json; do true; done\n"
         "      - run: python3 -c \"assert x == 'gone-dir/literal.css'\"\n"  # inline code, not a path
         "      - run: test -f ../outside.css\n"                             # parent-relative — skipped
     )
@@ -92,7 +92,7 @@ def _selftest():
         if must_flag not in flagged:
             ok = False
             print(f"selftest: failed to flag {must_flag}", file=sys.stderr)
-    for must_pass in ("validate_plugin", "product-lint", "check-foundations", "components",
+    for must_pass in ("validate_plugin", "gate-signal", "check-foundations", "schemas",
                       "literal.css", "outside.css"):
         if any(must_pass in f for f in flagged):
             ok = False
