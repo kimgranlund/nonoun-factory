@@ -36,15 +36,15 @@ Sibling `entry-file-coverage.md` checks that AGENTS.md/CLAUDE.md/.cursorrules ar
 
 | Tier | Path | Severity if missing | Why |
 | --- | --- | --- | --- |
-| **Required** | `AGENTS.md` | Critical | Multi-tool entry point; without it, no agent knows the repo |
-| **Required** | `CLAUDE.md` (or symlink → `AGENTS.md`) | Critical | Claude Code does not read AGENTS.md natively (issue #31005) |
+| **Required** | `CLAUDE.md` | Critical | Canonical entry; Claude Code reads it natively — without it, no agent knows the repo |
+| **Conditional** | `AGENTS.md` (or symlink → `CLAUDE.md`) | Medium _if cross-tool_ | Opt-in cross-tool pointer; add when the repo also serves Codex / Cursor / Devin / Copilot |
 | **Required** | `README.md` | High | Human + LLM landing; GitHub renders it; first thing every search hits |
 | **Required** | `CHANGELOG.md` | High | Append-only history; without it, "what changed" is git-archaeology |
-| **Required** | `.agents/brain/adrs/` | Medium | Decision memory; promise 5 home |
-| **Conditional** | `.agents/brain/postmortems/` | Medium _if production-facing_ | Incident memory; only meaningful if the repo deploys |
+| **Required** | `docs/ops/adrs/` | Medium | Decision memory; promise 5 home |
+| **Conditional** | `docs/ops/postmortems/` | Medium _if production-facing_ | Incident memory; only meaningful if the repo deploys |
 | **Recommended** | `ARCHITECTURE.md` | Low | Big-picture reference (matklad pattern, repo root); substitutable with well-organized ADRs |
 | **Recommended** | `PLAN.md` | Low | Forward-looking roadmap; substitutable with issues |
-| **Recommended** | `.agents/brain/runbooks/` | Low _if production-facing_ | Operational memory; on-call counterpart to postmortems |
+| **Recommended** | `docs/ops/runbooks/` | Low _if production-facing_ | Operational memory; on-call counterpart to postmortems |
 | **Recommended** | `CONTRIBUTING.md` | Low | Contributor guide; collapsible into AGENTS.md |
 | **Recommended** | `SECURITY.md` | Low | Vuln-disclosure pointer; GitHub surfaces it natively |
 
@@ -92,7 +92,7 @@ fi
 [ -f CHANGELOG.md ] || emit high CHANGELOG.md \
   "No CHANGELOG.md. 'What changed lately' becomes git-archaeology for every agent."
 
-[ -d .agents/brain/adrs ] || [ -d docs/adrs ] || [ -d docs/adr ] || [ -d docs/decisions ] || emit medium .agents/brain/adrs/ \
+[ -d docs/ops/adrs ] || [ -d docs/adrs ] || [ -d docs/adr ] || [ -d docs/decisions ] || emit medium docs/ops/adrs/ \
   "No ADR directory. Decision memory will evaporate after PRs merge. (Promise 5)"
 
 # 2. Conditional tier — production-facing check
@@ -112,9 +112,9 @@ done
 [ "$production" = false ] && compgen -G "*.tf" >/dev/null 2>&1 && production=true
 
 if [ "$production" = true ]; then
-  [ -d .agents/brain/postmortems ] || [ -d docs/postmortems ] || [ -d docs/incidents ] || emit medium .agents/brain/postmortems/ \
+  [ -d docs/ops/postmortems ] || [ -d docs/postmortems ] || [ -d docs/incidents ] || emit medium docs/ops/postmortems/ \
     "Production-facing repo (deploy artifacts detected) but no postmortems directory. Incident memory will be lost. (Promise 5)"
-  [ -d .agents/brain/runbooks ] || [ -d docs/runbooks ] || [ -d docs/operations ] || emit low .agents/brain/runbooks/ \
+  [ -d docs/ops/runbooks ] || [ -d docs/runbooks ] || [ -d docs/operations ] || emit low docs/ops/runbooks/ \
     "Production-facing repo but no runbooks directory. On-call response memory missing."
 fi
 
@@ -134,10 +134,10 @@ The output is one tab-separated finding per line, ready to fold into the audit r
 ## Output shape (the gap-report row)
 
 ```markdown
-- **MISSING — `.agents/brain/postmortems/`** (severity: medium)
+- **MISSING — `docs/ops/postmortems/`** (severity: medium)
   - Production-facing: `Dockerfile`, `.github/workflows/deploy.yml`, `terraform/` present.
   - **Promise impact:** Promise 5 — the repo will relearn the same outage.
-  - **Recommendation:** create `.agents/brain/postmortems/` from `../doc-types/postmortem-pattern.md`; backfill one recent incident.
+  - **Recommendation:** create `docs/ops/postmortems/` from `../doc-types/postmortem-pattern.md`; backfill one recent incident.
 
 - **MISSING — `CHANGELOG.md`** (severity: high)
   - **Promise impact:** Promise 1 — every agent re-derives "what changed lately" from `git log`.
@@ -150,9 +150,9 @@ The audit is opinionated, not pedantic. Three substitutions are accepted:
 
 | Expected | Acceptable substitute | Why |
 | --- | --- | --- |
-| `.agents/brain/adrs/` | `docs/decisions/` or `docs/adr/` (legacy) | Naming variant; same content shape |
-| `.agents/brain/postmortems/` | `docs/incidents/` (legacy) | Naming variant |
-| `ARCHITECTURE.md` | Populated `.agents/brain/adrs/` of 5+ entries | ADRs collectively _are_ the architecture story |
+| `docs/ops/adrs/` | `docs/decisions/` or `docs/adr/` (legacy) | Naming variant; same content shape |
+| `docs/ops/postmortems/` | `docs/incidents/` (legacy) | Naming variant |
+| `ARCHITECTURE.md` | Populated `docs/ops/adrs/` of 5+ entries | ADRs collectively _are_ the architecture story |
 
 ## What this pattern is NOT for
 
@@ -165,13 +165,13 @@ The audit is opinionated, not pedantic. Three substitutions are accepted:
 
 | Finding | Severity | Promise impacted |
 | --- | --- | --- |
-| AGENTS.md missing | Critical | 1 |
-| CLAUDE.md missing (no symlink) | Critical | 1 |
+| CLAUDE.md missing | Critical | 1 |
+| AGENTS.md missing (cross-tool repo, no pointer) | Medium | 1 |
 | README.md missing | High | 1 |
 | CHANGELOG.md missing | High | 1, 5 |
-| `.agents/brain/adrs/` missing | Medium | 5 |
-| `.agents/brain/postmortems/` missing (production-facing) | Medium | 5 |
-| `.agents/brain/runbooks/` missing (production-facing) | Low | 5 |
+| `docs/ops/adrs/` missing | Medium | 5 |
+| `docs/ops/postmortems/` missing (production-facing) | Medium | 5 |
+| `docs/ops/runbooks/` missing (production-facing) | Low | 5 |
 | `ARCHITECTURE.md` missing | Low | 1 |
 | `CONTRIBUTING.md`, `SECURITY.md`, `PLAN.md` | Low | advisory |
 

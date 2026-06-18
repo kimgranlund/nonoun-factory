@@ -29,12 +29,12 @@ Five classes of redundancy:
 
 ## Drift between entry files (the critical case)
 
-This is the audit's single most-important check. Claude Code reads CLAUDE.md, every other agent reads AGENTS.md natively (per `cross-tool-matrix.md`). When the two files contain different instructions, the team has two failure modes simultaneously:
+This is the audit's single most-important check. Claude Code reads CLAUDE.md natively; every other agent reads AGENTS.md (per `cross-tool-matrix.md`). When the two files contain different instructions, the team has two failure modes simultaneously:
 
 1. **Claude Code follows out-of-date rules** (because CLAUDE.md is stale).
 2. **Cursor/Codex/Devin follow out-of-date rules** (because AGENTS.md is stale).
 
-The fix is the canonical model from this skill: AGENTS.md fat, CLAUDE.md as symlink or thin pointer.
+The fix is the canonical model from this skill: **CLAUDE.md fat (canonical, Claude-native), AGENTS.md as symlink or thin pointer** — and the cross-tool `AGENTS.md` only when the repo actually serves other agents.
 
 ### Detection logic
 
@@ -45,19 +45,19 @@ if [ ! -f AGENTS.md ] || [ ! -f CLAUDE.md ]; then
     exit 0
 fi
 
-if [ -L CLAUDE.md ] && [ "$(readlink CLAUDE.md)" = "AGENTS.md" ]; then
+if [ -L AGENTS.md ] && [ "$(readlink AGENTS.md)" = "CLAUDE.md" ]; then
     # Symlink → identical content
     exit 0
 fi
 
-claude_lines=$(wc -l < CLAUDE.md)
-if [ "$claude_lines" -le 15 ] && grep -qi 'AGENTS.md' CLAUDE.md; then
+agents_lines=$(wc -l < AGENTS.md)
+if [ "$agents_lines" -le 15 ] && grep -qi 'CLAUDE.md' AGENTS.md; then
     # Thin pointer → no fat content to drift
     exit 0
 fi
 
 # Both fat → drift risk; emit finding
-echo "DRIFT — CLAUDE.md ($claude_lines lines) vs AGENTS.md ($(wc -l <AGENTS.md) lines)"
+echo "DRIFT — CLAUDE.md ($(wc -l <CLAUDE.md) lines) vs AGENTS.md ($agents_lines lines)"
 echo "  Diff highlights:"
 diff <(grep -v '^$' CLAUDE.md) <(grep -v '^$' AGENTS.md) | head -20
 ```
@@ -67,27 +67,27 @@ The full hook is in `../recipes/self-healing-hooks.md`.
 ### Recipe to fix
 
 ```bash
-# Pick AGENTS.md as canonical (recommended).
-# Move CLAUDE.md content into AGENTS.md, deduplicating.
-# Then:
+# Keep CLAUDE.md canonical (Claude-native).
+# Move AGENTS.md content into CLAUDE.md, deduplicating.
+# Then (only if the repo serves cross-tool agents — otherwise just drop AGENTS.md):
 
 # Option A: symlink (cleanest)
-rm CLAUDE.md
-ln -s AGENTS.md CLAUDE.md
-git add CLAUDE.md
-git commit -m 'docs: CLAUDE.md → symlink to AGENTS.md (eliminate drift)'
+rm AGENTS.md
+ln -s CLAUDE.md AGENTS.md
+git add AGENTS.md
+git commit -m 'docs: AGENTS.md → symlink to CLAUDE.md (eliminate drift)'
 
 # Option B: thin pointer (works on Windows, no symlink quirks)
-cat > CLAUDE.md <<'EOF'
-# CLAUDE.md
+cat > AGENTS.md <<'EOF'
+# AGENTS.md
 
-This repo's instructions for LLM coding agents live in [`AGENTS.md`](./AGENTS.md).
-Please read that file. The contents apply identically to Claude Code.
+This repo's canonical instructions for LLM coding agents live in [`CLAUDE.md`](./CLAUDE.md).
+Please read that file. The contents apply identically across tools.
 
-_Last reviewed: 2026-04-27_
+_Last reviewed: 2026-06-18_
 EOF
-git add CLAUDE.md
-git commit -m 'docs: CLAUDE.md → thin pointer to AGENTS.md'
+git add AGENTS.md
+git commit -m 'docs: AGENTS.md → thin pointer to CLAUDE.md'
 ```
 
 ## Repeated commands
@@ -98,7 +98,7 @@ A common pattern: build/test/run commands appear in AGENTS.md, README.md, and CO
 
 ````bash
 # Heuristic: extract code-fenced shell blocks from each file, hash them, find duplicates.
-for f in AGENTS.md README.md CONTRIBUTING.md .agents/brain/**/*.md docs/**/*.md; do
+for f in AGENTS.md README.md CONTRIBUTING.md docs/ops/**/*.md docs/**/*.md; do
     [ -f "$f" ] || continue
     awk '/^```(bash|sh|shell)/,/^```$/' "$f" | sha256sum | awk -v f="$f" '{print f, $1}'
 done | sort -k2 | awk '{
@@ -111,14 +111,14 @@ Tighter heuristic: parse out individual commands (lines starting with `$` or mat
 
 ### Fix recipe
 
-Pick a canonical home (AGENTS.md is typical). Other files reference it:
+Pick a canonical home (CLAUDE.md, Claude-native). Other files reference it:
 
 ```markdown
 # README.md (excerpt)
 
 ## Build / test / run
 
-See [`AGENTS.md`](./AGENTS.md) for build, test, and run commands.
+See [`CLAUDE.md`](./CLAUDE.md) for build, test, and run commands.
 ```
 
 ```markdown

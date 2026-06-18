@@ -83,7 +83,7 @@ For canonical build / test / run commands and contributor conventions, see [AGEN
 - **Contributing:** [`CONTRIBUTING.md`](./CONTRIBUTING.md)
 - **Security policy:** [`SECURITY.md`](./SECURITY.md)
 - **Architecture:** [`ARCHITECTURE.md`](ARCHITECTURE.md)
-- **Decisions (ADRs):** [`.agents/brain/adrs/`](.agents/brain/adrs/)
+- **Decisions (ADRs):** [`docs/ops/adrs/`](docs/ops/adrs/)
 
 ## License
 
@@ -160,7 +160,7 @@ Three locations are equally valid (per GitHub docs):
 
 GitHub auto-renders all three. **Pick one — having two is confusing.**
 
-What does NOT go in: implementation details of past vulnerabilities (those go in `.agents/brain/postmortems/` with sensitive details redacted), threat-model docs (`docs/threat-model.md`), compliance attestations (`docs/compliance/`).
+What does NOT go in: implementation details of past vulnerabilities (those go in `docs/ops/postmortems/` with sensitive details redacted), threat-model docs (`docs/threat-model.md`), compliance attestations (`docs/compliance/`).
 
 ## CODE_OF_CONDUCT.md — behavior expectations
 
@@ -215,8 +215,8 @@ Every cell with **canonical** is the _only_ place that information lives. Other 
 
 ## Common anti-patterns
 
-- **README.md duplicates the entire AGENTS.md.** Drift waiting to happen. Compress to a routing layer.
-- **CONTRIBUTING.md re-lists build commands.** Same drift problem. Link to AGENTS.md.
+- **README.md duplicates the entire CLAUDE.md.** Drift waiting to happen. Compress to a routing layer.
+- **CONTRIBUTING.md re-lists build commands.** Same drift problem. Link to CLAUDE.md.
 - **SECURITY.md says "report vulnerabilities" without saying _how_.** Useless. Include contact + SLA.
 - **CODE_OF_CONDUCT.md modified beyond the Contributor Covenant baseline.** Usually unproductive scope creep.
 - **Status badges everywhere, no real content.** Fails the "what does this do?" test in 5 seconds.
@@ -224,8 +224,8 @@ Every cell with **canonical** is the _only_ place that information lives. Other 
 
 ## Cross-references
 
-- AGENTS.md spec: `agents-md-spec.md`
-- CLAUDE.md as thin pointer: `claude-md-convention.md`
+- CLAUDE.md convention (canonical entry): `claude-md-convention.md`
+- AGENTS.md cross-tool standard (opt-in): `agents-md-spec.md`
 - Cross-tool compatibility matrix: `cross-tool-matrix.md`
 - Redundancy detection: `../audit-patterns/redundancy-detection.md`
 - Greenfield setup: `../recipes/greenfield-setup.md`
