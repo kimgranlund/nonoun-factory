@@ -47,6 +47,7 @@ jobs:
                    dev-kit-corpus/bin/pattern-check dev-kit-corpus/bin/_entailment_check dev-kit-app/bin/test-suite-check; do
             echo "» $v"; python3 "dev-factory/$v.py" selftest
           done
+          echo "» dev-kit-app/bin/app-shell-check"; node dev-factory/dev-kit-app/bin/app-shell-check.mjs --selftest
 
       - name: kit conformance (the kernel/kit boundary)
         run: |
@@ -59,7 +60,8 @@ jobs:
           # spec-review calibration: gate/ defects rejected on the right dimension; council/ judgment defects
           # pass the gate (so the spec-council is the only line of defense — the falsifiable proof it earns its seat)
           python3 dev-factory/dev-kit-corpus/evals/spec-review-calibration/check.py
-          for e in crawl-milestone walk-milestone demotion self-heal run-milestone fly-milestone integration-milestone; do
+          for e in crawl-milestone walk-milestone demotion self-heal run-milestone fly-milestone integration-milestone \
+                   tier1-acceptance-gate tier1-strict-gate app-shell-gate; do
             echo "» $e"; python3 "dev-factory/dev-server/evals/$e/replay.py"
           done
           # the /debug/ ralph-loop harness, proven CI-safe end to end with the MockAdapter (no model/server/tokens):

@@ -43,11 +43,73 @@ def _run_budget():
 
 try:
     from fastapi import FastAPI, HTTPException, Request
-    from fastapi.responses import StreamingResponse, JSONResponse
+    from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, HTMLResponse
     from fastapi.staticfiles import StaticFiles
     _HAVE_FASTAPI = True
 except ImportError:
     _HAVE_FASTAPI = False
+
+
+def _product_root():
+    """The clean PRODUCT tree (src/<project>/) — the parent of the .factory/ instance dir. The factory builds
+    runnable code here; .factory/ holds only state. dispatch.py computes the same grandparent as the worker cwd."""
+    return os.path.dirname(os.path.realpath(DIR.rstrip("/")))
+
+
+def _project_info():
+    """Which project this server is building + the sibling projects under src/ (forward-looking for the multi-run
+    switcher; one server per instance today, so the list is usually a single entry). `entry`/`has_entry` tell the
+    Preview tab whether a bootable browser shell (index.html) exists yet."""
+    root = _product_root()
+    name = os.path.basename(root) or "project"
+    src_root = os.path.dirname(root)            # the src/ dir holding sibling project folders
+    projects = []
+    try:
+        for d in sorted(os.listdir(src_root)):
+            if os.path.isdir(os.path.join(src_root, d, ".factory")):
+                projects.append(d)
+    except OSError:
+        pass
+    if name not in projects:
+        projects.insert(0, name)
+    entry = next((e for e in ("index.html", "index.htm") if os.path.isfile(os.path.join(root, e))), None)
+    return {"project": name, "current": name, "projects": projects,
+            "product_root": root, "entry": entry, "has_entry": bool(entry)}
+
+
+# media types so the served ESM app actually loads in the Preview iframe (.mjs must be a JS type, not octet-stream)
+_PREVIEW_MEDIA = {".mjs": "text/javascript", ".js": "text/javascript", ".css": "text/css", ".html": "text/html",
+                  ".json": "application/json", ".map": "application/json", ".wasm": "application/wasm",
+                  ".svg": "image/svg+xml", ".ico": "image/x-icon", ".png": "image/png", ".jpg": "image/jpeg",
+                  ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".woff2": "font/woff2",
+                  ".woff": "font/woff", ".ttf": "font/ttf"}
+
+
+def _preview_placeholder(root, factory_abs):
+    """When no bootable index.html exists yet, Preview shows the built product files (never .factory/) + how to add
+    a browser shell — so the tab is informative, not a blank 404."""
+    items = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames
+                       if not d.startswith(".") and os.path.realpath(os.path.join(dirpath, d)) != factory_abs]
+        for f in sorted(filenames):
+            if not f.startswith("."):
+                items.append(os.path.relpath(os.path.join(dirpath, f), root))
+    items.sort()
+    lis = "\n".join(f'<li><a href="/preview/{p}" target="_blank" rel="noopener">{p}</a></li>'
+                    for p in items) or "<li>(no product files built yet)</li>"
+    name = os.path.basename(root)
+    return f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{name} — build preview</title>
+<style>body{{font:15px/1.6 system-ui,sans-serif;max-width:46rem;margin:7vh auto;padding:0 1.5rem;color:#dfe3ea;background:#16181d}}
+h1{{font-size:1.25rem}} code{{background:rgba(127,127,127,.22);padding:.1em .35em;border-radius:4px}}
+a{{color:#7db4ff}} ul{{columns:2;gap:1.4rem}} li{{margin:.12em 0;break-inside:avoid}}
+.note{{color:#aab;border-left:3px solid #4a5568;padding:.5em .9em;margin:1.1em 0;background:rgba(127,127,127,.07);border-radius:0 6px 6px 0}}</style></head>
+<body><h1>▶ {name} — build preview</h1>
+<div class="note">No bootable entry (<code>index.html</code>) in this build yet. The factory produced the modules below,
+but the lattice didn't spec a browser <em>shell</em> that imports + mounts them. Add a <code>shell</code>/html
+capability to the kit (or drop an <code>index.html</code> at the product root) and this tab loads the running app directly.</div>
+<p><strong>Built product files</strong> — the clean tree, served live (<code>.factory/</code> state is never exposed):</p>
+<ul>{lis}</ul></body></html>"""
 
 
 # ─────────────────────────── the live stream (single-writer pushes diffs to UIs) ───────────────────────────
@@ -211,6 +273,32 @@ def build_app():
                 "milestones": api.milestones(DIR), "adapter": _dispatch.adapter_name(),
                 "run_budget": _run_budget()}
 
+    @app.get("/api/project")
+    def project_info():
+        # which project this factory is building + sibling projects under src/ (the header selector reads this;
+        # pre-shaped for switching between concurrent runs once the fleet/multi-instance model lands).
+        return _project_info()
+
+    @app.get("/preview")
+    @app.get("/preview/")
+    @app.get("/preview/{path:path}")
+    def preview(path: str = ""):
+        # Serve the CLEAN product tree (src/<project>/) so the Preview tab loads the built app directly. NEVER
+        # serves the .factory/ state (guarded). Falls back to a file-listing placeholder when no index.html exists.
+        root = _product_root()
+        factory_abs = os.path.realpath(DIR)
+        rel = path or "index.html"
+        absp = os.path.realpath(os.path.join(root, rel))
+        if absp != root and not absp.startswith(root + os.sep):
+            raise HTTPException(400, "path escapes the product root")
+        if absp == factory_abs or absp.startswith(factory_abs + os.sep):
+            raise HTTPException(403, "the .factory/ state is not browsable")
+        if os.path.isfile(absp):
+            return FileResponse(absp, media_type=_PREVIEW_MEDIA.get(os.path.splitext(absp)[1].lower()))
+        if not path or rel == "index.html":
+            return HTMLResponse(_preview_placeholder(root, factory_abs))
+        raise HTTPException(404, f"no such product file: {rel}")
+
     @app.get("/api/cells/{cell_id}/asset")
     def cell_asset(cell_id: str):
         # The inspector's ASSET tab: read a cell's authored artifact (the PRD / SPEC / source the worker wrote),
@@ -305,6 +393,7 @@ def _wire_heartbeat(app):
         tier = int(os.environ.get("DEV_FACTORY_TIER", "1"))
         conc = int(os.environ.get("DEV_FACTORY_CONCURRENCY", "2"))
         period = int(os.environ.get("DEV_FACTORY_PERIOD", "30"))
+        strict = os.environ.get("DEV_FACTORY_TIER1_STRICT") == "1"   # opt-in: Tier-1 waits for human acceptance cell-by-cell
 
         import functools
 
@@ -316,7 +405,7 @@ def _wire_heartbeat(app):
                 # go dark for the whole dispatch. Offload the tick to a worker thread so the server stays live and
                 # watchable while real workers run. (run_in_executor, not asyncio.to_thread — 3.8 target.)
                 summ = await evloop.run_in_executor(
-                    None, functools.partial(heartbeat.on_tick, DIR, tier=tier, max_concurrency=conc))
+                    None, functools.partial(heartbeat.on_tick, DIR, tier=tier, max_concurrency=conc, strict_accept=strict))
                 STREAM.publish("tick", {"summary": summ, "lattice": api.lattice_grid(DIR)})
                 await asyncio.sleep(period)
         asyncio.create_task(loop())
@@ -369,7 +458,7 @@ def main(argv):
             return 0
         routes = sorted({r.path for r in app.routes if r.path.startswith("/api")})
         expected = {"/api/tickets", "/api/tickets/{tid}", "/api/tickets/{tid}/transition",
-                    "/api/lattice", "/api/ledger", "/api/roadmap", "/api/stream",
+                    "/api/lattice", "/api/ledger", "/api/roadmap", "/api/stream", "/api/project",
                     "/api/input", "/api/guidance", "/api/tokens", "/api/cells/{cell_id}/asset"}
         missing = expected - set(routes)
         if missing:

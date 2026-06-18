@@ -20,6 +20,13 @@
     },
     {
       "kind": "validation",
+      "name": "app-shell",
+      "target": { "layer": "capability", "slug": "shell" },
+      "verifier": ["node", "${CLAUDE_PLUGIN_ROOT}/bin/app-shell-check.mjs", "{asset}"],
+      "note": "The integration gate: a capability.*.shell cell is the runnable app ENTRY (index.html), graded by app-shell-check — canvas + a module entry + every product import RESOLVES. Catches the 'built modules but no assembled app' gap a headless verify.mjs cannot (a re-export barrel passes module checks but is not a running app). Static/headless; runtime render coherence is the next adapter (a browser/headless-gl harness)."
+    },
+    {
+      "kind": "validation",
       "name": "spec-contract",
       "target": { "layer": "spec" },
       "verifier": ["python3", "-c", "import sys; t=open(sys.argv[1], encoding='utf-8').read(); sys.exit(0 if ('acceptance_criteria' in t and 'non_goals' in t) else 1)", "{asset}"]

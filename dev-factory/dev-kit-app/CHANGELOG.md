@@ -2,6 +2,15 @@
 
 All notable changes to **dev-kit-app** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.3.2] — 2026-06-18
+
+### Added
+
+- **The app-shell coherence gate (`bin/app-shell-check.mjs`) — the kit can now tell a runnable APP from a re-export barrel.** The kit grades capabilities as pure ES modules imported headlessly by their sibling `verify.mjs`, which proves the *logic* but not that the modules *assemble* into a running app. A real shader-playground build exposed the gap: every capability validated, the `app` cell degenerated to `export * as core/ui/persistence`, and the product shipped **no browser entry** (and the pieces didn't even cohere — a `#version 300 es` compiler vs a GLSL 1.00 default shader). A new slug-targeted `app-shell` validation adapter binds **`capability.*.shell`** to `app-shell-check`, which statically verifies the entry (`index.html`) is a coherent runnable assembly over the built modules: a `<canvas>`, a `<script type="module">`, it imports the product, and **every import in the reachable module graph resolves** to a file the build produced. Backward-compatible — the generic `capability-harness` still grades every other capability (the dev-server's `_kit_verifier` gained slug-specificity: a slug-targeted adapter wins over the layer-default). Proven by `dev-server/evals/app-shell-gate/` (A1–A4) + `app-shell-check --selftest`; CI-wired.
+- **Honest limit:** this is a *static* gate — it does not prove the app **renders**. Runtime/semantic coherence (a fragment shader for the wrong GLSL version, a uniform-name mismatch) needs the page executed — a **browser/headless-gl harness adapter** (puppeteer / headless-gl + screenshot-diff), the next adapter on the roadmap. This gate is its floor, not its ceiling.
+
+plugin.json 0.3.1 → 0.3.2.
+
 ## [0.3.1] — 2026-06-17
 
 ### Added

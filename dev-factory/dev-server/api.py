@@ -344,10 +344,15 @@ def list_activities(d, status=None):
 
 
 def agents_running(d):
-    """The live worker slice for the Agents view: each claimed/in-progress/in-review ticket as a worker, ENRICHED
-    with its latest dispatch's orchestration (shape · delegation · depth · parallelism · model tier) read from the
-    ledger, plus the claim (worktree, claimed_at) for the live elapsed timer + the probe-cost ETA. Derived from the
-    ledger + the file-of-record — no second source of truth. This is what makes the planned team visible live."""
+    """The live worker slice for the Agents view: each ACTUALLY-EXECUTING worker (a claimed/in-progress ticket),
+    ENRICHED with its latest dispatch's orchestration (shape · delegation · depth · parallelism · model tier) read
+    from the ledger, plus the claim (worktree, claimed_at) for the live elapsed timer + the probe-cost ETA. Derived
+    from the ledger + the file-of-record — no second source of truth. This is what makes the planned team visible live.
+
+    NB: `in-review` is deliberately NOT a running worker — it is the cell critic-validated and the ticket PARKED at
+    the human-acceptance gate (Tier 1). It belongs to the review queue (`status.tickets['in-review']` /
+    `factory_state.awaiting_review`), not the live-workers slice. Counting it here made a finished, fully-validated
+    build read as N frozen agents with future lease times — the 'busy-but-stuck' illusion."""
     starts = {}
     for e in _led.read(d, event="activity-start"):
         tk = (e.get("subject") or {}).get("ticket")
@@ -355,7 +360,7 @@ def agents_running(d):
             starts[tk] = e.get("metrics") or {}      # latest dispatch wins
     out = []
     for t in list_tickets(d):
-        if t.get("state") not in ("claimed", "in-progress", "in-review"):
+        if t.get("state") not in ("claimed", "in-progress"):
             continue
         full = get_ticket(d, t["id"]) or {}
         cl = full.get("claim") or {}
@@ -461,20 +466,24 @@ def factory_state(d, heartbeat_enabled=False, paused=False, family=None):
     running = agents_running(d)
     ready = ready_tickets(d)
     active = list_tickets(d, state="active")
+    awaiting = list_tickets(d, state="in-review")   # autonomous work done; cells critic-validated, tickets PARKED at the human-acceptance gate
     if paused:
         state = "paused"
     elif running:
-        state = "running"        # workers actively on cells
+        state = "running"            # workers actively on cells (claimed/in-progress)
     elif not heartbeat_enabled:
-        state = "idle"           # Crawl — dispatch is human-driven; nothing auto-runs
+        state = "awaiting-review" if awaiting else "idle"   # Crawl/human-driven; surface a pending acceptance queue rather than "idle"
     elif ready:
-        state = "armed"          # heartbeat on, dispatchable work waiting — one tick from running
+        state = "armed"              # heartbeat on, dispatchable work waiting — one tick from running
     elif active:
-        state = "blocked"        # heartbeat on, active tickets exist but NONE dep-ready — waiting on deps
+        state = "blocked"            # heartbeat on, active tickets exist but NONE dep-ready — waiting on deps
+    elif awaiting:
+        state = "awaiting-review"    # heartbeat on, no workers/ready/active — the autonomous build is DONE; tickets await the human gate
     else:
-        state = "drained"        # heartbeat on, no active tickets at all — the queue is empty / build done
+        state = "drained"            # heartbeat on, nothing active and nothing awaiting — the queue is empty / build fully accepted
     return {"state": state, "running_agents": len(running), "ready_to_dispatch": len(ready),
-            "active_tickets": len(active), "ready_cells": [t.get("target_cell") for t in ready][:8],
+            "active_tickets": len(active), "awaiting_review": len(awaiting),
+            "ready_cells": [t.get("target_cell") for t in ready][:8],
             "heartbeat_enabled": bool(heartbeat_enabled), "paused": bool(paused)}
 
 
