@@ -3,6 +3,11 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-18 — per-card Triage: bind an untriaged intake from the board
+
+- **A `Triage →` button on untriaged intake cards (prompt/issue).** The dashboard let you create a Prompt but gave no way to advance it — a prompt is *untriaged intake* (it parks for the cold-start planner), can't be dragged to Active, and had no triage affordance, so a hand-made prompt was a dead end. Now a draft prompt/issue card shows **Triage →**, which opens the binding form (target cell + from/to + a validated rubric, with the same inline readiness check as create), calls `POST /api/issues/{id}/triage`, and the card becomes a structured ticket draggable to Active.
+- **`triage_issue` broadened to accept any untriaged intake** (`issue` / `prompt` / `instruction`), not just `issue` — so an operator can hand-bind a prompt (the cold-start planner stays the automated path). api/app/server-smoke selftests + the headless UI load green; cache-bust v14→v15.
+
 ## 2026-06-18 — UX: inline readiness check on the create-ticket modal (no stuck draft + late 409)
 
 - **The structured create form pre-validates against `gate_ticket_ready` and shows the reason inline.** A structured ticket dropped on a non-draft column requests `→ active`, which the readiness gate rejects when a binding is incomplete — most often a `rubric_cell` that isn't `validated` yet (the form makes every binding optional). That used to surface as a *stuck draft + a late 409 toast*. The modal now mirrors the gate (`#whyNotReady`): the target cell exists in the lattice, both maturities are set, and the acceptance rubric cell is `validated` — failing with a specific inline message and creating nothing. (Also: UI cache-bust v12→v13; fixed a stale `.agents/dev-factory` path in the file:// nudge.)

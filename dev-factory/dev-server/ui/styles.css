@@ -537,3 +537,9 @@ df-preview { display: block; }
 .ct-error { margin: 0.1rem 0 0.2rem; padding: 0 0.1rem; font-size: 12px; line-height: 1.45;
   color: light-dark(oklch(0.5 var(--chroma-vivid) var(--hue-danger)), oklch(0.74 var(--chroma-vivid) var(--hue-danger))); }
 .ct-error:empty { display: none; }
+
+/* per-card Triage action on untriaged intake (prompt/issue) — bind it so it can move to Active */
+.card-actions { margin-top: 0.4rem; }
+.triage-btn { font: 11px/1 var(--mono, ui-monospace, monospace); padding: 0.32rem 0.55rem; border-radius: var(--radius-sm);
+  cursor: pointer; border: 1px solid var(--border); background: var(--accent-soft); color: var(--accent); }
+.triage-btn:hover { border-color: var(--accent); }

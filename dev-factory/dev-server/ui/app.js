@@ -779,6 +779,11 @@ class DfKanban extends UIElement {
       (b.onclick = () => (store.modal.value = { kind: "create-ticket", state: b.dataset.add })));
     body.querySelectorAll(".card").forEach((c) =>
       (c.onclick = (e) => { if (!c.dataset.grabbing) selectInspector("ticket", c.dataset.id); }));
+    // per-card Triage: open the binding form for an untriaged intake (prompt/issue) so it can move to Active
+    body.querySelectorAll("[data-triage]").forEach((b) =>
+      (b.onclick = (e) => { e.stopPropagation();
+        const t = store.tickets.value.find((x) => x.id === b.dataset.triage);
+        store.modal.value = { kind: "create-ticket", mode: "structured", triageId: b.dataset.triage, title: (t && t.title) || "" }; }));
   }
 
   #column(state, items) {
@@ -810,6 +815,9 @@ class DfKanban extends UIElement {
         ${t.from_maturity && t.to_maturity ? html`<div class="cell" style="margin-top:.25rem">${t.from_maturity} → ${t.to_maturity}</div>` : ""}
         ${frac > 0 ? html`<div class="budget ${frac > 0.85 ? "hot" : frac > 0.6 ? "warn" : ""}"><span style="width:${Math.round(frac * 100)}%"></span></div>` : ""}
         <div class="id">${shortId(t.id)}${t.claim_worker ? " · " + t.claim_worker : ""}</div>
+        ${(t.state === "draft" && !t.target_cell && (t.type === "prompt" || t.type === "issue"))
+          ? html`<div class="card-actions"><button class="triage-btn" type="button" draggable="false" data-triage="${t.id}"
+              title="Bind this intake to a target cell + a validated rubric so it can move to Active">Triage →</button></div>` : ""}
         <div class="move-hint">Use ← → to move · Enter to drop · Esc to cancel</div>
       </article>`;
   }
@@ -1367,7 +1375,8 @@ class DfModal extends UIElement {
   static template = () => {
     const m = store.modal.value;
     if (!m) return "";
-    const mode = m.mode || "structured";
+    const triage = !!m.triageId;                                   // triage mode: bind an existing intake, no new ticket
+    const mode = triage ? "structured" : (m.mode || "structured");
     const tab = (id, label) => `<button type="button" data-mode="${id}" aria-pressed="${mode === id}">${label}</button>`;
     const structured = html`
       <div class="field"><div class="row">
@@ -1392,20 +1401,22 @@ class DfModal extends UIElement {
       <div class="field"><label for="ct-body">Instruction</label><textarea id="ct-body" name="body" rows="6" required
         placeholder="e.g. Use a standard 52-card deck; cap the leaderboard at the top 10."></textarea></div>`;
     const titleLabel = mode === "structured" ? "Title" : mode === "prompt" ? "Prompt title" : "Instruction title";
-    const heading = mode === "structured" ? "ticket" : mode;
+    const heading = triage ? "Triage intake" : `New ${mode === "structured" ? "ticket" : mode}`;
     return html`
-      <div class="modal" role="dialog" aria-modal="true" aria-label="Create intake">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="${triage ? "Triage intake" : "Create intake"}">
         <div class="sheet">
-          <header><h3>New ${heading}${m.state && m.state !== "draft" && mode === "structured" ? html` <span style="color:var(--faint);font-weight:400">(will request → ${m.state})</span>` : ""}</h3></header>
-          <div class="seg modal-tabs" role="group" aria-label="Intake mode">${raw(tab("structured", "Structured") + tab("prompt", "Prompt") + tab("instruction", "Instruction"))}</div>
+          <header><h3>${heading}${triage
+            ? html` <span style="color:var(--faint);font-weight:400">→ bind it so it can move to Active</span>`
+            : (m.state && m.state !== "draft" && mode === "structured" ? html` <span style="color:var(--faint);font-weight:400">(will request → ${m.state})</span>` : "")}</h3></header>
+          ${triage ? "" : html`<div class="seg modal-tabs" role="group" aria-label="Intake mode">${raw(tab("structured", "Structured") + tab("prompt", "Prompt") + tab("instruction", "Instruction"))}</div>`}
           <form id="ct-form">
-            <div class="field"><label for="ct-title">${titleLabel}</label><input id="ct-title" name="title" required autocomplete="off" /></div>
+            <div class="field"><label for="ct-title">${titleLabel}</label><input id="ct-title" name="title" required autocomplete="off"${triage ? " readonly" : ""} /></div>
             ${mode === "prompt" ? prompt : mode === "instruction" ? instruction : structured}
           </form>
           <div class="ct-error" role="alert" aria-live="polite"></div>
           <div class="actions">
             <button class="btn ghost" data-cancel>Cancel</button>
-            <button class="btn primary" data-submit>${mode === "structured" ? "Create ticket" : mode === "prompt" ? "Create prompt" : "Create instruction"}</button>
+            <button class="btn primary" data-submit>${triage ? "Triage & bind" : (mode === "structured" ? "Create ticket" : mode === "prompt" ? "Create prompt" : "Create instruction")}</button>
           </div>
         </div>
       </div>`;
@@ -1416,7 +1427,10 @@ class DfModal extends UIElement {
     // tab switch: change the mode on the modal signal (re-renders the form for that intake mode)
     this.querySelectorAll(".modal-tabs [data-mode]").forEach((b) =>
       b.addEventListener("click", () => { store.modal.value = { ...store.modal.value, mode: b.dataset.mode }; }));
-    this.querySelector("#ct-title")?.focus();
+    const m = store.modal.value || {};
+    const titleEl = this.querySelector("#ct-title");
+    if (m.triageId && titleEl) titleEl.value = m.title || "";          // pre-fill (read-only) the intake's own title
+    (m.triageId ? this.querySelector("#ct-cell") : titleEl)?.focus();  // triage: jump straight to the binding field
     const form = this.querySelector("#ct-form");
     form?.addEventListener("submit", (e) => { e.preventDefault(); this.#submit(); });
   }
@@ -1442,8 +1456,24 @@ class DfModal extends UIElement {
     const errEl = this.querySelector(".ct-error");
     if (errEl) errEl.textContent = "";
     const g = (n) => f.elements[n]?.value?.trim() || "";
-    const mode = store.modal.value?.mode || "structured";
-    const target = store.modal.value?.state;
+    const m = store.modal.value || {};
+    // TRIAGE: bind an existing untriaged intake (prompt/issue) into a structured ticket — no new ticket created.
+    if (m.triageId) {
+      const why = this.#whyNotReady(g, store.lattice.value || []);
+      if (why) { if (errEl) errEl.textContent = why; return; }
+      const res = await jsend("POST", `/api/issues/${m.triageId}/triage`, {
+        type: g("type") || "task", target_cell: g("target_cell"),
+        target_transition: { from: g("from"), to: g("to") }, acceptance: { rubric_cell: g("rubric") },
+      });
+      if (!res.ok) { if (errEl) errEl.textContent = (res.data && (res.data.detail || res.data.reason)) || `Triage failed (HTTP ${res.status})`; return; }
+      if (res.data) upsertTicket(res.data);
+      this.#close();
+      toast("Triaged", `${shortId(m.triageId)} → ${g("target_cell")} · now draggable to Active`, "ok");
+      refreshLedger();
+      return;
+    }
+    const mode = m.mode || "structured";
+    const target = m.state;
     let body;
     if (mode === "prompt" || mode === "instruction") {
       // free-form intake: no cell — a prompt parks for the planner, an instruction folds into guidance (server-side)
