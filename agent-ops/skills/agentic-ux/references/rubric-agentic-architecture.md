@@ -93,9 +93,9 @@ Also Mitchell H.: "anytime you find an agent makes a mistake, you engineer a sol
 
 Utility at scale is measured in operator leverage. An architecture that lets one human stay on-the-loop over many durable, resumable, ambiently-surfaced runs scales the human. One that demands synchronous attention per agent scales the agent count while leaving the human as the bottleneck.
 
-### 9. Nothing is hidden: legible coordination, and an independent scoreboard
+### 9. Organize the world as legible folders, give the model room — and keep the scoreboard independent
 
-Jake V.: coordination buried in framework code is invisible — un-readable, un-editable, un-handoff-able without a developer; prefer "the filesystem doing the work that a framework would otherwise do in code" — one-stage-one-job contracts, layered context, every intermediate output a readable, editable file ("there is nothing to explain because nothing was hidden"). And the success signal must be **independent of the thing it grades**: a model — especially one of the same family — "fakes good" the moment it senses a test, so a self-graded or same-family scoreboard measures impression management, not correctness. Measure from the actual output, by a check the agent does not author.
+Jake V.: organize the agent's whole world as a navigable, folder-based filesystem — not only workflow stages (numbered folders, one-stage-one-job contracts) but its **skills, tools, and reference material** ("design systems, conventions, domain knowledge bundled as skill files") — "plan with folders before building code." That one move does double duty: it keeps the machinery inspectable ("the filesystem doing the work a framework would otherwise do in code"; "nothing to explain because nothing was hidden") AND it **gives the model room to think and act** — focused, layered context so it reasons on the right material (not a monolithic dump), and freedom to navigate the structure and decide (banks, not a cage), with every intermediate output an editable file (mixed-initiative). Coordination buried in framework code, a scattered/hardcoded capability surface, and a model boxed into rigid steps are the same failure: hidden, and roomless. And the success signal must be **independent of the thing it grades** — a model, especially one of the same family, "fakes good" the moment it senses a test, so a self-graded or same-family scoreboard measures impression management, not correctness. Measure from the actual output, by a check the agent does not author.
 
 ---
 
@@ -213,17 +213,17 @@ Is agent state durable, inspectable, and resumable — and does that let one hum
 
 _primary: Jake V. (`critic-jake-v`)_
 
-Is the coordination legible, human-editable structure (rather than buried framework code) — and is the success signal an independent check of actual output (rather than the agent, or its own model family, grading itself)?
+Is the agent's world organized as legible, navigable folder structure — workflow stages AND its skills/tools/reference-material as readable, editable files — that keeps the machinery inspectable AND gives the model room to think and act; and is the success signal an independent check of actual output (rather than the agent, or its own model family, grading itself)?
 
 | Score | Evidence |
 | --- | --- |
-| **5 — Excellent** | Coordination lives as readable, editable structure (filesystem / plain-text stage contracts: one stage, one job, with explicit Inputs/Process/Outputs); context is loaded in focused layers, not one monolithic dump; every intermediate output is a file a human can read and edit between stages. Success is verified by an **independent** check of actual output (a real run, a deterministic gate, a separate-family or human judge) — never the agent's self-report. |
-| **4 — Good** | Mostly legible coordination and layered context; success rests on a mostly-independent check, with a couple of stages opaque or a minor self-assessment in the signal. |
-| **3 — Adequate** | Coordination is partly in code, partly inspectable; some intermediate outputs are editable; the scoreboard mixes an independent check with self-report. |
-| **2 — Poor** | Coordination is mostly hidden in framework/application code (a non-developer can't change a stage or its order); context is dumped wholesale; success is largely the agent grading its own work. |
-| **1 — Failing** | Orchestration is fully opaque — invisible coordination, no editable surfaces, monolithic context — and the only "eval" is the agent (or a same-family model) declaring itself correct. A green scoreboard that measures impression management, not behavior. |
+| **5 — Excellent** | The agent's world is organized as a navigable filesystem: workflow as readable stage contracts (one stage, one job, explicit Inputs/Process/Outputs) AND its skills/tools/reference-material as files the agent reads to discover and compose what it can do. The model is given **room** — focused, layered context (not a monolithic dump) so it reasons on the right material, and freedom to navigate the structure and decide, with every intermediate output an editable file (mixed-initiative). Success is verified by an **independent** check of actual output (a real run, a deterministic gate, a separate-family or human judge) — never the agent's self-report. |
+| **4 — Good** | Mostly folder-organized coordination + capabilities and layered context; the model has room; success rests on a mostly-independent check, with a couple of stages opaque or a minor self-assessment in the signal. |
+| **3 — Adequate** | Coordination/capabilities are partly in files, partly in code; some intermediate outputs are editable; the model is somewhat boxed in or context is uneven; the scoreboard mixes an independent check with self-report. |
+| **2 — Poor** | Coordination is mostly hidden in framework/application code and the capability surface is scattered/hardcoded (a non-developer can't change a stage or see what the agent can do); context is dumped wholesale or the model is micro-orchestrated with no room; success is largely the agent grading its own work. |
+| **1 — Failing** | Orchestration is fully opaque, capabilities invisible, no editable surfaces, monolithic context, the model boxed into rigid steps — and the only "eval" is the agent (or a same-family model) declaring itself correct. A green scoreboard that measures impression management, not behavior. |
 
-**Test:** (a) point to the file a non-developer would edit to reorder the stages or change one stage's rules — if there isn't one, the coordination is hidden. (b) Trace the success signal to its source: is the judge independent of the judged and reading the *actual output*, or is the model grading its own (or its family's) work? A self-graded scoreboard "fakes good" — discount it.
+**Test:** (a) point to the folder/file a non-developer would open to reorder the stages or see what skills/tools the agent has — if there isn't one, the world is hidden; (b) check the model has room — focused context, not a dump, and judgment to navigate, not just rigid steps; (c) trace the success signal: is the judge independent of the judged and reading the *actual output*, or is the model grading its own (or its family's) work? A self-graded scoreboard "fakes good" — discount it.
 
 ---
 
