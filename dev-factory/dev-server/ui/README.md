@@ -34,7 +34,7 @@ app.mount("/", StaticFiles(directory=os.path.join(_HERE, "ui"), html=True), name
 
 ```bash
 pip install fastapi uvicorn
-DEV_FACTORY_DIR=/path/to/project/.agents/dev-factory uvicorn app:app --port 8731
+DEV_FACTORY_DIR=/path/to/project/src/<project>/.factory uvicorn app:app --port 8731
 # open http://localhost:8731/
 ```
 

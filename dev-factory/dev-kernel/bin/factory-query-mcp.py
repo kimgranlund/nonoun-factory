@@ -4,14 +4,14 @@
 The spec (harness-and-storage.md) says workers and agents get **read-only** access to the operational state,
 exposed through an MCP query tool — they never write operational state (the single-writer dev-server owns every
 write; the lattice/ledger writers live in dev-kernel `bin/` + dev-server). This is that tool: the live-data
-complement to the kernel, surfacing the project's durable `.agents/dev-factory/` state — the typed lattice cells
+complement to the kernel, surfacing the project's durable `.factory/` state — the typed lattice cells
 and their maturities, the coordination tickets, the append-only ledger, the validation signals, and a one-call
 status — as task-level, READ-ONLY tools, so an agent can orient ("what's at the frontier?", "what did we decide
 about cell X?", "what tickets are active?") without shelling out or touching the substrate.
 
 Same MCP-as-curated-perimeter pattern as harness-forge's lattice-query and the catalog's corpus MCPs; the slot is
-the project's `.agents/dev-factory/` dir, wired via the plugin's `factory_dir` userConfig (env DEV_FACTORY_DIR;
-default `.agents/dev-factory`). Unset/missing, the tools return a clear "configure factory_dir" message rather
+the project's `.factory/` dir, wired via the plugin's `factory_dir` userConfig (env DEV_FACTORY_DIR;
+default `.factory`). Unset/missing, the tools return a clear "configure factory_dir" message rather
 than failing.
 
 The reads it draws from:
@@ -80,7 +80,7 @@ TOOLS = [
 
 def _no_factory():
     return ("factory-query is not configured. Set the plugin's `factory_dir` userConfig (or DEV_FACTORY_DIR) to the "
-            "project's `.agents/dev-factory/` directory — the dev-server scaffolds it on boot.")
+            "project's `.factory/` directory — the dev-server scaffolds it on boot.")
 
 
 def _safe(path):
@@ -298,7 +298,7 @@ def main():
 
 
 def selftest():
-    """Seed a tiny temp `.agents/dev-factory/` (lattice + ledger + signals + a materialized index.db), then exercise
+    """Seed a tiny temp `.factory/` (lattice + ledger + signals + a materialized index.db), then exercise
     the path guard against traversal/absolute/symlink/prefix-sibling escape and one tools/call for each of the eight
     tools. No external state needed."""
     import tempfile

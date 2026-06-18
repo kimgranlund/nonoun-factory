@@ -136,7 +136,7 @@ def selftest():
         if not c:
             fails.append(m)
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _lat.scaffold(d)
         _lat.save(d, {"cells": [
             {"layer": "spec", "scope": "task", "slug": "a", "maturity": "validated", "depends_on": [], "signal_refs": ["x"]},
@@ -200,7 +200,7 @@ def _arg(argv, flag, default=None):
 def main(argv):
     if not argv or argv[0] == "selftest":
         return selftest()
-    d = _arg(argv, "--dir", ".agents/dev-factory")
+    d = _arg(argv, "--dir", ".factory")
     if argv[0] == "next":
         batch = next_batch(d, tier=int(_arg(argv, "--tier", "1")), slots_free=int(_arg(argv, "--slots", "1")))
         for t in batch:

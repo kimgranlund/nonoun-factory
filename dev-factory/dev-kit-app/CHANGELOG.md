@@ -2,6 +2,14 @@
 
 All notable changes to **dev-kit-app** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.3.1] — 2026-06-17
+
+### Added
+
+- **`authoring[].output_root`** — the kit now declares WHERE a layer's multi-file CODE lands relative to the instance dir (`.factory/`). The `capability` layer sets `output_root: ".."`, rooting product source OUT of `.factory/` into the clean project tree (`src/<project>/<capability>/`), beside its sibling `verify.mjs` — so a build emits a navigable, runnable source tree instead of burying code inside the harness state. Read by dispatch's `_asset_rel`; **zero kernel edits** (the field is kit-local, the kit-conform boundary holds). The default (absent `output_root`) keeps a layer's asset inside `.factory/`, so dev-kit-corpus is unaffected.
+
+plugin.json 0.3.0 → 0.3.1.
+
 ## [0.3.0] — 2026-06-15
 
 ### Added

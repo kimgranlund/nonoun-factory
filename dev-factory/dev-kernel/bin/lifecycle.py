@@ -259,7 +259,7 @@ def selftest():
         if not c:
             fails.append(m)
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _lat.scaffold(d)
         # a lattice: a validated rubric (the verifier) + an instantiated spec cell to advance
         lat = {"cells": [
@@ -375,7 +375,7 @@ def main(argv):
     if not argv or argv[0] == "selftest":
         return selftest()
     verb = argv[0]
-    d = _arg(argv, "--dir", ".agents/dev-factory")
+    d = _arg(argv, "--dir", ".factory")
     tpath = _arg(argv, "--ticket")
     if verb in ("gate-ticket-ready", "gate-dispatch"):
         ticket = load_ticket(tpath)

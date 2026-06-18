@@ -49,7 +49,7 @@ def run():
             fails.append(label)
 
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         api.init_instance(d)
         srv = {"kind": "server", "id": "dev-server"}
 
@@ -85,11 +85,11 @@ def run():
         check(ok and inst["maturity"] == "instantiated", f"M2b: create advanced defined->instantiated with NO signal ({msg})")
 
         print("· worker tries to forge the validation signal — gate-signal must DENY it")
-        forge = {"tool_name": "Write", "tool_input": {"file_path": f".agents/dev-factory/signals/{CELL}/forged.json"}}
+        forge = {"tool_name": "Write", "tool_input": {"file_path": f"src/crawl/.factory/signals/{CELL}/forged.json"}}
         gs = subprocess.run(["python3", os.path.join(_store._KERNEL_BIN, "gate-signal"), "--hook"],
                             input=json.dumps(forge), capture_output=True, text=True)
         check(gs.returncode == 2, "M3a: gate-signal DENIES a worker forging the signal (exit 2)")
-        latw = {"tool_name": "Edit", "tool_input": {"file_path": ".agents/dev-factory/lattice.json"}}
+        latw = {"tool_name": "Edit", "tool_input": {"file_path": "src/crawl/.factory/lattice.json"}}
         gv = subprocess.run(["python3", os.path.join(_store._KERNEL_BIN, "gate-verifier"), "--hook"],
                             input=json.dumps(latw), capture_output=True, text=True)
         check(gv.returncode == 2, "M3b: gate-verifier DENIES a worker writing lattice.json (the maturity is server-only)")

@@ -42,7 +42,7 @@ def run():
             fails.append(label)
 
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _api.init_instance(d)
         srv = {"kind": "server", "id": "dev-server"}
         _api.seed_cell(d, "rubric", "system", "spec-quality", maturity="validated",

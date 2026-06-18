@@ -2,6 +2,15 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.11] — 2026-06-17
+
+### Changed
+
+- **Relocated the factory instance namespace `.agents/dev-factory/` → `src/<project>/.factory/`** so a dev-factory build follows a common repo pattern: each project is a self-contained folder at `src/<project>/` — the clean, runnable PRODUCT tree (capability code at `src/<project>/<capability>/`, beside its sibling `verify.mjs`) — with all factory STATE (`lattice.json`, `signals/`, `ledger/`, `rubric/`, `spec/`, `coordination/`) tucked under `src/<project>/.factory/`. `stateNamespace` is now `.factory`; `/factory-init` scaffolds `src/<project>/.factory` via `--dir`. **No vendored-kernel edit** — the product redirect is kit-declared (see dev-kit-app `output_root`), so `lattice.py`/`validate.py`/`cell.schema.json` stay byte-identical to harness-forge (the `sync-dev-kernel` drift-gate is green).
+- **Protective gates re-anchored to the `.factory/` path segment, project-prefix-agnostic** (`_gates.py`, `NS = ".factory"`). The immutable boundary — `signals/`, `ledger/`, `rubric/`, `lattice.json`, `*.schema.json`, `coordination/{refuters,verify-spec}` under any `src/<project>/.factory/` — is worker-deny, and the per-cell critic harness is now protected **wherever it lives** (`*/verify.mjs`, beside its product source). Product source at the project root stays writable, so the generator/critic split holds with the code in the clean tree. Gate selftests + the kernel evals (`tracer-bullet`, `reverse-morphism`) updated and green against the new boundary.
+
+plugin.json 0.2.10 → 0.2.11.
+
 ## [0.2.10] — 2026-06-17
 
 ### Changed

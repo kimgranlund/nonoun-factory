@@ -5,11 +5,13 @@ The harness stands up a fresh project from a one-paragraph brief, runs the cold-
 hydrated lattice -> build tickets), then runs the bounded autonomous build loop and a verdict check — the
 end-to-end exercise of the Software Dark Factory. This module is the common spine the four bin/ scripts share.
 
-Layout (REPO = the nonoun-plugins working tree):
-  REPO/debug/runs/<name>/                     a fresh scaffolded project (gitignored)
-  REPO/debug/runs/<name>/.agents/dev-factory/ the instance (DEV_FACTORY_DIR)
-The instance lives TWO levels under the project so dispatch.project_root = grandparent(DEV_FACTORY_DIR)
-resolves to the project — exactly where worktrees + built assets land (verified against dispatch.py).
+Layout (REPO = the nonoun-factory working tree):
+  REPO/debug/runs/<name>/                          a fresh scaffolded project (gitignored)
+  REPO/debug/runs/<name>/src/<name>/               the clean, runnable PRODUCT tree (capability code)
+  REPO/debug/runs/<name>/src/<name>/.factory/      the factory STATE instance (DEV_FACTORY_DIR)
+The instance lives at `src/<project>/.factory/` so the built product lands at the project root
+`src/<project>/<capability>/` (beside each capability's verify.mjs) — the kit's `output_root` ".." roots
+capability CODE out of `.factory/` into the clean tree, while spec/rubric/signals/ledger stay under `.factory/`.
 
 Stdlib only; Python 3.8+. The dev-server/dev-kernel are imported from the working tree (no install needed —
 the harness uses LOCAL source).
@@ -43,8 +45,33 @@ def project_dir(name):
     return os.path.join(RUNS, name)
 
 
+def src_dir(name):
+    """The clean, runnable PRODUCT tree — `RUNS/<name>/src/<name>/` — where built capability code lands."""
+    return os.path.join(project_dir(name), "src", name)
+
+
 def instance_dir(name):
-    return os.path.join(project_dir(name), ".agents", "dev-factory")
+    """The factory STATE instance: `.factory/` under the product tree, so a capability's `output_root` ".."
+    roots its code OUT to the product root (src/<name>/<capability>/) beside its verify.mjs."""
+    return os.path.join(src_dir(name), ".factory")
+
+
+def cap_output_root():
+    """The bound app-kit's capability `output_root` ("..": product code is rooted OUT of `.factory/` into the
+    project tree; the default "capability" keeps it inside). Mirrors dispatch._asset_rel so the harness seeds
+    asset_refs + authors verify.mjs at the SAME place the worker + validator use. ONE convention, read from the kit."""
+    kit = os.environ.get("DEV_FACTORY_KIT") or KIT_APP
+    for a in (read_json(os.path.join(kit, "kit.json"), {}) or {}).get("authoring", []):
+        if a.get("layer") == "capability":
+            return a.get("output_root", "capability")
+    return "capability"
+
+
+def cap_rel(slug):
+    """A capability's path RELATIVE TO THE INSTANCE DIR, honoring the kit's output_root (so `../<slug>` lands at
+    the product root for dev-kit-app). `os.path.join(instance_dir, cap_rel(slug))` resolves to the on-disk dir."""
+    root = cap_output_root()
+    return os.path.join(root, slug) if root else slug
 
 
 def read_json(p, default=None):

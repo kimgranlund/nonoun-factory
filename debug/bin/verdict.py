@@ -27,12 +27,14 @@ SHIP_CELL = "capability.system.app"   # the integrator: its verify.mjs is the SH
 
 
 def _artifact(inst):
-    """The produced app artifact — the integrator's source dir under the instance (where the app is authored)."""
-    appdir = os.path.join(inst, "capability", "app")
+    """The produced app artifact — the integrator's source dir in the PRODUCT tree (where the app is authored;
+    the kit's output_root roots it OUT of .factory/, e.g. src/{project}/app/)."""
+    rel = C.cap_rel("app")
+    appdir = os.path.normpath(os.path.join(inst, rel))
     if os.path.isdir(appdir):
         files = sorted(f for f in os.listdir(appdir) if f != "verify.mjs")
         if files:
-            return f"capability/app/ ({len(files)} file(s): {', '.join(files[:4])}{'…' if len(files) > 4 else ''})"
+            return f"{os.path.normpath(rel)}/ ({len(files)} file(s): {', '.join(files[:4])}{'…' if len(files) > 4 else ''})"
     return None
 
 

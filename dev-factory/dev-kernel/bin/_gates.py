@@ -20,7 +20,10 @@ import json
 import os
 import sys
 
-NS = ".agents/dev-factory"
+# The factory STATE namespace, project-relative. An instance lives at `src/{project}/.factory/`, so the
+# protected machinery is `.factory`-anchored — the is_protected() anchor-tail logic matches the segment
+# regardless of which `src/{project}/` prefixes it (one boundary protects every project's instance).
+NS = ".factory"
 
 # The immutable side of the boundary (§14.1), path-segment-anchored. `signals/` is THE reward-hack
 # defense; the ledger is append-only audit; the wiring (.claude/settings.json) is protected so a wired
@@ -31,11 +34,13 @@ VERIFIER = [
     f"{NS}/rubric/*",
     f"{NS}/hooks/*",
     f"{NS}/run/*",
-    f"{NS}/*/*/verify.mjs",     # a cell's per-cell critic harness ({layer}/{slug}/verify.mjs) — the gate a worker
+    "*/verify.mjs",            # a cell's per-cell critic harness, now BESIDE its product source
+                               # (src/{project}/{slug}/verify.mjs) — the gate a worker authors code to PASS
+                               # but must never write (else it grades its own homework). `verify.mjs` is a
+                               # reserved critic-harness basename, so protect it wherever it lives.
     f"{NS}/coordination/refuters/*",  # the HIDDEN independent refuter (false-pass oracle) — a worker must not be
     f"{NS}/coordination/verify-spec/*",  # the verify-spec (exports/acceptance/refute) the gate + self-heal fold derive from
-    f"{NS}/lattice.json",       # able to forge/disable it; authors code to PASS but must never write (else it grades
-                                # its own homework)
+    f"{NS}/lattice.json",       # able to forge/disable it
     f"{NS}/*.schema.json",
     ".claude/settings.json",
 ]

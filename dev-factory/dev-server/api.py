@@ -187,7 +187,7 @@ def roadmap(d):
 
 # ─────────────────────────── operator input / guidance (the 5s steering channel) ───────────────────────────
 # An operator streams steering messages in; a 5-second poll folds new ones into an active guidance buffer the
-# loop reads. SECURITY: the intake + buffer live under run/, which _gates.VERIFIER protects (`.agents/dev-factory/
+# loop reads. SECURITY: the intake + buffer live under run/, which _gates.VERIFIER protects (`.factory/
 # run/*`) — so a gate-wired WORKER cannot forge guidance; only the un-gated single-writer server writes here.
 
 GUIDANCE_CAP = 20   # the active buffer keeps the last N items; the intake jsonl keeps the full audit trail
@@ -533,7 +533,7 @@ def selftest():
         if not c:
             fails.append(m)
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         init_instance(d)
         srv = {"kind": "server", "id": "dev-server"}
         # seed: a validated rubric + an instantiated spec cell
@@ -628,7 +628,7 @@ def main(argv):
     if not argv or argv[0] == "selftest":
         return selftest()
     verb = argv[0]
-    d = argv[argv.index("--dir") + 1] if "--dir" in argv else os.environ.get("DEV_FACTORY_DIR", ".agents/dev-factory")
+    d = argv[argv.index("--dir") + 1] if "--dir" in argv else os.environ.get("DEV_FACTORY_DIR", ".factory")
     if verb == "enqueue-input":
         text = argv[1] if len(argv) > 1 and not argv[1].startswith("--") else ""
         rec = enqueue_input(d, text, source="cli")

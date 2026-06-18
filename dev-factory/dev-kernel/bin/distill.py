@@ -92,7 +92,7 @@ def selftest():
         if not c:
             fails.append(m)
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         os.makedirs(os.path.join(d, "ledger"))
         srv = {"kind": "server", "id": "s"}
         # two validations of spec.task → a success candidate; three blocks of rubric.task → a failure candidate
@@ -137,7 +137,7 @@ def main(argv):
     if not argv or argv[0] == "selftest":
         return selftest()
     if argv[0] == "scan":
-        d = _arg(argv, "--dir", ".agents/dev-factory")
+        d = _arg(argv, "--dir", ".factory")
         cands = distill_patterns(d, since=_arg(argv, "--since"),
                                  min_occurrences=int(_arg(argv, "--min-occurrences", "2")))
         print(json.dumps(cands, indent=2))

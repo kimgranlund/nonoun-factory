@@ -135,7 +135,7 @@ def main(argv):
     if argv[0] == "assemble":
         policy = load_policy(_arg(argv, "--policy"))
         ticket = json.load(open(_arg(argv, "--ticket"), encoding="utf-8"))
-        d = _arg(argv, "--dir", ".agents/dev-factory")
+        d = _arg(argv, "--dir", ".factory")
         cell = _lat.find(_lat.load(d), ticket.get("target_cell")) if os.path.exists(os.path.join(d, "lattice.json")) else None
         plan, src = plan_for(policy, ticket, cell, int(_arg(argv, "--tier", "1")))
         print(json.dumps({"source": src, "plan": plan}, indent=2))

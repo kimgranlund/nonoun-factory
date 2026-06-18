@@ -37,11 +37,11 @@ a human drag does — the loop is the scheduler calling the API, not a separate 
 python3 store.py selftest && python3 api.py selftest
 
 # 1. init an instance (or the server scaffolds it on boot):
-python3 ../dev-kernel/bin/lattice.py init --dir /path/to/project/.agents/dev-factory
+python3 ../dev-kernel/bin/lattice.py init --dir <repo>/src/<project>/.factory
 
 # 2. start the live server — family kit bound, heartbeat ON:
 pip install fastapi uvicorn
-DEV_FACTORY_DIR=/path/to/project/.agents/dev-factory \
+DEV_FACTORY_DIR=<repo>/src/<project>/.factory \
   DEV_FACTORY_KIT=/path/to/dev-kit-corpus \
   DEV_FACTORY_HEARTBEAT=1 uvicorn app:app --port 8731
 #   open http://127.0.0.1:8731/  for the web UI (Kanban · lattice grid · ledger · agent monitor · roadmap)
@@ -62,7 +62,7 @@ python3 demo.py
 
 | Var | Default | What |
 |---|---|---|
-| `DEV_FACTORY_DIR` | `.agents/dev-factory` | the instance state dir |
+| `DEV_FACTORY_DIR` | `src/<project>/.factory` | the instance state dir |
 | `DEV_KERNEL_BIN` | `../dev-kernel/bin` | the kernel checkout to drive |
 | `DEV_FACTORY_KIT` | (none) | the bound family kit dir — its dispatch policy + real verifiers |
 | `DEV_FACTORY_HEARTBEAT` | off | `1` enables the bounded 30s autonomous loop |

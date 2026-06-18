@@ -16,9 +16,9 @@ To run dev-factory with the **app** family (capability/protocol cells validated 
 
 ```bash
 # 1. install dev-kernel + dev-kit-app (project-local); 2. init the instance:
-python3 ../dev-kernel/bin/lattice.py init --dir .agents/dev-factory
+python3 ../dev-kernel/bin/lattice.py init --dir src/<project>/.factory
 # 3. bind THIS kit when you start the server:
-DEV_FACTORY_KIT=$PWD DEV_FACTORY_DIR=/path/to/project/.agents/dev-factory \
+DEV_FACTORY_KIT=$PWD DEV_FACTORY_DIR=<repo>/src/<project>/.factory \
   DEV_FACTORY_HEARTBEAT=1 uvicorn dev-server.app:app --port 8731
 ```
 

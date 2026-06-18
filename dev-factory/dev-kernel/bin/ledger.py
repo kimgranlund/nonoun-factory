@@ -2,7 +2,7 @@
 """ledger.py — dev-factory's append-only provenance ledger (the event-sourced spine).
 
 The ledger is the SOURCE OF TRUTH for every state transition (harness-and-storage.md): git-native
-JSONL at `.agents/dev-factory/ledger/events.jsonl`, append-only, never mutated. Current operational
+JSONL at `.factory/ledger/events.jsonl`, append-only, never mutated. Current operational
 state — ticket lifecycle, cell maturity, leases, metrics, the grid — is a materialized *fold* over
 this log; the SQLite index the server keeps is downstream and rebuildable by replay. Provenance
 cannot be retrofitted, so the ledger is authoritative and the database is never ahead of it.
@@ -264,7 +264,7 @@ def main(argv):
     if not argv or argv[0] == "selftest":
         return selftest()
     verb = argv[0]
-    d = _arg(argv, "--dir", ".agents/dev-factory")
+    d = _arg(argv, "--dir", ".factory")
     if verb == "append":
         actor = {"kind": _arg(argv, "--actor-kind", "server"), "id": _arg(argv, "--actor-id", "server")}
         subject = {}

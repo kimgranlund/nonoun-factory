@@ -224,9 +224,11 @@ def _canned_plan(brief_text):
          "deps": [prd_id], "milestone": "SPEC", "title": f"MILESTONE 2 · SPEC (inside-out): {title}"},
     ]
 
-    # MILESTONE 3 — per-capability code cells (depend on the SPEC), each with its planner-authored verify.mjs harness
+    # MILESTONE 3 — per-capability code cells (depend on the SPEC), each with its planner-authored verify.mjs harness.
+    # The verify.mjs + asset_ref are rooted via the kit's output_root (C.cap_rel) so they land at the PRODUCT tree
+    # (src/{project}/{f}/) — beside the worker's code — while the refuter/verify-spec stay under .factory/coordination/.
     for f in features:
-        assets.append({"path": f"capability/{f}/verify.mjs", "content": _mock_cap_verify()})
+        assets.append({"path": os.path.join(C.cap_rel(f), "verify.mjs"), "content": _mock_cap_verify()})
         # the HIDDEN independent refuter harness (mock: a trivial loadability check) — the false-pass producer
         assets.append({"path": f"coordination/refuters/capability.system.{f}.json",
                        "content": json.dumps({"harness": _gen_cap_verify([], [])})})
@@ -234,14 +236,14 @@ def _canned_plan(brief_text):
         assets.append({"path": f"coordination/verify-spec/capability.system.{f}.json",
                        "content": json.dumps(_vg.new_spec([], [], []))})
         cells.append({"layer": "capability", "scope": "system", "slug": f, "maturity": "instantiated",
-                      "asset_ref": f"capability/{f}", "depends_on": [spec_id]})
+                      "asset_ref": C.cap_rel(f), "depends_on": [spec_id]})
         tickets.append({"target_cell": f"capability.system.{f}", "from": "instantiated", "to": "validated",
                         "rubric_cell": R_CAP, "deps": [spec_id], "milestone": "CAPABILITY", "title": f"MILESTONE 3 · build: {f}"})
 
     # MILESTONE 4 — the app integrator (SHIP): composes every capability, gated by its own ship verify.mjs
-    assets.append({"path": f"capability/{SLUG}/verify.mjs", "content": _mock_ship_verify(features)})
+    assets.append({"path": os.path.join(C.cap_rel(SLUG), "verify.mjs"), "content": _mock_ship_verify(features)})
     cells.append({"layer": "capability", "scope": "system", "slug": SLUG, "maturity": "instantiated",
-                  "asset_ref": f"capability/{SLUG}", "depends_on": [spec_id] + cap_ids})
+                  "asset_ref": C.cap_rel(SLUG), "depends_on": [spec_id] + cap_ids})
     tickets.append({"target_cell": app_id, "from": "instantiated", "to": "validated", "rubric_cell": R_SHIP,
                     "deps": [spec_id] + cap_ids, "milestone": "SHIP", "title": f"MILESTONE 4 · ship: {title}"})
     fcells, fassets = _foundation_docs(title, features)   # seeded knowledge foundation: policy/methodology/protocol/ledger
@@ -329,7 +331,7 @@ def _build_live_plan(decomp):
         {"target_cell": spec_id, "from": "instantiated", "to": "validated", "rubric_cell": R_SPEC, "deps": [prd_id], "milestone": "SPEC", "title": f"MILESTONE 2 · SPEC (inside-out): {title}"},
     ]
     for f in features:
-        assets.append({"path": f"capability/{f['slug']}/verify.mjs", "content": _gen_cap_verify(f["exports"], f.get("acceptance"))})
+        assets.append({"path": os.path.join(C.cap_rel(f['slug']), "verify.mjs"), "content": _gen_cap_verify(f["exports"], f.get("acceptance"))})
         # the HIDDEN independent refuter — the planner's `refute` checks (DIFFERENT from the gate's acceptance the
         # worker codes to), materialized only post-validation so the worker never overfits to it. The false-pass
         # producer: a disagreement (passed its gate, fails this) is a caught false pass → autonomy demotion.
@@ -340,12 +342,12 @@ def _build_live_plan(decomp):
         assets.append({"path": f"coordination/verify-spec/capability.system.{f['slug']}.json",
                        "content": json.dumps(_vg.new_spec(f["exports"], f.get("acceptance"), f.get("refute")))})
         cells.append({"layer": "capability", "scope": "system", "slug": f["slug"], "maturity": "instantiated",
-                      "asset_ref": f"capability/{f['slug']}", "depends_on": [spec_id]})
+                      "asset_ref": C.cap_rel(f['slug']), "depends_on": [spec_id]})
         tickets.append({"target_cell": f"capability.system.{f['slug']}", "from": "instantiated", "to": "validated",
                         "rubric_cell": R_CAP, "deps": [spec_id], "milestone": "CAPABILITY", "title": f"MILESTONE 3 · build: {f['slug']}"})
-    assets.append({"path": f"capability/{SLUG}/verify.mjs", "content": _gen_ship_verify(features)})
+    assets.append({"path": os.path.join(C.cap_rel(SLUG), "verify.mjs"), "content": _gen_ship_verify(features)})
     cells.append({"layer": "capability", "scope": "system", "slug": SLUG, "maturity": "instantiated",
-                  "asset_ref": f"capability/{SLUG}", "depends_on": [spec_id] + cap_ids})
+                  "asset_ref": C.cap_rel(SLUG), "depends_on": [spec_id] + cap_ids})
     tickets.append({"target_cell": app_id, "from": "instantiated", "to": "validated", "rubric_cell": R_SHIP,
                     "deps": [spec_id] + cap_ids, "milestone": "SHIP", "title": f"MILESTONE 4 · ship: {title}"})
     fcells, fassets = _foundation_docs(title, [f["slug"] for f in features])   # seeded knowledge foundation

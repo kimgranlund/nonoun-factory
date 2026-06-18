@@ -81,7 +81,8 @@ def run():
         check("capability.system.app" in grid, "the planner seeded the capability.system.app INTEGRATOR (the ship cell)")
         full = api._lat.find(api._lat.load(inst), "capability.system.app")
         check(all(c in (full.get("depends_on") or []) for c in caps), "the integrator depends on every capability")
-        check(os.path.isfile(os.path.join(inst, "capability", "core", "verify.mjs")), "each capability has a planner-authored verify.mjs critic harness")
+        check(os.path.isfile(os.path.normpath(os.path.join(inst, C.cap_rel("core"), "verify.mjs"))),
+              "each capability has a planner-authored verify.mjs critic harness (in the product tree, beside its source)")
         layers = {c["layer"] for c in api.lattice_grid(inst)}
         check({"policy", "methodology", "protocol", "ledger"} <= layers,
               f"the build's lattice seeds the full KNOWLEDGE foundation — policy/methodology/protocol/ledger, not just spec+caps ({len(layers)}/9 layers)")
@@ -94,7 +95,8 @@ def run():
         g2 = {c["id"]: c["maturity"] for c in api.lattice_grid(inst)}
         build = [k for k in g2 if k.split(".")[0] in ("spec", "capability")]
         check(all(g2[k] == "validated" for k in build), f"every build cell validated via its real verifier ({len(build)} cells)")
-        check(os.path.isfile(os.path.join(inst, "capability", "core", "index.mjs")), "the worker authored real multi-file source (index.mjs)")
+        check(os.path.isfile(os.path.normpath(os.path.join(inst, C.cap_rel("core"), "index.mjs"))),
+              "the worker authored real multi-file source (index.mjs) at the clean product root")
         v = verdict.verdict(name, quiet=True)
         check(v["shipped"] and v["ok"], "verdict: SHIPPED (the capability.system.app integrator validated — its verify.mjs gate passed)")
 
@@ -125,9 +127,9 @@ def run():
         check(isinstance(api.agents_running(inst), list), "agents_running serves the live-worker slice (enriched with the team's orchestration shape/depth/model)")
 
         print("· SECURITY — generator/critic split + the guidance channel are worker-protected")
-        check(_gate(".agents/dev-factory/capability/core/verify.mjs") == 2, "a worker write to a per-cell verify.mjs is DENIED (it can't grade its own homework)")
-        check(_gate(".agents/dev-factory/capability/core/index.mjs") == 0, "a worker write to ordinary source is ALLOWED (no false block on the build)")
-        check(_gate(".agents/dev-factory/run/input.jsonl") == 2, "a worker write to run/input.jsonl is DENIED (operator guidance can't be forged)")
+        check(_gate("src/ci/core/verify.mjs") == 2, "a worker write to a per-cell verify.mjs is DENIED (it can't grade its own homework)")
+        check(_gate("src/ci/core/index.mjs") == 0, "a worker write to ordinary product source is ALLOWED (no false block on the build)")
+        check(_gate("src/ci/.factory/run/input.jsonl") == 2, "a worker write to .factory/run/input.jsonl is DENIED (operator guidance can't be forged)")
 
         print("· BI-DIRECTIONAL — a learning routes UPSTREAM to the SPEC (inside-out) or the PRD (outside-in)")
         # a TECHNICAL learning → the SPEC (inside-out, the default route)
@@ -182,7 +184,7 @@ def run():
         import json as _json2
 
         def _refute_case(impl):
-            rd = tempfile.mkdtemp() + "/.agents/dev-factory"; api.init_instance(rd)
+            rd = tempfile.mkdtemp() + "/.factory"; api.init_instance(rd)
             os.makedirs(os.path.join(rd, "capability", "c"))
             open(os.path.join(rd, "capability", "c", "index.mjs"), "w").write(impl)
             api.seed_cell(rd, "rubric", "system", "test-suite", maturity="validated", signal_refs=["s/x"])

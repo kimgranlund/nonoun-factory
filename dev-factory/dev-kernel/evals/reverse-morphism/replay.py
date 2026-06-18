@@ -43,7 +43,7 @@ def run():
             fails.append(label)
 
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _lat.scaffold(d)
         _lat.save(d, {"cells": [
             {"layer": "rubric", "scope": "task", "slug": "r", "maturity": "validated", "signal_refs": ["signals/rubric.task.r/seed.json"], "depends_on": []},
@@ -53,9 +53,9 @@ def run():
         open(os.path.join(d, "spec", "x.md"), "w").write("# x\n")
 
         print("· R1/R2 — out-of-band advance is mechanically denied")
-        check(_hook("gate-verifier", ".agents/dev-factory/lattice.json") == 2,
+        check(_hook("gate-verifier", "src/x/.factory/lattice.json") == 2,
               "R1: a worker write to lattice.json is DENIED (cell maturity is server-only)")
-        check(_hook("gate-signal", ".agents/dev-factory/signals/spec.task.x/forged.json") == 2,
+        check(_hook("gate-signal", "src/x/.factory/signals/spec.task.x/forged.json") == 2,
               "R2: a worker write to signals/ is DENIED (the validated-currency is critic-only)")
 
         print("· R3 — the only path to validated LEDGERS the advance")
