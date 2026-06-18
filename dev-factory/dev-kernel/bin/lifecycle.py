@@ -182,6 +182,42 @@ def _author_advance(d, lat, ticket, actor):
     return True, f"authored {tc} -> {to_mat}"
 
 
+# ─────────────────────────────────────── the critic (validation) run ───────────────────────────────────────
+
+def run_critic(d, ticket, verifier, actor):
+    """Run the critic — the validation path — for a SIGNAL-BEARING cell. Executes the verifier via validate.py,
+    which advances the cell to its to-maturity and writes the signal the worker CANNOT forge, then ledgers the
+    critic verdict + the maturity advance. Returns (ok, msg). Does NOT touch the ticket's lifecycle state — the
+    CALLER decides acceptance (auto-close at Tier 2+, the human sign-off gate at Tier 1).
+
+    This is the single place the critic runs. The done-morphism calls it when a verifier is supplied; the
+    Tier-1 dispatcher calls it eagerly, so the produce→validate→iterate loop runs at EVERY tier and the tier
+    gates only acceptance, never whether the work was actually verified."""
+    tc = ticket["target_cell"]
+    to_mat = ticket.get("target_transition", {}).get("to")
+    harness = ticket.get("acceptance", {}).get("rubric_cell", "rubric").split(".")[-1] or "verifier"
+    cmd = shlex.split(verifier) if isinstance(verifier, str) else list(verifier)
+    vok, sig, vmsg = _val.run_validation(d, tc, harness, cmd)
+    if not vok:
+        # critic refused: NO signal written (the cell did not advance). The caller re-authors against the
+        # feedback (bounded) — never closes the ticket.
+        _led.append(d, "signal", actor, {"ticket": ticket["id"], "cell": tc},
+                    f"validation FAILED: {vmsg}", to="fail")
+        return False, vmsg
+    lat = _lat.load(d)  # reload — validate.py advanced the cell + wrote the signal
+    cell = _lat.find(lat, tc)
+    ticket.setdefault("signal_refs", [])
+    ticket["signal_refs"] = list(cell.get("signal_refs", []))
+    _led.append(d, "signal", {"kind": "agent", "id": "cell-validator"}, {"ticket": ticket["id"], "cell": tc},
+                f"critic validated {tc}: {vmsg}", to="pass",
+                hashes={"validated_against": [{"cell_id": k, "hash": v} for k, v in cell.get("validated_against", {}).items()]})
+    # the maturity advance is itself a ledgered transition (provenance for the grid + staleness)
+    _led.append(d, "transition", actor, {"ticket": ticket["id"], "cell": tc},
+                f"cell {tc} advanced to {to_mat} (critic-validated)",
+                frm=ticket.get("target_transition", {}).get("from"), to=to_mat)
+    return True, vmsg
+
+
 # ─────────────────────────────────────── the transition driver ───────────────────────────────────────
 
 def transition(d, ticket, to_state, actor, verifier=None, reason=None):
@@ -210,27 +246,17 @@ def transition(d, ticket, to_state, actor, verifier=None, reason=None):
         to_mat = ticket.get("target_transition", {}).get("to")
         if to_mat in SIGNAL_BEARING:
             if verifier:
-                harness = ticket.get("acceptance", {}).get("rubric_cell", "rubric").split(".")[-1] or "verifier"
-                cmd = shlex.split(verifier) if isinstance(verifier, str) else list(verifier)
-                vok, sig, vmsg = _val.run_validation(d, tc, harness, cmd)
-                lat = _lat.load(d)  # reload — validate.py advanced the cell + wrote the signal
-                if not vok:
-                    # critic failed: ticket returns to in-progress (feedback, attempts++), never done.
+                # run the critic now (the verifier the operator/auto-path supplied)
+                cok, cmsg = run_critic(d, ticket, verifier, actor)
+                if not cok:
+                    # critic failed: ticket stays in-review (feedback, attempts++), never done.
                     ticket["state"] = "in-review"
-                    _led.append(d, "signal", actor, {"ticket": ticket["id"], "cell": tc},
-                                f"validation FAILED: {vmsg}", to="fail")
-                    return False, ticket, f"gate-signal denied: verifier failed — {vmsg}"
-                cell = _lat.find(lat, tc)
-                ticket.setdefault("signal_refs", [])
-                ticket["signal_refs"] = list(cell.get("signal_refs", []))
-                _led.append(d, "signal", {"kind": "agent", "id": "cell-validator"}, {"ticket": ticket["id"], "cell": tc},
-                            f"critic validated {tc}: {vmsg}", to="pass",
-                            hashes={"validated_against": [{"cell_id": k, "hash": v} for k, v in cell.get("validated_against", {}).items()]})
-                # the maturity advance is itself a ledgered transition (provenance for the grid + staleness)
-                _led.append(d, "transition", actor, {"ticket": ticket["id"], "cell": tc},
-                            f"cell {tc} advanced to {to_mat} (critic-validated)",
-                            frm=ticket.get("target_transition", {}).get("from"), to=to_mat)
-            # assert the morphism: a signal exists + the cell reached to_mat (whether we ran the verifier or a prior critic did)
+                    return False, ticket, f"gate-signal denied: verifier failed — {cmsg}"
+                lat = _lat.load(d)  # reload — run_critic advanced the cell + wrote the signal
+            # assert the morphism: a signal exists + the cell reached to_mat (whether we just ran the verifier
+            # here OR a prior critic — e.g. the Tier-1 dispatcher — already validated the cell). The signal
+            # CANNOT have been worker-forged (gate-signal denies worker writes to signals/), so its presence is
+            # proof a critic validated the work, no matter which path ran it.
             sok, swhy = _signal_present(d, lat, ticket)
             if not sok:
                 return False, ticket, f"gate-signal denied: {swhy}"

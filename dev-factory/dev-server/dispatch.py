@@ -565,12 +565,38 @@ def dispatch_unit(d, ticket, adapter, actor, tier=1, repo_root=None, auto_valida
                 f"{agent} produced the artifact", metrics={"activity": act_id, "budget_fraction": 1.0, **_spend})
 
     if not auto_validate:
+        # Tier 1 gates only ACCEPTANCE, never verification. The critic STILL runs here, so the lattice gets its
+        # unforgeable signal and the produce→validate→iterate loop runs at EVERY tier: a signal-bearing cell is
+        # critic-validated now (the operator's later plain `done` approval then passes gate-signal with no verifier
+        # to hand-supply), and a critic refusal re-authors against the feedback (bounded) exactly as the unattended
+        # path does — so a single in-review cell can no longer livelock the whole partial order at Tier 1.
+        if to_mat in _lc.SIGNAL_BEARING:
+            verifier = _kit_verifier(d, cell, unit) or _verifier_for(unit)
+            rt = _api.get_ticket(d, tid)
+            crit_ok, crit_msg = _lc.run_critic(d, rt, verifier, {"kind": "agent", "id": "cell-validator"})
+            if not crit_ok:
+                teardown_worktree(d, wt, repo_root)
+                _led.append(d, "activity-fail", {"kind": "agent", "id": agent}, {"ticket": tid, "cell": ticket["target_cell"]},
+                            f"critic refused: {crit_msg}"[:200], metrics={"activity": act_id})
+                t = _api.get_ticket(d, tid); t["claim"] = None; _lc.save_ticket(d, t)
+                fails = _consecutive_fails(d, tid)
+                if fails < MAX_WORKER_ATTEMPTS:
+                    _api.transition_ticket(d, tid, "in-progress", actor)
+                    _api.transition_ticket(d, tid, "active", actor,
+                                           reason=f"critic refused (attempt {fails}/{MAX_WORKER_ATTEMPTS}) — re-authoring against the gate")
+                else:
+                    _api.transition_ticket(d, tid, "blocked", actor,
+                                           reason=f"critic refused {fails}× consecutively — blocked (retries exhausted)")
+                _api._store.rebuild(d)
+                return False, _api.get_ticket(d, tid), crit_msg
+            _lc.save_ticket(d, rt)   # persist the cell's signal_refs mirror onto the ticket-of-record
         teardown_worktree(d, wt, repo_root)
         _api._store.rebuild(d)
-        return True, _api.get_ticket(d, tid), f"in-review (Tier {tier}: awaiting human review)"
+        mark = "critic-validated; awaiting human sign-off" if to_mat in _lc.SIGNAL_BEARING else "awaiting human sign-off"
+        return True, _api.get_ticket(d, tid), f"in-review (Tier {tier}: {mark})"
 
-    # critic validates (or authoring advance) → done. The kit's validation adapter supplies the verifier;
-    # the asset-exists default applies when no kit is bound.
+    # Tier 2+: auto-accept. The critic validates (or an authoring advance applies) → done. The kit's validation
+    # adapter supplies the verifier; the asset-exists default applies when no kit is bound.
     verifier = (_kit_verifier(d, cell, unit) or _verifier_for(unit)) if to_mat in _lc.SIGNAL_BEARING else None
     ok, ticket, msg = _api.transition_ticket(d, tid, "done", actor, verifier=verifier)
     teardown_worktree(d, wt, repo_root)

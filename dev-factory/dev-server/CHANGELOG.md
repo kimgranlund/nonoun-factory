@@ -3,6 +3,11 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-18 — the critic runs at every tier; only acceptance is tier-gated (lattice-guided iteration under human oversight)
+
+- **`dispatch_unit` at Tier 1 now runs the critic (`lifecycle.run_critic`) before parking at in-review.** The autonomy tier gates only ACCEPTANCE — auto-close at Tier 2+, the human sign-off gate at Tier 1 — never *whether* the work was verified. A signal-bearing cell is critic-validated at Tier 1 (so the operator's later **plain `done` approval** passes `gate-signal` with no verifier to hand-supply), and a critic refusal re-authors against the feedback (bounded), exactly as the unattended path does. Fixes the **Tier-1 livelock** where a produced-but-unvalidated cell blocked the whole partial order and the heartbeat idled to its deadline. The produce→validate→iterate loop, guided by the lattice model, now runs at **every** tier — general-purpose output iteration under human oversight, not only unattended (pairs with dev-kernel 0.2.12's `run_critic`).
+- **`evals/tier1-acceptance-gate/` (new)** — proves it (T1–T5): at Tier 1 a structured spec is critic-validated (cell `validated`, critic-minted signal, actor `cell-validator`) and parks for the operator's plain sign-off, which succeeds; a prose spec is refused and re-authored (the reward-hack teeth bite at Tier 1). The full suite stays green (`crawl` · `walk` · `server-smoke` · `integration` · `run` · `demotion` · `self-heal` · `fly`).
+
 ## 2026-06-16 — a caught false pass SELF-HEALS (decision #123: "full self-heal + new oracle")
 
 - **`verify_gen.py` (new)** — ONE home for the per-cell critic-harness generator (`gen_cap_verify`, moved out of the cold-start planner so the runtime can regenerate the exact gate) plus the pure self-heal transform `fold(spec)`: merge the refuter's checks INTO the gate (acceptance ∪ refute) and re-arm a FRESH independent refuter (the "new oracle"); on oracle exhaustion it returns no harness, so the caller escalates rather than churns. Selftested.
