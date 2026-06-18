@@ -19,13 +19,13 @@ status: research-verified
 
 # Cross-tool compatibility matrix
 
-> **The single load-bearing fact:** AGENTS.md is read natively by almost every major LLM coding agent **except Claude Code**. The skill's recommendation — AGENTS.md canonical, all others as thin pointers/symlinks — minimizes drift across this surface.
+> **The single load-bearing fact:** Claude Code reads `CLAUDE.md` natively but **not** `AGENTS.md`; almost every *other* major agent reads `AGENTS.md`. This skill is Claude-native — `CLAUDE.md` is canonical (the fat one) — and to serve the other tools you add a thin `AGENTS.md` (plus the tool rule files) that points back to `CLAUDE.md`. One source of truth, pointers everywhere else, minimal drift. (A Codex/Devin-first repo with no Claude Code inverts this — `AGENTS.md` canonical; see `agents-md-spec.md`.)
 
 ## The matrix (April 2026)
 
 | Tool | Native instruction file(s) | Reads AGENTS.md natively? | Notes |
 | --- | --- | --- | --- |
-| **Claude Code** (Anthropic) | `CLAUDE.md` (+ `~/.claude/CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/`, `@import`) | **No** | Issue [#31005](https://github.com/anthropics/claude-code/issues/31005) open with no Anthropic response. Workaround: `ln -s AGENTS.md CLAUDE.md`. |
+| **Claude Code** (Anthropic) | `CLAUDE.md` (+ `~/.claude/CLAUDE.md`, `CLAUDE.local.md`, `.claude/rules/`, `@import`) | **No** | Issue [#31005](https://github.com/anthropics/claude-code/issues/31005) open with no Anthropic response. **Canonical here** — for cross-tool add `AGENTS.md` → `CLAUDE.md` (`ln -s CLAUDE.md AGENTS.md`). |
 | **OpenAI Codex** | `AGENTS.md` (+ `~/.codex/AGENTS.md`, `AGENTS.override.md`) | **Yes** — primary | Founding member of the agents.md working group. |
 | **Cognition Devin** | `AGENTS.md` | **Yes** — primary | [docs.devin.ai/onboard-devin/agents-md](https://docs.devin.ai/onboard-devin/agents-md). |
 | **Cognition Windsurf** | `.windsurfrules`, `.windsurf/rules/` | **Yes** | Cognition acquired Windsurf Dec 2025 (~$250M). |
@@ -41,12 +41,12 @@ status: research-verified
 
 ## What this means for the audit
 
-When auditing a repo:
+When auditing a repo (Claude-native default):
 
-1. **AGENTS.md** is the canonical entry — it should exist and be the fat one.
-2. **For each _other_ file the listed tools read natively**, check whether it exists. If it does, it should be a thin pointer or symlink to AGENTS.md, not a fat duplicate.
-3. **Claude Code is the special case.** Either symlink (`ln -s AGENTS.md CLAUDE.md`) or maintain a thin pointer CLAUDE.md.
-4. **Continue.dev is the other holdout.** If the project uses Continue, maintain `.continue/rules/main.md` as a pointer. Watch the issue tracker for native AGENTS.md support.
+1. **CLAUDE.md** is the canonical entry — it should exist and be the fat one (Claude Code reads it natively).
+2. **For each _other_ file the listed tools read natively** (incl. `AGENTS.md`), check whether it exists. If it does, it should be a thin pointer or symlink to `CLAUDE.md`, not a fat duplicate.
+3. **AGENTS.md is the cross-tool pointer.** When the repo serves Codex/Cursor/Devin/Copilot, add a thin `AGENTS.md` → `CLAUDE.md` (`ln -s CLAUDE.md AGENTS.md`). (Inverted for an AGENTS.md-first repo with no Claude Code.)
+4. **Continue.dev is the holdout.** If the project uses Continue, maintain `.continue/rules/main.md` as a pointer. Watch the issue tracker for native AGENTS.md support.
 5. **Copilot triple-reads** — it reads its own instructions file PLUS CLAUDE.md PLUS AGENTS.md. Drift between any of those will be visible to Copilot users; the audit should flag any inconsistency.
 
 ## "Gas Town" — what it is, why it's not on this matrix
@@ -67,19 +67,19 @@ If you want to support every major agent without drift, the minimum file set is:
 
 ```text
 /repo
-├── AGENTS.md                            # ← the fat one (canonical)
-├── CLAUDE.md                            # ← symlink → AGENTS.md  OR  3-line pointer
-├── .cursor/rules/main.mdc               # ← 3-line pointer (optional; AGENTS.md works native)
-├── .windsurfrules                       # ← 3-line pointer (optional; AGENTS.md works native)
-├── .github/copilot-instructions.md      # ← 3-line pointer (optional; AGENTS.md works native)
+├── CLAUDE.md                            # ← the fat one (canonical, Claude-native)
+├── AGENTS.md                            # ← symlink → CLAUDE.md  OR  3-line pointer (the cross-tool standard)
+├── .cursor/rules/main.mdc               # ← 3-line pointer (optional; reads AGENTS.md too)
+├── .windsurfrules                       # ← 3-line pointer (optional; reads AGENTS.md too)
+├── .github/copilot-instructions.md      # ← 3-line pointer (optional; reads AGENTS.md/CLAUDE.md too)
 ├── .continue/rules/main.md              # ← 3-line pointer (Continue doesn't read AGENTS.md natively)
 └── CONVENTIONS.md                       # ← only if Aider is in use
 ```
 
-If you do not use Cursor/Windsurf/Copilot/Continue, drop those files. The two that always matter: AGENTS.md (everyone) and CLAUDE.md (Claude Code).
+If you do not use Cursor/Windsurf/Copilot/Continue, drop those files. The two that always matter: CLAUDE.md (canonical, Claude Code) and AGENTS.md (the cross-tool standard everyone else reads).
 
 ## Cross-references
 
-- AGENTS.md spec: `agents-md-spec.md`
-- CLAUDE.md thin-pointer/symlink: `claude-md-convention.md`
+- CLAUDE.md convention (canonical): `claude-md-convention.md`
+- AGENTS.md cross-tool standard (opt-in): `agents-md-spec.md`
 - Audit checks: `../audit-patterns/entry-file-coverage.md`

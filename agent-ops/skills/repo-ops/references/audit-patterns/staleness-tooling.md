@@ -26,7 +26,7 @@ status: research-verified
 Run locally:
 
 ```bash
-lychee --offline --no-progress '.agents/brain/**/*.md' 'docs/**/*.md' '*.md' '*.MD'
+lychee --offline --no-progress 'docs/ops/**/*.md' 'docs/**/*.md' '*.md' '*.MD'
 # --offline skips network; useful for fast intra-repo link audit
 # drop --offline to also check external URLs
 ```
@@ -46,7 +46,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: lycheeverse/lychee-action@v2
         with:
-          args: --cache --max-cache-age=1d --no-progress '.agents/brain/**/*.md' 'docs/**/*.md' '*.md'
+          args: --cache --max-cache-age=1d --no-progress 'docs/ops/**/*.md' 'docs/**/*.md' '*.md'
           fail: true
 ```
 
@@ -61,7 +61,7 @@ Older alternative: `markdown-link-check` (Node). Slower; lychee is preferred.
 Useful for the audit only when the project has a content style guide. If not, skip.
 
 ```bash
-vale .agents/brain/ docs/
+vale docs/ops/ docs/
 ```
 
 ## Markdown structure linting — `markdownlint`
@@ -69,7 +69,7 @@ vale .agents/brain/ docs/
 **`markdownlint`** ([DavidAnson/markdownlint](https://github.com/DavidAnson/markdownlint)) checks Markdown structure (heading levels, list indentation, blank lines, etc.). Doesn't check freshness; complements lychee.
 
 ```bash
-markdownlint .agents/brain/ docs/ *.md
+markdownlint docs/ops/ docs/ *.md
 ```
 
 ## Code/doc drift detection — the genuinely hard one
@@ -94,7 +94,7 @@ jobs:
         with: { fetch-depth: 0 }
       - run: |
           git diff origin/${{ github.base_ref }}...HEAD --stat > /tmp/diff.txt
-          # Pipe /tmp/diff.txt + AGENTS.md + .agents/brain/ + docs/ index into an LLM that
+          # Pipe /tmp/diff.txt + AGENTS.md + docs/ops/ + docs/ index into an LLM that
           # returns "no doc changes needed" or "consider updating: <list>".
           # Post as a PR comment.
 ```
@@ -110,8 +110,8 @@ This is bespoke per project but cheap to maintain.
 The simplest staleness signal: file last-modified date. The skill itself can implement this directly:
 
 ```bash
-# Files in .agents/brain/ + docs/ older than 6 months without a "Last reviewed" line:
-find .agents/brain docs -name '*.md' -mtime +180 | while read f; do
+# Files in docs/ops/ + docs/ older than 6 months without a "Last reviewed" line:
+find docs/ops docs -name '*.md' -mtime +180 | while read f; do
   if ! grep -q '_Last reviewed:' "$f"; then
     echo "STALE: $f (last modified: $(git log -1 --format=%cs -- "$f"))"
   fi
@@ -145,7 +145,7 @@ For each stale finding:
   - **Tools that flagged this:**
     - mtime-heuristic (older than 6mo, undated)
     - intra-repo grep (referenced symbol no longer exists)
-  - **Recommendation:** review and re-date, OR archive to `.agents/brain/archive/architecture-2024.md`.
+  - **Recommendation:** review and re-date, OR archive to `docs/ops/archive/architecture-2024.md`.
 ```
 
 ## Cross-references

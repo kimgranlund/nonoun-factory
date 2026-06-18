@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """audit-history.py — producer/validator/liveness-checker for repo-ops's audit-history ledger.
 
-repo-ops's Verify-Target criterion 4 ("audit ledger updated — entry appended to .agents/brain/audit-history/")
+repo-ops's Verify-Target criterion 4 ("audit ledger updated — entry appended to docs/ops/audit-history/")
 and Promise-4 liveness ("a trip-wire-fired record within the dial's freshness window") are asserted in
 prose with no enforcing mechanism on their own. This script is the missing harness — the trip-wire that
 makes "self-healing" a checked property (a fresh, schema-valid ledger record) rather than a claim.
@@ -13,7 +13,11 @@ makes "self-healing" a checked property (a fresh, schema-valid ledger record) ra
                              LIVE / STALE TRIP-WIRE / MISSING TRIP-WIRE. Window from --strictness
                              (lax=90d normal=30d strict=8d, per guidance/reliability-dial.md) or
                              --window-days. --as-of YYYY-MM-DD makes "now" deterministic for tests.
-  index --base <repo>       — regenerate .agents/brain/audit-history/README.md (newest-first trend table).
+  index --base <repo>       — regenerate <ledger>/README.md (newest-first trend table).
+
+The ledger lives at docs/ops/audit-history/ (Claude-native default). The legacy / opt-in cross-tool
+layout .agents/brain/audit-history/ is still read for back-compat; reads scan both, writes prefer the
+Claude-native dir (or whichever already holds records).
 
 Exit 0 = valid / live / indexed; 1 = invalid or stale/missing; 2 = bad invocation.
 """
@@ -28,6 +32,8 @@ from datetime import datetime, timezone
 
 SEVERITIES = {"critical", "high", "medium", "low"}
 STRICTNESS = {"lax", "normal", "strict"}
+# Ledger homes, in resolution order: Claude-native default first, legacy/opt-in cross-tool layout second.
+LEDGER_DIRS = ("docs/ops/audit-history", ".agents/brain/audit-history")
 LIVENESS_WINDOW_DAYS = {"lax": 90, "normal": 30, "strict": 8}  # Promise-4 row of the dial resolver
 _ISO = "%Y-%m-%dT%H:%M:%SZ"
 
@@ -88,16 +94,28 @@ def validate_record(obj) -> tuple[list[str], list[str]]:
 
 
 def _records(base):
-    """Yield (date, path, obj) for each parseable audit-history JSON, newest first."""
+    """Yield (date, path, obj) for each parseable audit-history JSON, newest first.
+
+    Scans the Claude-native ledger (docs/ops/audit-history/) and the legacy/opt-in
+    .agents/brain/audit-history/ so a record is found wherever it lives."""
     out = []
-    for p in glob.glob(os.path.join(base, ".agents/brain", "audit-history", "*.json")):
-        try:
-            o = json.load(open(p, encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        stamp = o.get("audit_id") or os.path.basename(p)[:10]
-        out.append((stamp[:10], p, o))
+    for rel in LEDGER_DIRS:
+        for p in glob.glob(os.path.join(base, rel, "*.json")):
+            try:
+                o = json.load(open(p, encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            stamp = o.get("audit_id") or os.path.basename(p)[:10]
+            out.append((stamp[:10], p, o))
     return sorted(out, reverse=True)
+
+
+def _ledger_dir(base):
+    """The ledger dir to WRITE to: whichever already holds records, else the Claude-native default."""
+    for rel in LEDGER_DIRS:
+        if glob.glob(os.path.join(base, rel, "*.json")):
+            return os.path.join(base, rel)
+    return os.path.join(base, LEDGER_DIRS[0])
 
 
 def cmd_validate(args) -> int:
@@ -123,8 +141,9 @@ def cmd_liveness(args) -> int:
     window = args.window_days if args.window_days is not None else LIVENESS_WINDOW_DAYS[args.strictness]
     recs = _records(args.base)
     if not recs:
-        print(f"MISSING TRIP-WIRE: no audit-history record under {args.base}/.agents/brain/audit-history/ "
-              f"— presence without liveness is clean-by-luck, not self-healing.", file=sys.stderr)
+        print(f"MISSING TRIP-WIRE: no audit-history record under {args.base}/docs/ops/audit-history/ "
+              f"(or legacy .agents/brain/audit-history/) — presence without liveness is clean-by-luck, "
+              f"not self-healing.", file=sys.stderr)
         return 1
     now = datetime.strptime(args.as_of, "%Y-%m-%d") if args.as_of else datetime.now(timezone.utc).replace(tzinfo=None)
     newest_date, newest_path, _ = recs[0]
@@ -142,7 +161,8 @@ def cmd_liveness(args) -> int:
 def cmd_index(args) -> int:
     recs = _records(args.base)
     if not recs:
-        print(f"no audit-history under {args.base}/.agents/brain/audit-history/", file=sys.stderr)
+        print(f"no audit-history under {args.base}/docs/ops/audit-history/ "
+              f"(or legacy .agents/brain/audit-history/)", file=sys.stderr)
         return 1
     rows = []
     for date, path, o in recs:
@@ -151,7 +171,8 @@ def cmd_index(args) -> int:
         rows.append(f"| [{date}]({os.path.basename(path)}) | {o.get('strictness', '?')} | {n} | {crit} | {o.get('fixes_applied', 0)} |")
     out = ["# Audit history", "", "| Date | Strictness | Findings | Critical | Fixes applied |",
            "|---|---|---|---|---|"] + rows + [""]
-    readme = os.path.join(args.base, ".agents/brain", "audit-history", "README.md")
+    readme = os.path.join(_ledger_dir(args.base), "README.md")
+    os.makedirs(os.path.dirname(readme), exist_ok=True)
     open(readme, "w", encoding="utf-8").write("\n".join(out) + "\n")
     print(f"INDEXED {len(rows)} audit(s) -> {readme}")
     return 0
@@ -197,7 +218,7 @@ def main(argv=None) -> int:
     v.add_argument("file")
     v.set_defaults(fn=cmd_validate)
     l = sub.add_parser("liveness", help="is the most recent audit within the Promise-4 freshness window?")
-    l.add_argument("--base", required=True, help="repo root (ledger lives in <base>/.agents/brain/audit-history/)")
+    l.add_argument("--base", required=True, help="repo root (ledger lives in <base>/docs/ops/audit-history/, or legacy <base>/.agents/brain/audit-history/)")
     l.add_argument("--strictness", choices=sorted(STRICTNESS), default="normal")
     l.add_argument("--window-days", type=int, default=None, help="override the dial window")
     l.add_argument("--as-of", default=None, help="treat this YYYY-MM-DD as 'now' (deterministic tests)")
