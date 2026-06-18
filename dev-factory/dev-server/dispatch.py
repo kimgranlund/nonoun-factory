@@ -469,11 +469,25 @@ def _kit_verifier(d, cell, unit, kit_dir=None):
         return None
     asset = os.path.normpath(os.path.join(d, cell.get("asset_ref")
                              or _asset_rel(cell["layer"], cell["slug"], _authoring_for(cell, kit_dir))))
+    # Match by layer; a slug-specific adapter (e.g. the app-shell coherence gate for capability.*.shell) is
+    # MORE SPECIFIC and wins over the layer-default (the generic capability-harness), regardless of list order.
+    chosen = None
     for a in kit.get("adapters", []):
-        if a.get("kind") == "validation" and (a.get("target") or {}).get("layer") == cell["layer"]:
-            return [tok.replace("${CLAUDE_PLUGIN_ROOT}", kit_dir).replace("{asset}", asset)
-                    .replace("{worktree}", unit.get("worktree", "")).replace("{cell}", _lat.cid(cell))
-                    for tok in a.get("verifier", [])]
+        if a.get("kind") != "validation":
+            continue
+        tgt = a.get("target") or {}
+        if tgt.get("layer") != cell["layer"]:
+            continue
+        if tgt.get("slug"):
+            if tgt["slug"] == cell["slug"]:
+                chosen = a
+                break
+        elif chosen is None:
+            chosen = a
+    if chosen:
+        return [tok.replace("${CLAUDE_PLUGIN_ROOT}", kit_dir).replace("{asset}", asset)
+                .replace("{worktree}", unit.get("worktree", "")).replace("{cell}", _lat.cid(cell))
+                for tok in chosen.get("verifier", [])]
     return None
 
 

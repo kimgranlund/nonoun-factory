@@ -3,6 +3,10 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-18 — `_kit_verifier` gains slug-specificity (binds the app-shell coherence gate)
+
+- **A kit validation adapter can now target `{layer, slug}`, not just `{layer}`.** In `dispatch._kit_verifier`, a slug-specific adapter wins over the layer-default, regardless of list order — backward-compatible (the generic `capability-harness` still grades every other capability; `integration-milestone` stays green). This lets the app family bind a `capability.*.shell` cell to its **app-shell coherence gate** (dev-kit-app 0.3.2) — the integration check the headless `verify.mjs` model lacked, which distinguishes an assembled runnable app from built-but-unassembled modules (a re-export barrel). New `evals/app-shell-gate/` (A1–A4); CI-wired; full suite (11) green.
+
 ## 2026-06-18 — opt-in: Tier-1 STRICT acceptance gating (downstream waits for your sign-off)
 
 - **`DEV_FACTORY_TIER1_STRICT=1` makes Tier 1 wait for human ACCEPTANCE cell-by-cell.** By default Tier 1 flows on critic-validation (the build advances; tickets park at `in-review` for async acceptance). With the flag set, a dependent is held until its dependency cells are *accepted* (their tickets `done`), not merely *validated* — so the build advances behind the operator's sign-off. Implemented as a SERVER policy (`heartbeat.strict_accept_filter`, applied in `on_tick` when the flag is set and `tier < 2`) layered on the kernel's partial order — the kernel still only requires deps `validated`; moot at Tier 2+ (auto-accept). Default behavior unchanged. Proven by `evals/tier1-strict-gate/` (S1–S4, both modes). Threaded `app.py` → `on_tick(strict_accept=…)`.
