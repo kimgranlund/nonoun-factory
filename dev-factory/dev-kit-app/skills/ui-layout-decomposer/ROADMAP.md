@@ -1,11 +1,13 @@
 # Roadmap — ui-layout-decomposer
 
+_Last reviewed: 2026-06-18 (skill v0.1.0; all Next/Someday items still open)._
+
 ## Now (0.1.0)
 The method + the four archetype wireframe libraries, usable for DECOMPOSE / DESIGN / GRADE.
 
 ## Next
 - **More archetypes:** `docs-site` (left-nav + reading column + on-this-page TOC), `chat/agent` (thread + composer +
-  context rail), `data-grid/spreadsheet`, `kanban/board`, `email/三-pane client`, `media-player`.
+  context rail), `data-grid/spreadsheet`, `kanban/board`, `email/3-pane client`, `media-player`.
 - **A routing-eval corpus** (`evals/routing-corpus.json`) — trigger + adversarial phrases scored before the
   description is locked (the skills-studio D5 gate), so routing accuracy is measured, not assumed.
 - **A grading worked-example per archetype** — a real screenshot decomposed end-to-end on both axes, as a
