@@ -3,6 +3,10 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-18 — UX: inline readiness check on the create-ticket modal (no stuck draft + late 409)
+
+- **The structured create form pre-validates against `gate_ticket_ready` and shows the reason inline.** A structured ticket dropped on a non-draft column requests `→ active`, which the readiness gate rejects when a binding is incomplete — most often a `rubric_cell` that isn't `validated` yet (the form makes every binding optional). That used to surface as a *stuck draft + a late 409 toast*. The modal now mirrors the gate (`#whyNotReady`): the target cell exists in the lattice, both maturities are set, and the acceptance rubric cell is `validated` — failing with a specific inline message and creating nothing. (Also: UI cache-bust v12→v13; fixed a stale `.agents/dev-factory` path in the file:// nudge.)
+
 ## 2026-06-18 — `_kit_verifier` gains slug-specificity (binds the app-shell coherence gate)
 
 - **A kit validation adapter can now target `{layer, slug}`, not just `{layer}`.** In `dispatch._kit_verifier`, a slug-specific adapter wins over the layer-default, regardless of list order — backward-compatible (the generic `capability-harness` still grades every other capability; `integration-milestone` stays green). This lets the app family bind a `capability.*.shell` cell to its **app-shell coherence gate** (dev-kit-app 0.3.2) — the integration check the headless `verify.mjs` model lacked, which distinguishes an assembled runnable app from built-but-unassembled modules (a re-export barrel). New `evals/app-shell-gate/` (A1–A4); CI-wired; full suite (11) green.

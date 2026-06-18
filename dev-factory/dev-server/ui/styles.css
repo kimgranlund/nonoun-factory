@@ -532,3 +532,8 @@ df-preview { display: block; }
   .shell { grid-template-columns: minmax(0, 1fr); grid-template-areas: "header" "center" "footer"; }
   .left-pane, .right-pane { display: none; }
 }
+
+/* inline readiness error in the create-ticket modal (mirrors gate_ticket_ready — no stuck draft + late 409) */
+.ct-error { margin: 0.1rem 0 0.2rem; padding: 0 0.1rem; font-size: 12px; line-height: 1.45;
+  color: light-dark(oklch(0.5 var(--chroma-vivid) var(--hue-danger)), oklch(0.74 var(--chroma-vivid) var(--hue-danger))); }
+.ct-error:empty { display: none; }

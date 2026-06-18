@@ -1402,6 +1402,7 @@ class DfModal extends UIElement {
             <div class="field"><label for="ct-title">${titleLabel}</label><input id="ct-title" name="title" required autocomplete="off" /></div>
             ${mode === "prompt" ? prompt : mode === "instruction" ? instruction : structured}
           </form>
+          <div class="ct-error" role="alert" aria-live="polite"></div>
           <div class="actions">
             <button class="btn ghost" data-cancel>Cancel</button>
             <button class="btn primary" data-submit>${mode === "structured" ? "Create ticket" : mode === "prompt" ? "Create prompt" : "Create instruction"}</button>
@@ -1419,16 +1420,41 @@ class DfModal extends UIElement {
     const form = this.querySelector("#ct-form");
     form?.addEventListener("submit", (e) => { e.preventDefault(); this.#submit(); });
   }
+  // Mirror the server's gate_ticket_ready so the operator sees WHY a structured ticket can't go active up front —
+  // inline in the modal — instead of submitting a ticket that sticks in draft behind a later 409. Returns the
+  // reason string, or null when the bindings would pass the gate.
+  #whyNotReady(g, lattice) {
+    const find = (id) => lattice.find((c) => (c.id || `${c.layer}.${c.scope}.${c.slug}`) === id);
+    const tc = g("target_cell"), from = g("from"), to = g("to"), rb = g("rubric");
+    if (!tc) return "Set a Target cell — a structured ticket can’t go active without one.";
+    if (!find(tc)) return `Target cell “${tc}” isn’t in this lattice — check the id (layer.scope.slug).`;
+    if (!from || !to) return "Set both From and To maturity — the transition needs both ends.";
+    if (!rb) return "Set an Acceptance rubric cell — doneness must be a rubric, not prose.";
+    const r = find(rb);
+    if (!r) return `Rubric cell “${rb}” isn’t in this lattice.`;
+    if (!["validated", "operating"].includes(r.maturity))
+      return `Rubric “${rb}” isn’t validated yet (it’s ${r.maturity || "absent"}) — get that rubric cell to validated before a ticket can start against it.`;
+    return null;
+  }
   async #submit() {
     const f = this.querySelector("#ct-form");
     if (!f.reportValidity()) return;
+    const errEl = this.querySelector(".ct-error");
+    if (errEl) errEl.textContent = "";
     const g = (n) => f.elements[n]?.value?.trim() || "";
     const mode = store.modal.value?.mode || "structured";
+    const target = store.modal.value?.state;
     let body;
     if (mode === "prompt" || mode === "instruction") {
       // free-form intake: no cell — a prompt parks for the planner, an instruction folds into guidance (server-side)
       body = { type: mode, title: g("title"), body: g("body"), created_by: "human" };
     } else {
+      // a structured "+" on a non-draft column will request → active; pre-validate against the readiness gate so
+      // the failure is an inline form error here, not a stuck draft + a 409 a moment later.
+      if (target && target !== "draft") {
+        const why = this.#whyNotReady(g, store.lattice.value || []);
+        if (why) { if (errEl) errEl.textContent = why; return; }
+      }
       body = { type: g("type") || "task", title: g("title"), body: g("body"), created_by: "human" };
       if (g("target_cell")) body.target_cell = g("target_cell");
       if (g("from") || g("to")) body.target_transition = { from: g("from"), to: g("to") };
