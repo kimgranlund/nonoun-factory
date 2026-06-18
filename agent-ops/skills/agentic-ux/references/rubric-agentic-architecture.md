@@ -12,6 +12,7 @@ dimension_critics:
   A4: critic-mitchell-h
   A5: critic-mitchell-h
   A6: critic-harrison-c
+  A7: critic-jake-v
 key_question: >
   Does this agentic workflow's architecture compound into real utility for the operator —
   composing with the ecosystem, keeping context coherent, coordinating without conflict,
@@ -28,7 +29,7 @@ companion_documents:
 
 The central failure mode is **architecture that demos well but doesn't compound into utility**: it fragments context across agents that can't see each other, reinvents every integration as bespoke glue, hides its state so an interruption loses everything, and tolerates recurring errors instead of engineering them out. Complexity gets mistaken for capability. A workflow can be architecturally impressive and still cost the operator more than it saves.
 
-This rubric is owned by the **Architecture & Utility sub-council** — Walden Y., Harrison C., Mitchell H., and the MCP/interoperability seat. It deliberately carries an unresolved tension: **Walden Y.'s single-threaded continuous context vs. Harrison C.'s durable multi-agent orchestration.** Dimensions A2 and A3 surface that tension rather than pretending it has one answer; the right resolution is workflow-specific, and the rubric's job is to force the choice into the open.
+This rubric is owned by the **Architecture & Utility sub-council** — Walden Y., Harrison C., Mitchell H., the MCP/interoperability seat, and Jake V. (interpretable context architecture & eval integrity). It deliberately carries an unresolved tension: **Walden Y.'s single-threaded continuous context vs. Harrison C.'s durable multi-agent orchestration.** Dimensions A2 and A3 surface that tension rather than pretending it has one answer; the right resolution is workflow-specific, and the rubric's job is to force the choice into the open.
 
 **Companion docs:**
 
@@ -36,7 +37,7 @@ This rubric is owned by the **Architecture & Utility sub-council** — Walden Y.
 - `council/agentic-ux-council-eval-prompts.md` — the critic council, engagement routing, and synthesis prompts
 - The **builder-side** rubrics (multi-agent coordination as isolation-by-structure; context as a precision instrument) are the engineering-side peers of A2/A4 — this rubric scores the same territory from the operator's utility standpoint.
 
-> **Format-fitness note.** The 1–5 matrix fits bounded evaluation of parallel dimensions. The six dimensions below are evaluable. The _choice_ between single-threaded and multi-agent architectures is a judgment, not a score — A2/A3 score how well whichever choice was made is executed, not which choice is "correct."
+> **Format-fitness note.** The 1–5 matrix fits bounded evaluation of parallel dimensions. The seven dimensions below are evaluable. The _choice_ between single-threaded and multi-agent architectures is a judgment, not a score — A2/A3 score how well whichever choice was made is executed, not which choice is "correct."
 
 ---
 
@@ -91,6 +92,10 @@ Also Mitchell H.: "anytime you find an agent makes a mistake, you engineer a sol
 ### 8. The architecture must scale the human, not just the agent count
 
 Utility at scale is measured in operator leverage. An architecture that lets one human stay on-the-loop over many durable, resumable, ambiently-surfaced runs scales the human. One that demands synchronous attention per agent scales the agent count while leaving the human as the bottleneck.
+
+### 9. Nothing is hidden: legible coordination, and an independent scoreboard
+
+Jake V.: coordination buried in framework code is invisible — un-readable, un-editable, un-handoff-able without a developer; prefer "the filesystem doing the work that a framework would otherwise do in code" — one-stage-one-job contracts, layered context, every intermediate output a readable, editable file ("there is nothing to explain because nothing was hidden"). And the success signal must be **independent of the thing it grades**: a model — especially one of the same family — "fakes good" the moment it senses a test, so a self-graded or same-family scoreboard measures impression management, not correctness. Measure from the actual output, by a check the agent does not author.
 
 ---
 
@@ -204,6 +209,24 @@ Is agent state durable, inspectable, and resumable — and does that let one hum
 
 ---
 
+### Dimension A7 [review] — Interpretability & measurement integrity
+
+_primary: Jake V. (`critic-jake-v`)_
+
+Is the coordination legible, human-editable structure (rather than buried framework code) — and is the success signal an independent check of actual output (rather than the agent, or its own model family, grading itself)?
+
+| Score | Evidence |
+| --- | --- |
+| **5 — Excellent** | Coordination lives as readable, editable structure (filesystem / plain-text stage contracts: one stage, one job, with explicit Inputs/Process/Outputs); context is loaded in focused layers, not one monolithic dump; every intermediate output is a file a human can read and edit between stages. Success is verified by an **independent** check of actual output (a real run, a deterministic gate, a separate-family or human judge) — never the agent's self-report. |
+| **4 — Good** | Mostly legible coordination and layered context; success rests on a mostly-independent check, with a couple of stages opaque or a minor self-assessment in the signal. |
+| **3 — Adequate** | Coordination is partly in code, partly inspectable; some intermediate outputs are editable; the scoreboard mixes an independent check with self-report. |
+| **2 — Poor** | Coordination is mostly hidden in framework/application code (a non-developer can't change a stage or its order); context is dumped wholesale; success is largely the agent grading its own work. |
+| **1 — Failing** | Orchestration is fully opaque — invisible coordination, no editable surfaces, monolithic context — and the only "eval" is the agent (or a same-family model) declaring itself correct. A green scoreboard that measures impression management, not behavior. |
+
+**Test:** (a) point to the file a non-developer would edit to reorder the stages or change one stage's rules — if there isn't one, the coordination is hidden. (b) Trace the success signal to its source: is the judge independent of the judged and reading the *actual output*, or is the model grading its own (or its family's) work? A self-graded scoreboard "fakes good" — discount it.
+
+---
+
 ## §Anti-patterns
 
 ### AP-A1 — Context confetti
@@ -230,6 +253,10 @@ Is agent state durable, inspectable, and resumable — and does that let one hum
 
 **Symptom:** the workflow is sophisticated and impressive but doesn't reliably beat not using it; the novelty hides negative ROI. **Root cause:** architecture judged by sophistication, not utility. **Correction:** measure first-pass success and time-vs-baseline (Dimension A5). Delete complexity that doesn't compound into utility (Principle 1).
 
+### AP-A7 — Hidden machinery & the self-graded scoreboard
+
+**Symptom:** coordination lives in framework code only a developer can change, intermediate state is opaque between steps, and the "eval" is the agent (or a same-family model) declaring itself correct. **Root cause:** orchestration treated as code instead of legible structure; evaluation treated as a vibe the model can self-report — and it "fakes good" the moment it senses a test. **Correction:** make coordination readable, editable structure (filesystem / plain-text stage contracts, layered context, editable outputs — Principle 9); verify success with an independent, output-based check the agent does not author (Dimension A7).
+
 ---
 
 ## §Hard Tests
@@ -249,6 +276,10 @@ Is agent state durable, inspectable, and resumable — and does that let one hum
 7. **The deletion test.** What could you remove from this architecture and lose no utility the operator would miss? Whatever you name should probably go. _(utility / Principle 1)_
 
 8. **The oversight-at-scale test.** Could one human keep N runs in flight and stay on-the-loop, or does supervision cost rise linearly with agent count? _(Harrison C.)_
+
+9. **The visible-coordination test.** Name the plain-text file a non-developer would edit to reorder the stages or change one stage's rules. If there isn't one, the coordination is hidden in code. _(Jake V.)_
+
+10. **The fake-good test.** Trace the success signal: is the judge independent of the judged and reading the actual output, or is the model grading its own (or its family's) work? A self-graded scoreboard fakes good. _(Jake V.)_
 
 ---
 
