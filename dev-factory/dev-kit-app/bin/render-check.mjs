@@ -77,7 +77,9 @@ function makeHost() {
       classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
       getContext: (t) => (String(t).includes('webgl') ? gl : null),
       appendChild: (c) => c, append: () => {}, prepend: () => {}, removeChild: (c) => c, insertBefore: (c) => c,
-      remove() {}, setAttribute() {}, removeAttribute() {}, getAttribute: () => null,
+      replaceChildren: () => {}, replaceWith: () => {}, before: () => {}, after: () => {},
+      cloneNode: () => mkEl(), insertAdjacentElement: (_p, c) => c, insertAdjacentHTML: () => {},
+      remove() {}, setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false,
       addEventListener() {}, removeEventListener() {}, focus() {}, blur() {}, click() {},
       querySelector: () => mkEl(), querySelectorAll: () => [], closest: () => null,
       getBoundingClientRect: () => ({ width: 300, height: 150, top: 0, left: 0, right: 300, bottom: 150 }),
@@ -86,6 +88,12 @@ function makeHost() {
   };
   const rafCbs = [];
   let rafN = 0;
+  // a working in-memory Web Storage (a faithful browser has it; an app that round-trips save→load runs cleanly)
+  const memStore = () => { const m = new Map(); return {
+    getItem: (k) => (m.has(String(k)) ? m.get(String(k)) : null), setItem: (k, v) => { m.set(String(k), String(v)); },
+    removeItem: (k) => { m.delete(String(k)); }, clear: () => m.clear(), key: (i) => [...m.keys()][i] ?? null,
+    get length() { return m.size; } }; };
+  const localStorage = memStore(), sessionStorage = memStore();
   const host = {
     document: {
       createElement: () => mkEl(), createElementNS: () => mkEl(),
@@ -93,7 +101,8 @@ function makeHost() {
       body: mkEl(), head: mkEl(), documentElement: mkEl(), addEventListener() {}, removeEventListener() {},
     },
     window: { addEventListener() {}, removeEventListener() {}, devicePixelRatio: 1, innerWidth: 1280, innerHeight: 720,
-              matchMedia: () => ({ matches: false, addEventListener() {}, addListener() {} }) },
+              localStorage, sessionStorage, matchMedia: () => ({ matches: false, addEventListener() {}, addListener() {} }) },
+    localStorage, sessionStorage,
     requestAnimationFrame: (cb) => { if (rafN < MAX_FRAMES) { rafN++; rafCbs.push(cb); } return rafN; },
     cancelAnimationFrame: () => {},
     drainFrames(now) { let n = 0; while (rafCbs.length && n < MAX_FRAMES) { rafCbs.shift()(now + n * 16); n++; } },
@@ -111,7 +120,7 @@ async function renderTrace(entry) {
 
   // inject host globals BEFORE importing the app module (top-level + mount() read these)
   const saved = {};
-  for (const k of ['document', 'window', 'requestAnimationFrame', 'cancelAnimationFrame']) {
+  for (const k of ['document', 'window', 'requestAnimationFrame', 'cancelAnimationFrame', 'localStorage', 'sessionStorage']) {
     saved[k] = globalThis[k];
     globalThis[k] = host[k] ?? host.window;
   }
@@ -209,6 +218,17 @@ async function selftest() {
     null.boom();   // runtime error during the on-load render path
   </script>`);
   ck((await check(path.join(os, 'throws.html'))).errs.some((e) => /THREW/.test(e)), 'a shell whose render path throws on load FAILS');
+
+  // 3b. the shim covers standard DOM (replaceChildren) + a working localStorage round-trip — common app surface
+  write('hostapi.html', `<!doctype html><canvas id=gl></canvas><script type="module">
+    import { compileShader } from './core/index.mjs';
+    const gl = document.getElementById('gl').getContext('webgl2');
+    localStorage.setItem('k', 'v'); if (localStorage.getItem('k') !== 'v') throw new Error('storage round-trip');
+    document.getElementById('panel').replaceChildren(document.createElement('div'));
+    const { program } = compileShader(gl, 'void main(){}');
+    gl.useProgram(program); gl.drawArrays(gl.TRIANGLES, 0, 3);
+  </script>`);
+  ck((await check(path.join(os, 'hostapi.html'))).errs.length === 0, 'the shim covers replaceChildren + a working localStorage round-trip (a shell using them PASSES)');
 
   // 4. src= main.mjs exporting mount(root) — the integrator convention — is driven
   write('main.mjs', `
