@@ -2,6 +2,14 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.12] — 2026-06-18
+
+### Changed
+
+- **The critic now runs at EVERY autonomy tier; the tier gates only ACCEPTANCE (new `lifecycle.run_critic`).** The validation half of the `in-review → done` morphism is extracted into one shared `run_critic(d, ticket, verifier, actor)` — the single place the critic runs: it executes the verifier via `validate.py` (advancing the cell to its to-maturity + writing the unforgeable signal) and ledgers the critic verdict, **without touching ticket lifecycle state**. The done-morphism calls it when a verifier is supplied (behavior-preserving — `lifecycle selftest` + the full kernel/server eval suite stay green); the **Tier-1 dispatcher** (`dev-server`) now calls it eagerly. This closes a **livelock**: previously Tier 1 parked a signal-bearing cell at `in-review` without ever running the critic, so the cell could never reach `validated`, `gate-signal` correctly refused the operator's `done`, and a single in-review cell blocked the whole partial order. The reward-hack boundary is unchanged — the signal is still critic-minted (a worker cannot forge it) and `gate-signal` remains the immutable arbiter; only *when* the critic runs (every tier, not just Tier 2+) changed, so the produce→validate→iterate loop is now guided by the lattice model **under human oversight**, not only unattended. Proven by `dev-server/evals/tier1-acceptance-gate/`.
+
+plugin.json 0.2.11 → 0.2.12.
+
 ## [0.2.11] — 2026-06-17
 
 ### Changed
