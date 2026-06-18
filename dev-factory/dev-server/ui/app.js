@@ -1464,8 +1464,7 @@ class DfModal extends UIElement {
     if (!res.ok) { toast("Create failed", res.data?.detail || `HTTP ${res.status}`, "err"); return; }
     const created = res.data;
     if (created) upsertTicket(created);
-    const target = store.modal.value?.state;
-    this.#close();
+    this.#close();   // `target` is already captured at the top of #submit (used below for the → active request)
     const label = mode === "structured" ? "Ticket" : mode === "prompt" ? "Prompt" : "Instruction";
     toast(`${label} created`, `${created?.id || ""}${mode === "structured" ? " · draft" : " · intake"}`, "ok");
     // a structured "+" on a non-draft column requests the transition toward it (the gate decides)
