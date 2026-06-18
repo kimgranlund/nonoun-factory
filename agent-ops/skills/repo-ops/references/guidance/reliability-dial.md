@@ -28,11 +28,11 @@ Three positions:
 | **`normal`** | Default. Pre-commit warns/fails on critical | Most production repos |
 | **`strict`** | Every promise's trip-wire must pass; multi-agent review required for any apply-mode fix | Regulated codebases, monorepos with many contributors, repos where doc breakage is costly |
 
-Explicit knob beats implicit severity rubric: the team picks its dial position once, in `.agents/brain/config.toml`, and every check derives from there.
+Explicit knob beats implicit severity rubric: the team picks its dial position once, in `.claude/repo-ops.toml`, and every check derives from there.
 
 ## The config file
 
-`.agents/brain/config.toml` at repo root:
+`.claude/repo-ops.toml` at repo root:
 
 ```toml
 [repo-ops]
@@ -84,18 +84,18 @@ strictness = "normal"
 
 ## The resolver — strictness → thresholds (the single source of truth)
 
-**This table is the resolver: the one authoritative map from strictness to every trip-wire's concrete threshold.** No recipe or script defines a threshold independently — each reads its value from here (via `.agents/brain/config.toml`). A `strict` level that does not change a value is visible _in this table_, never hidden in a script; that is what makes "reliability is a dial" a mechanism, not a slogan. Both the doc trip-wires and the six skill-stewardship signals route through it.
+**This table is the resolver: the one authoritative map from strictness to every trip-wire's concrete threshold.** No recipe or script defines a threshold independently — each reads its value from here (via `.claude/repo-ops.toml`). A `strict` level that does not change a value is visible _in this table_, never hidden in a script; that is what makes "reliability is a dial" a mechanism, not a slogan. Both the doc trip-wires and the six skill-stewardship signals route through it.
 
 | Trip-wire | `lax` | `normal` | `strict` |
 | --- | --- | --- | --- |
 | **Entry-file length** | Warn >250 lines | Warn >150, fail pre-commit >200 | Fail pre-commit >150 |
-| **AGENTS.md/CLAUDE.md drift** | Warn | Fail pre-commit | Require symlink (`ln -s AGENTS.md CLAUDE.md`) |
+| **CLAUDE.md/AGENTS.md drift** | Warn | Fail pre-commit | Require symlink (`ln -s CLAUDE.md AGENTS.md`) |
 | **Broken intra-repo links** | Report only | Fail PR | Fail pre-commit |
 | **Broken external links** (lychee) | Report weekly | Fail PR | Fail PR + fail pre-commit |
 | **Doc frontmatter dates** | Suggest | Require on new docs | Require on all docs; review every 365d |
 | **Orphan grace period** | 90 days | 30 days | 7 days |
-| **AGENTS.md "Memory primitives" section** | Recommend | Require | Require + fail audit if missing |
-| **`.agents/brain/adrs/` for repos > 1 year old** | Recommend | Recommend (medium severity) | Required (high severity) |
+| **CLAUDE.md "Memory primitives" section** | Recommend | Require | Require + fail audit if missing |
+| **`docs/ops/adrs/` for repos > 1 year old** | Recommend | Recommend (medium severity) | Required (high severity) |
 | **Apply-mode fixes** | Single agent | Single agent | Recommend agent + validate agent (see `../recipes/recommend-then-validate.md`) |
 | **Auto-archive PR** | Manual review | Manual review | Multi-agent review |
 | **Skill: pattern-recurrence → draft candidate** | ≥ 3 sessions | ≥ 2 sessions | ≥ 2 (≥1 as info) |
@@ -124,16 +124,16 @@ If `strict` causes more friction than it prevents, you're at the wrong position.
 
 ## Git sync (where the brain lives)
 
-By default, `.agents/brain/` is committed to git — the brain _is_ shared across the team. But not every team wants this. Solo developers, research-survey notebooks, individual scratch repos, or teams that sync memory through a non-git mechanism (internal wiki, S3, Notion) may prefer to keep `.agents/brain/` local.
+By default, `docs/ops/` is committed to git — the brain _is_ shared across the team. But not every team wants this. Solo developers, research-survey notebooks, individual scratch repos, or teams that sync memory through a non-git mechanism (internal wiki, S3, Notion) may prefer to keep `docs/ops/` local.
 
 Two modes:
 
 | Mode | What gets committed | Promise 5 (continuously-learning) | When to use |
 | --- | --- | --- | --- |
-| **`shared`** (default) | `.agents/brain/{adrs,postmortems,runbooks,archive,architecture,audit-history,changesets,config.toml}` (`cache/` + `cold-start/working/` always gitignored) | Applies to the team — artifacts compound across contributors | Most repos with >1 contributor |
-| **`local-only`** | Nothing in `.agents/brain/` is committed; entire `.agents/brain/` is gitignored | Applies to **your local clone only** — your individual brain compounds; the team's doesn't | Solo, prototypes, or repos where memory syncs via a non-git system |
+| **`shared`** (default) | `docs/ops/{adrs,postmortems,runbooks,archive,architecture,audit-history,changesets}` + `.claude/repo-ops.toml` (`cache/` + `cold-start/working/` always gitignored) | Applies to the team — artifacts compound across contributors | Most repos with >1 contributor |
+| **`local-only`** | Nothing in `docs/ops/` is committed; entire `docs/ops/` is gitignored | Applies to **your local clone only** — your individual brain compounds; the team's doesn't | Solo, prototypes, or repos where memory syncs via a non-git system |
 
-Configure in `.agents/brain/config.toml`:
+Configure in `.claude/repo-ops.toml`:
 
 ```toml
 [repo-ops.git-sync]
@@ -146,15 +146,15 @@ Default is `shared` — when omitted, behavior is identical to v1.5.0.
 
 When `mode = "local-only"`:
 
-- `.gitignore` should include `.agents/brain/` at the top (greenfield adds this automatically when configured).
-- Every contributor maintains their own `.agents/brain/`. Your ADRs are not your teammate's ADRs.
+- `.gitignore` should include `docs/ops/` at the top (greenfield adds this automatically when configured).
+- Every contributor maintains their own `docs/ops/`. Your ADRs are not your teammate's ADRs.
 - The **auto-archive PR workflow is disabled** (no PRs because nothing is tracked).
 - The audit-history-ledger remains useful as a _local_ diagnostic but is not a SOC2-grade shared trail.
 - The `concurrent-learnings-merge.md` recipe is irrelevant (no shared brain to merge into).
 - The `cold-start-harvest.md` recipe is irrelevant (no shared brain to import into).
 - Promise 5 still applies — but to _you_, not the team.
 
-Switching `local-only` → `shared` later: remove `.agents/brain/` from `.gitignore`, set `mode = "shared"`, then `git add .agents/brain/` to stage what you've accumulated. The reverse direction (`shared` → `local-only`) requires deciding what to do with already-committed artifacts (typically: leave them committed for history; new artifacts go local).
+Switching `local-only` → `shared` later: remove `docs/ops/` from `.gitignore`, set `mode = "shared"`, then `git add docs/ops/` to stage what you've accumulated. The reverse direction (`shared` → `local-only`) requires deciding what to do with already-committed artifacts (typically: leave them committed for history; new artifacts go local).
 
 ### Granular per-subdir sync (advanced)
 
@@ -171,8 +171,8 @@ runbooks = true
 archive = true
 architecture = true
 changesets = true
-config = true            # config.toml itself
 audit-history = false    # opt out of committing audit-history; stays local
+# (the strictness config lives in .claude/repo-ops.toml, always committed)
 ```
 
 Defaults match the `shared` mode table above. The audit warns if a subdir is gitignored when the chosen mode says it should be committed (or vice versa).
@@ -188,13 +188,13 @@ Strictness controls _how loud_ the audit/hooks are. Git-sync controls _where the
 
 ## How the audit honors the dial
 
-When the audit runs, it loads `.agents/brain/config.toml` and threshold-routes every check. Findings include the dial position they were evaluated against:
+When the audit runs, it loads `.claude/repo-ops.toml` and threshold-routes every check. Findings include the dial position they were evaluated against:
 
 ```markdown
 - **DRIFT — CLAUDE.md vs AGENTS.md** (severity: critical, evaluated at strictness=strict)
   - At `lax`: would have been a warning.
   - At `normal`: would have failed pre-commit.
-  - At `strict`: requires symlink. Recommended fix: `ln -s AGENTS.md CLAUDE.md`.
+  - At `strict`: requires symlink. Recommended fix: `ln -s CLAUDE.md AGENTS.md`.
 ```
 
 This makes the dial _visible_, not just operative — when a finding fires, the team can see whether re-tuning the dial is the right answer or fixing the issue is.

@@ -44,7 +44,7 @@ TOOLS = [
      "description": "Return the markdown heading outline of one memory document. `path` is relative to the configured root.",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
     {"name": "read_audit_ledger",
-     "description": "Read the repo's `.agents/brain/audit-history/` ledger if present — the newest-first trend-table README plus the list of audit records. The agent-ops self-healing signal.",
+     "description": "Read the repo's `docs/ops/audit-history/` (or legacy `.agents/brain/audit-history/`) ledger if present — the newest-first trend-table README plus the list of audit records. The agent-ops self-healing signal.",
      "inputSchema": {"type": "object", "properties": {}}},
 ]
 
@@ -123,16 +123,22 @@ def call(name, args):
         heads = [ln.rstrip() for ln in text.splitlines() if ln.lstrip().startswith("#")]
         return ("Outline:\n" + ("\n".join(heads) if heads else "  (no headings)"), False)
     if name == "read_audit_ledger":
-        ldir = _safe(os.path.join(".agents/brain", "audit-history"))
-        if not ldir or not os.path.isdir(ldir):
-            return ("read_audit_ledger: no `.agents/brain/audit-history/` ledger found in this repo.", False)
+        # Claude-native ledger first; legacy/opt-in .agents/brain/ as fallback.
+        ldir = rel_used = None
+        for rel in ("docs/ops/audit-history", ".agents/brain/audit-history"):
+            cand = _safe(rel)
+            if cand and os.path.isdir(cand):
+                ldir, rel_used = cand, rel
+                break
+        if not ldir:
+            return ("read_audit_ledger: no `docs/ops/audit-history/` (or legacy `.agents/brain/audit-history/`) ledger found in this repo.", False)
         parts = []
         readme = os.path.join(ldir, "README.md")
         if os.path.isfile(readme):
             raw = open(readme, encoding="utf-8", errors="replace").read()
             parts.append(raw[:12000] + ("\n…[truncated]" if len(raw) > 12000 else ""))
         records = sorted(f for f in os.listdir(ldir) if f.endswith(".json"))
-        parts.append(f"\nLedger records ({len(records)}):\n" + ("\n".join(f"  .agents/brain/audit-history/{r}" for r in records[:60]) or "  (none)"))
+        parts.append(f"\nLedger records ({len(records)}):\n" + ("\n".join(f"  {rel_used}/{r}" for r in records[:60]) or "  (none)"))
         return ("\n".join(parts), False)
     return (f"unknown tool: {name}", True)
 

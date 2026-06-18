@@ -15,7 +15,9 @@ primary_sources:
 status: research-verified
 ---
 
-# AGENTS.md — the canonical entry-file standard
+# AGENTS.md — the cross-tool entry-file standard (opt-in)
+
+> **Opt-in in this skill.** repo-ops is **Claude-native by default**: `CLAUDE.md` is the canonical entry (Claude Code reads it natively). `AGENTS.md` is the **cross-tool standard** you adopt when the repo also serves Codex / Devin / Cursor / Windsurf / Copilot — *only when prompted*. Two ways to adopt it: **(a) Claude-native + cross-tool** — keep `CLAUDE.md` canonical and add a thin `AGENTS.md` that points to it (`ln -s CLAUDE.md AGENTS.md`), the recommended path when Claude Code is in the mix (see `claude-md-convention.md`); or **(b) AGENTS.md-canonical** — a Codex/Devin-first repo with no Claude Code, where `AGENTS.md` itself carries the instructions (the fat structure below). This page documents the standard for both.
 
 ## What AGENTS.md is
 
@@ -61,23 +63,23 @@ pnpm build
 ## Trust boundaries
 
 - DO NOT modify: `db/migrations/`, `legal/`, `LICENSE`
-- DO modify: `src/`, `tests/`, `.agents/brain/` (with care for ADRs)
+- DO modify: `src/`, `tests/`, `docs/ops/` (with care for ADRs)
 
 ## Where to find things
 
 - **Architecture:** `ARCHITECTURE.md`
-- **Active plan:** `.agents/brain/PLAN.md`
-- **Roadmap:** `.agents/brain/ROADMAP.md`
-- **Architecture Decision Records:** `.agents/brain/adrs/` (see also `.agents/brain/adrs/README.md` for the index)
-- **Post-mortems:** `.agents/brain/postmortems/`
-- **Runbooks:** `.agents/brain/runbooks/`
+- **Active plan:** `docs/ops/PLAN.md`
+- **Roadmap:** `docs/ops/ROADMAP.md`
+- **Architecture Decision Records:** `docs/ops/adrs/` (see also `docs/ops/adrs/README.md` for the index)
+- **Post-mortems:** `docs/ops/postmortems/`
+- **Runbooks:** `docs/ops/runbooks/`
 - **Released changes:** `CHANGELOG.md`
 - **Contributor guide:** `CONTRIBUTING.md`
 
 ## Memory primitives
 
-- **Before making architectural decisions**, read `.agents/brain/adrs/` newest-first.
-- **When debugging a production issue**, search `.agents/brain/postmortems/`.
+- **Before making architectural decisions**, read `docs/ops/adrs/` newest-first.
+- **When debugging a production issue**, search `docs/ops/postmortems/`.
 
 ````
 
@@ -99,16 +101,19 @@ The "Where to find things" section is **load-bearing for navigation** even if no
 | **goose, Factory, Kilo, Antigravity, OpenClaw** | **Yes** | All listed on agents.md adopters page |
 | **Aider** | Configurable via `--read CONVENTIONS.md` | Default is `CONVENTIONS.md`, AGENTS.md only via config |
 | **Continue.dev** | **Not yet** | Issue #6716 open |
-| **Claude Code** (Anthropic) | **NOT natively as of April 2026** | Issue [#31005](https://github.com/anthropics/claude-code/issues/31005) — workaround: symlink `ln -s AGENTS.md CLAUDE.md` or thin pointer file |
+| **Claude Code** (Anthropic) | **NOT natively as of April 2026** | Issue [#31005](https://github.com/anthropics/claude-code/issues/31005). Claude-native: keep `CLAUDE.md` canonical and point `AGENTS.md` at it (`ln -s CLAUDE.md AGENTS.md`); AGENTS.md-first repo: the reverse |
 
-## Why AGENTS.md vs CLAUDE.md / .cursorrules / .windsurfrules
+## One source of truth + thin pointers (whichever file is canonical)
+
+The invariant is **one canonical entry file, every other agent-rules file a thin pointer/symlink to it** — never N divergent copies. Which file is canonical depends on the repo:
 
 | Approach | Problem |
 | --- | --- |
-| `CLAUDE.md` only | Codex / Devin / Cursor / Windsurf / Copilot don't read it natively. Drift between tools. |
+| `CLAUDE.md` only (no pointers) | Codex / Devin / Cursor / Windsurf / Copilot don't read it natively. Cross-tool repos drift. |
 | `.cursorrules` only | Other tools don't read it. Same problem inverted. |
-| One file per tool | N copies of the same content, guaranteed to drift over time. |
-| **`AGENTS.md` + thin pointers/symlinks** | One source of truth; tool-specific files are 3-line redirects (or symlinks). |
+| One fat file per tool | N copies of the same content, guaranteed to drift over time. |
+| **Claude-native (default): `CLAUDE.md` canonical + thin `AGENTS.md`/tool pointers** | One source of truth; Claude Code reads it natively; cross-tool files are 3-line redirects (or `ln -s CLAUDE.md AGENTS.md`). |
+| **AGENTS.md-canonical (no Claude Code): `AGENTS.md` + thin pointers** | One source of truth for a Codex/Devin-first repo; tool-specific files redirect to `AGENTS.md`. |
 
 ## Audit checks for AGENTS.md
 
@@ -116,10 +121,10 @@ When auditing a repo:
 
 1. **Existence** — does `AGENTS.md` exist at the repo root?
 2. **Recommended sections present** — project overview, build/test/run, conventions, trust boundaries, where-to-find-things, memory primitives. (None are spec-mandated; all are recommended for navigability.)
-3. **Pointer integrity** — does each `.agents/brain/...` reference point to a real path?
+3. **Pointer integrity** — does each `docs/ops/...` reference point to a real path?
 4. **Freshness** — `_Last reviewed:_` line or YAML frontmatter `date:` present?
-5. **Other entry files are thin pointers or symlinks** — if `CLAUDE.md` / `.cursorrules` / `.windsurfrules` exist, they should redirect to (or symlink to) `AGENTS.md`, not duplicate content. See `claude-md-convention.md`.
-6. **Length** — under ~200 lines is the ergonomic target (per Anthropic's own CLAUDE.md guidance, which ports cleanly to AGENTS.md). Long instructions degrade adherence; push detail into `.agents/brain/` subfolders.
+5. **One canonical entry; all others thin pointers/symlinks** — never two fat copies. **Claude-native default:** `CLAUDE.md` is canonical and `AGENTS.md` / `.cursorrules` / `.windsurfrules` redirect to it. **AGENTS.md-canonical repo (no Claude Code):** the reverse. Either way, a divergent second fat copy is drift. See `claude-md-convention.md`.
+6. **Length** — under ~200 lines is the ergonomic target (per Anthropic's own CLAUDE.md guidance, which ports cleanly to AGENTS.md). Long instructions degrade adherence; push detail into `docs/ops/` subfolders.
 
 ## Common anti-patterns
 

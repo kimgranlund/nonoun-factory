@@ -1,5 +1,5 @@
 ---
-description: Audit / set up / maintain the repo's docs & memory surface — AGENTS.md, README, CHANGELOG, ROADMAP, ADRs — for drift, staleness, orphans, and house-cleaning.
+description: Audit / set up / maintain the repo's docs & memory surface — CLAUDE.md, README, CHANGELOG, ROADMAP, ADRs (Claude-native; AGENTS.md opt-in) — for drift, staleness, orphans, and house-cleaning.
 argument-hint: "[repo path, or \"audit my docs\"]"
 ---
 
