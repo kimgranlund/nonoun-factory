@@ -418,6 +418,14 @@ df-app[data-theme="dark"]  { color-scheme: dark; }
 .app-header .brand { font-weight: 680; letter-spacing: -0.01em; display: inline-flex; align-items: center; gap: 0.4rem; white-space: nowrap; }
 .app-header .brand .dia { color: var(--accent); }
 .app-header .docname { font: 600 12px/1 var(--mono); color: var(--muted); background: var(--surface-sunken); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.35rem 0.55rem; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-header .project-select { font: 600 12px/1 var(--mono); color: var(--text); background: var(--surface-sunken); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.32rem 0.5rem; max-width: 190px; cursor: pointer; }
+.app-header .project-select:hover { border-color: var(--accent); }
+.app-header .project-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Preview / View Build — the iframe fills a tall, fixed area (viewport minus the header/canvas/footer chrome) so
+   it reads as a real app surface even though the scrolling canvas-area has no fixed child height. */
+df-preview { display: block; }
+.preview-frame { margin-top: 0.3rem; height: calc(100vh - 212px); min-height: 360px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #fff; }
+.preview-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
 .icon-btn { appearance: none; border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: var(--radius-sm); padding: 0.3rem 0.5rem; cursor: pointer; font-size: 14px; line-height: 1; }
 .icon-btn:hover { background: var(--surface-sunken); color: var(--fg); }
 .app-header .theme-toggle { font-size: 15px; }
@@ -524,3 +532,16 @@ df-app[data-theme="dark"]  { color-scheme: dark; }
   .shell { grid-template-columns: minmax(0, 1fr); grid-template-areas: "header" "center" "footer"; }
   .left-pane, .right-pane { display: none; }
 }
+
+/* inline readiness error in the create-ticket modal (mirrors gate_ticket_ready — no stuck draft + late 409) */
+.ct-error { margin: 0.1rem 0 0.2rem; padding: 0 0.1rem; font-size: 12px; line-height: 1.45;
+  color: light-dark(oklch(0.5 var(--chroma-vivid) var(--hue-danger)), oklch(0.74 var(--chroma-vivid) var(--hue-danger))); }
+.ct-error:empty { display: none; }
+
+/* per-card Triage action on untriaged intake (prompt/issue) — bind it so it can move to Active */
+.card .meta .id { margin-left: auto; }          /* demote the id to a muted right-aligned token in the existing flex meta row */
+.card.intake { cursor: default; }               /* not draggable — the Triage button is the only forward path */
+.card-foot { margin-top: 0.55rem; padding-top: 0.45rem; border-top: 1px solid var(--border-soft); }  /* a separated action slot */
+.triage-btn { font: 11px/1 var(--mono, ui-monospace, monospace); padding: 0.32rem 0.55rem; border-radius: var(--radius-sm);
+  cursor: pointer; border: 1px solid var(--border); background: var(--accent-soft); color: var(--accent); }
+.triage-btn:hover { border-color: var(--accent); }

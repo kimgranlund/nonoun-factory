@@ -136,6 +136,7 @@ const store = {
   factory: signal(null),        // UI-3: the factory-state headline from /api/status.factory (idle/running/armed/paused)
   milestones: signal(null),     // build-progress rollup from /api/status.milestones (SPEC · CAPABILITY · SHIP + spec revisions)
   adapter: signal("mock"),      // the dispatch adapter — "mock" (free) or "headless" (LIVE, spends tokens)
+  project: signal(null),        // /api/project — { project, current, projects[], has_entry, entry } — header selector + Preview tab
   guidance: signal({ items: [] }),  // the 5s operator-input buffer (run/guidance.json), streamed on the "guidance" event
   tokens: signal([]),           // the token-burn timeseries (15s snapshots), streamed on the "tokens" event
   clock: signal(Date.now()),    // a 1s tick driving live elapsed timers (no server round-trip)
@@ -183,6 +184,7 @@ async function loadAll() {
     ["agents", "/api/agents/running"],   // future — 404 is fine
     ["guidance", "/api/guidance"],       // the 5s operator-input buffer
     ["tokens", "/api/tokens"],           // the token-burn timeseries
+    ["project", "/api/project"],         // the project this factory builds — header selector + Preview tab
   ];
   await Promise.all(tries.map(async ([key, path]) => {
     try { store[key].value = await jget(path); }
@@ -322,6 +324,7 @@ const CANVAS_MODES = [
   { id: "roadmap", label: "Roadmap", icon: "⌖", tag: "df-roadmap", graph: true },
   { id: "agents",  label: "Agents",  icon: "◉", tag: "df-monitor", graph: false },
   { id: "ledger",  label: "Ledger",  icon: "≣", tag: "df-ledger",  graph: false },
+  { id: "preview", label: "Preview", icon: "▶", tag: "df-preview", graph: false },
 ];
 const MODE_BY_ID = Object.fromEntries(CANVAS_MODES.map((m) => [m.id, m]));
 
@@ -332,6 +335,7 @@ const SHELL_HTML = (() => {
     <div class="shell">
       <header class="app-header">
         <div class="brand"><span class="dia" aria-hidden="true">◆</span> dev-factory</div>
+        <select class="project-select" aria-label="Project" title="the project this factory is building · switches between concurrent runs once supported"></select>
         <span class="docname" title="the build this factory is driving to SHIPPED">—</span>
         <div class="milestones" title="build milestones — where the build is, and whether it shipped"></div>
         <span class="spacer"></span>
@@ -424,6 +428,28 @@ class DfApp extends UIElement {
       const spec = cells.find((c) => c.layer === "spec" && !String(c.slug).endsWith("-prd")) || cells.find((c) => c.layer === "spec");
       dn.textContent = spec ? spec.slug : (cells.length ? "build" : "—");
     }
+    // project selector — which project this factory is building. One server per instance today, so it is an
+    // INDICATOR (single option); the options + onchange are pre-shaped so the multi-run switcher is a drop-in.
+    const psel = this.querySelector(".project-select");
+    const proj = store.project.value;
+    if (psel && proj) {
+      const cur = proj.current || proj.project;
+      const list = (proj.projects && proj.projects.length) ? proj.projects : [cur];
+      const opts = list.map((p) => `<option value="${escapeHtml(p)}"${p === cur ? " selected" : ""}>${escapeHtml(p)}</option>`).join("");
+      if (psel._opts !== opts) { psel.innerHTML = opts; psel._opts = opts; }
+      psel.value = cur;
+      if (!psel._wired) {
+        psel._wired = true;
+        psel.onchange = () => {
+          const next = psel.value, p = store.project.peek() || {};
+          const c = p.current || p.project;
+          if (next === c) return;
+          // switching between concurrent runs is the forward-looking feature; today it is one server per instance.
+          toast("Single-project mode", `Switching to another run isn't wired yet. Point DEV_FACTORY_DIR at src/${next}/.factory and restart to drive “${next}”.`, "err");
+          psel.value = c;
+        };
+      }
+    }
     // factory-state headline (UI-3) — the WORK state the socket dot does not tell you
     const fs = store.factory.value;
     const fel = this.querySelector(".factory-state");
@@ -434,6 +460,7 @@ class DfApp extends UIElement {
           : fs.state === "paused" ? "heartbeat paused"
           : fs.state === "armed" ? `${fs.ready_to_dispatch} ready`
           : fs.state === "blocked" ? `${a} queued · deps unmet`
+          : fs.state === "awaiting-review" ? `${fs.awaiting_review ?? 0} awaiting your sign-off`
           : fs.state === "drained" ? "queue empty"
           : (a ? `${a} queued · heartbeat off` : "no work queued");
         fel.dataset.state = fs.state;
@@ -752,6 +779,11 @@ class DfKanban extends UIElement {
       (b.onclick = () => (store.modal.value = { kind: "create-ticket", state: b.dataset.add })));
     body.querySelectorAll(".card").forEach((c) =>
       (c.onclick = (e) => { if (!c.dataset.grabbing) selectInspector("ticket", c.dataset.id); }));
+    // per-card Triage: open the binding form for an untriaged intake (prompt/issue) so it can move to Active
+    body.querySelectorAll("[data-triage]").forEach((b) =>
+      (b.onclick = (e) => { e.stopPropagation();
+        const t = store.tickets.value.find((x) => x.id === b.dataset.triage);
+        store.modal.value = { kind: "create-ticket", mode: "structured", triageId: b.dataset.triage, title: (t && t.title) || "" }; }));
   }
 
   #column(state, items) {
@@ -769,21 +801,27 @@ class DfKanban extends UIElement {
   }
 
   #card(t) {
-    const h = hueFor(t.state);
     const frac = budgetFrac(t);
+    // untriaged intake (prompt/issue, no cell) can't be dragged to Active — the Triage button is its ONLY forward
+    // path, so don't offer the drag/keyboard "move me" gesture that would just dead-end at a refusal.
+    const intake = t.state === "draft" && !t.target_cell && (t.type === "prompt" || t.type === "issue");
     return html`
-      <article class="card" tabindex="0" role="button" aria-roledescription="draggable ticket"
-        draggable="true" data-id="${t.id}" data-state="${t.state}" aria-grabbed="false"
-        aria-label="${t.title || t.id}, state ${t.state}. Press space to pick up, then arrow keys to move.">
+      <article class="card${intake ? " intake" : ""}" tabindex="0" role="button"
+        aria-roledescription="${intake ? "untriaged intake" : "draggable ticket"}"
+        draggable="${intake ? "false" : "true"}" data-id="${t.id}" data-state="${t.state}" data-intake="${intake ? "1" : ""}" aria-grabbed="false"
+        aria-label="${t.title || t.id}, state ${t.state}.${intake ? " Untriaged — use the Triage button to bind it." : " Press space to pick up, then arrow keys to move."}">
         <div class="title">${t.title || raw("<em>untitled</em>")}</div>
         <div class="meta">
           ${raw(chip(t.type || "task", "h-neutral"))}
           ${t.target_cell ? html`<span class="cell">${t.target_cell}</span>` : ""}
+          <span class="id">${shortId(t.id)}${t.claim_worker ? " · " + t.claim_worker : ""}</span>
         </div>
         ${t.from_maturity && t.to_maturity ? html`<div class="cell" style="margin-top:.25rem">${t.from_maturity} → ${t.to_maturity}</div>` : ""}
         ${frac > 0 ? html`<div class="budget ${frac > 0.85 ? "hot" : frac > 0.6 ? "warn" : ""}"><span style="width:${Math.round(frac * 100)}%"></span></div>` : ""}
-        <div class="id">${shortId(t.id)}${t.claim_worker ? " · " + t.claim_worker : ""}</div>
-        <div class="move-hint">Use ← → to move · Enter to drop · Esc to cancel</div>
+        ${intake
+          ? html`<div class="card-foot"><button class="triage-btn" type="button" draggable="false" data-triage="${t.id}"
+              title="Bind this intake to a target cell + a validated rubric so it can move to Active">Triage →</button></div>`
+          : html`<div class="move-hint">← → move · Enter drop · Esc cancel</div>`}
       </article>`;
   }
 
@@ -811,6 +849,7 @@ class DfKanban extends UIElement {
   }
 
   #cardKey(e, card, board) {
+    if (card.dataset.intake) return;   // untriaged intake isn't keyboard-movable — Triage to bind it first
     const grabbed = card.getAttribute("aria-grabbed") === "true";
     if (e.key === " " || (e.key === "Enter" && !grabbed)) {
       e.preventDefault();
@@ -1022,6 +1061,37 @@ class DfLedger extends UIElement {
   }
 }
 customElements.define("df-ledger", DfLedger);
+
+// Preview / View Build — loads the BUILT app directly, served live from the clean product tree (src/<project>/)
+// by the dev-server's /preview route (never the .factory/ state). The iframe is built ONCE in connected() so it
+// is not reloaded on every data tick; only the head text reacts to the project signal. When no index.html exists
+// yet, /preview/ serves a placeholder listing the built files — so the tab is never a blank 404.
+class DfPreview extends UIElement {
+  connected() {
+    this.innerHTML = html`
+      <div class="view-head">
+        <h2>Preview <span class="pv-name"></span></h2>
+        <span class="sub pv-sub"></span>
+        <span class="spacer"></span>
+        <button class="icon-btn" data-pv-reload title="Reload the preview">⟲</button>
+        <a class="icon-btn" href="/preview/" target="_blank" rel="noopener" title="Open the built app in a new tab">↗</a>
+      </div>
+      <div class="preview-frame"><iframe class="pv-frame" title="build preview" src="/preview/"></iframe></div>`;
+    const btn = this.querySelector("[data-pv-reload]");
+    if (btn) btn.onclick = () => { const f = this.querySelector(".pv-frame"); if (f) f.src = `/preview/?t=${Date.now()}`; };
+  }
+  render() {
+    const p = store.project.value || {};
+    const name = p.project || "—";
+    const nm = this.querySelector(".pv-name");
+    if (nm) nm.textContent = `· ${name}`;
+    const sub = this.querySelector(".pv-sub");
+    if (sub) sub.innerHTML = p.has_entry
+      ? `the built app, served live from <code>src/${escapeHtml(name)}/</code> — never the <code>.factory/</code> state`
+      : `no bootable <code>index.html</code> in this build yet — the served page lists the built files · from <code>src/${escapeHtml(name)}/</code>, never <code>.factory/</code>`;
+  }
+}
+customElements.define("df-preview", DfPreview);
 
 // ═══════════════════ VIEW 4 · Agent monitor ═══════════════════
 class DfMonitor extends UIElement {
@@ -1298,6 +1368,24 @@ class DfPanel extends UIElement {
 }
 customElements.define("df-panel", DfPanel);
 
+// Build <optgroup>/<option> markup for a cell-picker <select>, populated from the live lattice so the operator
+// chooses a real cell address (and sees its current maturity) instead of typing `layer.scope.slug` from memory.
+// `filter` narrows the set (e.g. only validated rubric cells); `empty` is the placeholder shown when nothing
+// matches — a disabled option that says WHY it is empty beats a silently blank menu.
+function cellOptions(cells, { filter = null, empty = "— no matching cells —" } = {}) {
+  const idOf = (c) => c.id || `${c.layer}.${c.scope}.${c.slug}`;
+  const layerOf = (c) => c.layer || idOf(c).split(".")[0];
+  const shortOf = (c) => (c.scope && c.slug ? `${c.scope}.${c.slug}` : idOf(c));
+  const list = (cells || []).filter((c) => (filter ? filter(c) : true));
+  if (!list.length) return `<option value="" disabled selected>${escapeHtml(empty)}</option>`;
+  const byLayer = new Map();
+  for (const c of list) { const L = layerOf(c); if (!byLayer.has(L)) byLayer.set(L, []); byLayer.get(L).push(c); }
+  const groups = [...byLayer.entries()].map(([L, cs]) =>
+    `<optgroup label="${escapeHtml(L)}">${cs.map((c) =>
+      `<option value="${escapeHtml(idOf(c))}">${escapeHtml(shortOf(c))} · ${escapeHtml(c.maturity || "absent")}</option>`).join("")}</optgroup>`).join("");
+  return `<option value=""></option>${groups}`;
+}
+
 // ═══════════════════ OVERLAY · create-ticket modal ═══════════════════
 class DfModal extends UIElement {
   connected() {
@@ -1309,13 +1397,15 @@ class DfModal extends UIElement {
   static template = () => {
     const m = store.modal.value;
     if (!m) return "";
-    const mode = m.mode || "structured";
+    const triage = !!m.triageId;                                   // triage mode: bind an existing intake, no new ticket
+    const mode = triage ? "structured" : (m.mode || "structured");
     const tab = (id, label) => `<button type="button" data-mode="${id}" aria-pressed="${mode === id}">${label}</button>`;
     const structured = html`
       <div class="field"><div class="row">
         <div class="field"><label for="ct-type">Type</label>
           <select id="ct-type" name="type">${raw(["feature", "task", "bug", "chore", "spike", "epic", "issue"].map((x) => `<option>${x}</option>`).join(""))}</select></div>
-        <div class="field"><label for="ct-cell">Target cell</label><input id="ct-cell" name="target_cell" class="mono" placeholder="layer.scope.slug" autocomplete="off" /></div>
+        <div class="field"><label for="ct-cell">Target cell</label>
+          <select id="ct-cell" name="target_cell" class="mono">${raw(cellOptions(store.lattice.peek()))}</select></div>
       </div></div>
       <div class="field"><div class="row">
         <div class="field"><label for="ct-from">From maturity</label>
@@ -1323,7 +1413,11 @@ class DfModal extends UIElement {
         <div class="field"><label for="ct-to">To maturity</label>
           <select id="ct-to" name="to"><option value=""></option>${raw(MATURITIES.map((x) => `<option>${x}</option>`).join(""))}</select></div>
       </div></div>
-      <div class="field"><label for="ct-rubric">Acceptance rubric cell</label><input id="ct-rubric" name="rubric" class="mono" placeholder="rubric.scope.slug" autocomplete="off" /></div>
+      <div class="field"><label for="ct-rubric">Acceptance rubric cell</label>
+        <select id="ct-rubric" name="rubric" class="mono">${raw(cellOptions(store.lattice.peek(), {
+          filter: (c) => c.layer === "rubric" && ["validated", "operating"].includes(c.maturity),
+          empty: "no validated rubric cells yet — get a rubric cell to validated first",
+        }))}</select></div>
       <div class="field"><label for="ct-body">Body</label><textarea id="ct-body" name="body" rows="3"></textarea></div>`;
     const prompt = html`
       <p class="modal-hint">A free-form brief. The cold-start planner triages it into a spec, hydrated lattice cells, and structured build tickets.</p>
@@ -1334,19 +1428,22 @@ class DfModal extends UIElement {
       <div class="field"><label for="ct-body">Instruction</label><textarea id="ct-body" name="body" rows="6" required
         placeholder="e.g. Use a standard 52-card deck; cap the leaderboard at the top 10."></textarea></div>`;
     const titleLabel = mode === "structured" ? "Title" : mode === "prompt" ? "Prompt title" : "Instruction title";
-    const heading = mode === "structured" ? "ticket" : mode;
+    const heading = triage ? "Triage intake" : `New ${mode === "structured" ? "ticket" : mode}`;
     return html`
-      <div class="modal" role="dialog" aria-modal="true" aria-label="Create intake">
+      <div class="modal" role="dialog" aria-modal="true" aria-label="${triage ? "Triage intake" : "Create intake"}">
         <div class="sheet">
-          <header><h3>New ${heading}${m.state && m.state !== "draft" && mode === "structured" ? html` <span style="color:var(--faint);font-weight:400">(will request → ${m.state})</span>` : ""}</h3></header>
-          <div class="seg modal-tabs" role="group" aria-label="Intake mode">${raw(tab("structured", "Structured") + tab("prompt", "Prompt") + tab("instruction", "Instruction"))}</div>
+          <header><h3>${heading}${triage
+            ? html` <span style="color:var(--faint);font-weight:400">→ bind it so it can move to Active</span>`
+            : (m.state && m.state !== "draft" && mode === "structured" ? html` <span style="color:var(--faint);font-weight:400">(will request → ${m.state})</span>` : "")}</h3></header>
+          ${triage ? "" : html`<div class="seg modal-tabs" role="group" aria-label="Intake mode">${raw(tab("structured", "Structured") + tab("prompt", "Prompt") + tab("instruction", "Instruction"))}</div>`}
           <form id="ct-form">
-            <div class="field"><label for="ct-title">${titleLabel}</label><input id="ct-title" name="title" required autocomplete="off" /></div>
+            <div class="field"><label for="ct-title">${titleLabel}</label><input id="ct-title" name="title" required autocomplete="off"${triage ? " readonly" : ""} /></div>
             ${mode === "prompt" ? prompt : mode === "instruction" ? instruction : structured}
           </form>
+          <div class="ct-error" role="alert" aria-live="polite"></div>
           <div class="actions">
             <button class="btn ghost" data-cancel>Cancel</button>
-            <button class="btn primary" data-submit>${mode === "structured" ? "Create ticket" : mode === "prompt" ? "Create prompt" : "Create instruction"}</button>
+            <button class="btn primary" data-submit>${triage ? "Triage & bind" : (mode === "structured" ? "Create ticket" : mode === "prompt" ? "Create prompt" : "Create instruction")}</button>
           </div>
         </div>
       </div>`;
@@ -1357,20 +1454,75 @@ class DfModal extends UIElement {
     // tab switch: change the mode on the modal signal (re-renders the form for that intake mode)
     this.querySelectorAll(".modal-tabs [data-mode]").forEach((b) =>
       b.addEventListener("click", () => { store.modal.value = { ...store.modal.value, mode: b.dataset.mode }; }));
-    this.querySelector("#ct-title")?.focus();
+    const m = store.modal.value || {};
+    const titleEl = this.querySelector("#ct-title");
+    if (m.triageId && titleEl) titleEl.value = m.title || "";          // pre-fill (read-only) the intake's own title
+    (m.triageId ? this.querySelector("#ct-cell") : titleEl)?.focus();  // triage: jump straight to the binding field
     const form = this.querySelector("#ct-form");
     form?.addEventListener("submit", (e) => { e.preventDefault(); this.#submit(); });
+    // Picking a target cell fixes "From maturity" to that cell's current state — the gate requires from == the
+    // cell's maturity, and the operator can't be expected to know it. Still overridable afterward.
+    const cellSel = this.querySelector("#ct-cell"), fromSel = this.querySelector("#ct-from");
+    if (cellSel && fromSel) {
+      const syncFrom = () => {
+        const c = (store.lattice.peek() || []).find((x) => (x.id || `${x.layer}.${x.scope}.${x.slug}`) === cellSel.value);
+        if (c && c.maturity) fromSel.value = c.maturity;
+      };
+      cellSel.addEventListener("change", syncFrom);
+      if (cellSel.value) syncFrom();
+    }
+  }
+  // Mirror the server's gate_ticket_ready so the operator sees WHY a structured ticket can't go active up front —
+  // inline in the modal — instead of submitting a ticket that sticks in draft behind a later 409. Returns the
+  // reason string, or null when the bindings would pass the gate.
+  #whyNotReady(g, lattice) {
+    const find = (id) => lattice.find((c) => (c.id || `${c.layer}.${c.scope}.${c.slug}`) === id);
+    const tc = g("target_cell"), from = g("from"), to = g("to"), rb = g("rubric");
+    if (!tc) return "Set a Target cell — a structured ticket can’t go active without one.";
+    if (!find(tc)) return `Target cell “${tc}” isn’t in this lattice — check the id (layer.scope.slug).`;
+    if (!from || !to) return "Set both From and To maturity — the transition needs both ends.";
+    if (!rb) return "Set an Acceptance rubric cell — doneness must be a rubric, not prose.";
+    const r = find(rb);
+    if (!r) return `Rubric cell “${rb}” isn’t in this lattice.`;
+    if (!["validated", "operating"].includes(r.maturity))
+      return `Rubric “${rb}” isn’t validated yet (it’s ${r.maturity || "absent"}) — get that rubric cell to validated before a ticket can start against it.`;
+    return null;
   }
   async #submit() {
     const f = this.querySelector("#ct-form");
     if (!f.reportValidity()) return;
+    const errEl = this.querySelector(".ct-error");
+    if (errEl) errEl.textContent = "";
     const g = (n) => f.elements[n]?.value?.trim() || "";
-    const mode = store.modal.value?.mode || "structured";
+    const m = store.modal.value || {};
+    // TRIAGE: bind an existing untriaged intake (prompt/issue) into a structured ticket — no new ticket created.
+    if (m.triageId) {
+      const why = this.#whyNotReady(g, store.lattice.value || []);
+      if (why) { if (errEl) errEl.textContent = why; return; }
+      const res = await jsend("POST", `/api/issues/${m.triageId}/triage`, {
+        type: g("type") || "task", target_cell: g("target_cell"),
+        target_transition: { from: g("from"), to: g("to") }, acceptance: { rubric_cell: g("rubric") },
+      });
+      if (!res.ok) { if (errEl) errEl.textContent = (res.data && (res.data.detail || res.data.reason)) || `Triage failed (HTTP ${res.status})`; return; }
+      if (res.data) upsertTicket(res.data);
+      this.#close();
+      toast("Triaged", `${shortId(m.triageId)} → ${g("target_cell")} · now draggable to Active`, "ok");
+      refreshLedger();
+      return;
+    }
+    const mode = m.mode || "structured";
+    const target = m.state;
     let body;
     if (mode === "prompt" || mode === "instruction") {
       // free-form intake: no cell — a prompt parks for the planner, an instruction folds into guidance (server-side)
       body = { type: mode, title: g("title"), body: g("body"), created_by: "human" };
     } else {
+      // a structured "+" on a non-draft column will request → active; pre-validate against the readiness gate so
+      // the failure is an inline form error here, not a stuck draft + a 409 a moment later.
+      if (target && target !== "draft") {
+        const why = this.#whyNotReady(g, store.lattice.value || []);
+        if (why) { if (errEl) errEl.textContent = why; return; }
+      }
       body = { type: g("type") || "task", title: g("title"), body: g("body"), created_by: "human" };
       if (g("target_cell")) body.target_cell = g("target_cell");
       if (g("from") || g("to")) body.target_transition = { from: g("from"), to: g("to") };
@@ -1380,8 +1532,7 @@ class DfModal extends UIElement {
     if (!res.ok) { toast("Create failed", res.data?.detail || `HTTP ${res.status}`, "err"); return; }
     const created = res.data;
     if (created) upsertTicket(created);
-    const target = store.modal.value?.state;
-    this.#close();
+    this.#close();   // `target` is already captured at the top of #submit (used below for the → active request)
     const label = mode === "structured" ? "Ticket" : mode === "prompt" ? "Prompt" : "Instruction";
     toast(`${label} created`, `${created?.id || ""}${mode === "structured" ? " · draft" : " · intake"}`, "ok");
     // a structured "+" on a non-draft column requests the transition toward it (the gate decides)

@@ -604,6 +604,14 @@ def dispatch_unit(d, ticket, adapter, actor, tier=1, repo_root=None, auto_valida
                 _api._store.rebuild(d)
                 return False, _api.get_ticket(d, tid), crit_msg
             _lc.save_ticket(d, rt)   # persist the cell's signal_refs mirror onto the ticket-of-record
+        # in-review at Tier 1 is awaiting-HUMAN acceptance, not a live worker. Drop the lease now that the
+        # worker has handed off and the critic has validated, so reconcile_leases (which keys off a still-present
+        # lease_expiry) cannot reap completed, sign-off-pending work back to `active` after LEASE_TTL_S — a stale
+        # lease must never outlive the worker that held it. A genuinely crashed dispatch leaves the lease set.
+        _rt = _api.get_ticket(d, tid)
+        if _rt.get("claim"):
+            _rt["claim"] = None
+            _lc.save_ticket(d, _rt)
         teardown_worktree(d, wt, repo_root)
         _api._store.rebuild(d)
         mark = "critic-validated; awaiting human sign-off" if to_mat in _lc.SIGNAL_BEARING else "awaiting human sign-off"
@@ -647,7 +655,12 @@ def dispatch_unit(d, ticket, adapter, actor, tier=1, repo_root=None, auto_valida
 def reconcile_leases(d, now=None):
     """Expire dead workers: a claimed/in-progress/in-review ticket whose lease has passed returns to `active`
     for re-dispatch (a worker that died mid-author OR mid-validation must not wedge the build). Idempotent — runs
-    each tick (§8.1, §15). in-review has no direct edge to active, so it steps through in-progress."""
+    each tick (§8.1, §15). in-review has no direct edge to active, so it steps through in-progress.
+
+    The lease is the discriminator: a CLEANLY-completed in-review ticket (worker handed off, critic validated,
+    awaiting human sign-off) has had its lease cleared at the in-review hand-off, so `not exp` skips it here — a
+    pending human approval is NOT a dead worker and must not be reaped. Only an in-review ticket still HOLDING a
+    lease (i.e. the process genuinely died mid-dispatch before clearing it) is presumed dead and re-queued."""
     now = now or _now()
     reclaimed = []
     for t in _api.list_tickets(d):
@@ -900,6 +913,26 @@ def selftest():
         reclaimed = reconcile_leases(d)
         expect(t2["id"] in reclaimed, "expired-lease ticket not reclaimed")
         expect(_api.get_ticket(d, t2["id"])["state"] == "active", "reclaimed ticket not returned to active")
+
+        # in-review awaiting HUMAN sign-off (Tier 1, auto_validate=False) must survive lease reconciliation:
+        # the worker handed off and the critic validated, so the lease is cleared at the in-review hand-off and
+        # reconcile_leases skips it (a pending human approval is not a dead worker). Regression for the reaper
+        # that bounced completed, critic-validated work back to `active` after LEASE_TTL_S.
+        _api.seed_cell(d, "spec", "task", "review", maturity="instantiated", asset_ref="spec/review.md")
+        open(os.path.join(d, "spec", "review.md"), "w").write("# review\n")
+        tr = _api.create_ticket(d, "feature", "awaiting sign-off", target_cell="spec.task.review",
+                                target_transition={"from": "instantiated", "to": "validated"},
+                                acceptance={"rubric_cell": "rubric.task.r"}, budget={"iterations": 2, "tokens": 50000})
+        _api.transition_ticket(d, tr["id"], "active", srv)
+        ok, ticket, msg = dispatch_unit(d, _api.get_ticket(d, tr["id"]), MockAdapter(), srv,
+                                        tier=1, repo_root=root, auto_validate=False)
+        expect(ok and ticket["state"] == "in-review", f"Tier-1 gated dispatch did not reach in-review: {msg}")
+        expect(_api.get_ticket(d, tr["id"]).get("claim") is None,
+               "lease not cleared at in-review hand-off — reconcile_leases would reap awaiting-human work")
+        reclaimed2 = reconcile_leases(d)
+        expect(tr["id"] not in reclaimed2, "in-review ticket awaiting human sign-off was wrongly reaped")
+        expect(_api.get_ticket(d, tr["id"])["state"] == "in-review",
+               "awaiting-human ticket bounced off in-review by the lease reaper")
 
         # retry-then-block: a worker failure RETRIES up to MAX_WORKER_ATTEMPTS (a transient hiccup self-recovers
         # instead of wedging the build); only a persistently-stuck cell blocks and drops from dispatch.

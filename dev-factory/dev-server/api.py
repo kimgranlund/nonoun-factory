@@ -404,11 +404,13 @@ def list_issues(d):
 
 def triage_issue(d, iss_id, new_type, target_cell, target_transition, acceptance,
                  budget=None, dependencies=None, priority=None):
-    """The ticket-triager's write: turn an untriaged issue into a well-formed ticket bound to a cell +
-    transition + a validated rubric. Server-applied; the result can then pass gate-ticket-ready."""
+    """The ticket-triager's write: turn an untriaged INTAKE (issue / prompt / instruction) into a well-formed
+    ticket bound to a cell + transition + a validated rubric. Server-applied; the result can then pass
+    gate-ticket-ready. (A prompt is normally hydrated by the cold-start planner, but an operator can also bind
+    it by hand — this is the path the dashboard's per-card Triage action uses.)"""
     t = get_ticket(d, iss_id)
-    if t is None or t.get("type") != "issue":
-        return None, "not an untriaged issue"
+    if t is None or t.get("type") not in ("issue", "prompt", "instruction"):
+        return None, "not an untriaged intake (issue / prompt / instruction)"
     t.update({"type": new_type, "target_cell": target_cell, "target_transition": target_transition, "acceptance": acceptance})
     if budget:
         t["budget"] = budget
