@@ -2,6 +2,14 @@
 
 All notable changes to **dev-kit-app** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.4.1] — 2026-06-18
+
+### Fixed
+
+- **render-check's headless DOM/host shim covers more standard browser surface** — found by dogfooding the gate on a real shader-playground shell. Added `replaceChildren`/`replaceWith`/`before`/`after`/`cloneNode`/`insertAdjacent*` to the element shim (a shell using the standard `replaceChildren` no longer trips the gate as "render path THREW"), and a **working in-memory `localStorage`/`sessionStorage`** (a faithful browser has it; an app that round-trips save→load now runs cleanly instead of emitting a caught-`ReferenceError` warning). New selftest case (3b) locks the coverage in. The focused shim still fails clearly on genuinely unsupported APIs — this only closes the gap on common, standard ones.
+
+plugin.json 0.4.0 → 0.4.1.
+
 ## [0.4.0] — 2026-06-18
 
 ### Added
