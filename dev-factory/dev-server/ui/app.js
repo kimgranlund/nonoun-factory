@@ -136,6 +136,7 @@ const store = {
   factory: signal(null),        // UI-3: the factory-state headline from /api/status.factory (idle/running/armed/paused)
   milestones: signal(null),     // build-progress rollup from /api/status.milestones (SPEC · CAPABILITY · SHIP + spec revisions)
   adapter: signal("mock"),      // the dispatch adapter — "mock" (free) or "headless" (LIVE, spends tokens)
+  project: signal(null),        // /api/project — { project, current, projects[], has_entry, entry } — header selector + Preview tab
   guidance: signal({ items: [] }),  // the 5s operator-input buffer (run/guidance.json), streamed on the "guidance" event
   tokens: signal([]),           // the token-burn timeseries (15s snapshots), streamed on the "tokens" event
   clock: signal(Date.now()),    // a 1s tick driving live elapsed timers (no server round-trip)
@@ -183,6 +184,7 @@ async function loadAll() {
     ["agents", "/api/agents/running"],   // future — 404 is fine
     ["guidance", "/api/guidance"],       // the 5s operator-input buffer
     ["tokens", "/api/tokens"],           // the token-burn timeseries
+    ["project", "/api/project"],         // the project this factory builds — header selector + Preview tab
   ];
   await Promise.all(tries.map(async ([key, path]) => {
     try { store[key].value = await jget(path); }
@@ -322,6 +324,7 @@ const CANVAS_MODES = [
   { id: "roadmap", label: "Roadmap", icon: "⌖", tag: "df-roadmap", graph: true },
   { id: "agents",  label: "Agents",  icon: "◉", tag: "df-monitor", graph: false },
   { id: "ledger",  label: "Ledger",  icon: "≣", tag: "df-ledger",  graph: false },
+  { id: "preview", label: "Preview", icon: "▶", tag: "df-preview", graph: false },
 ];
 const MODE_BY_ID = Object.fromEntries(CANVAS_MODES.map((m) => [m.id, m]));
 
@@ -332,6 +335,7 @@ const SHELL_HTML = (() => {
     <div class="shell">
       <header class="app-header">
         <div class="brand"><span class="dia" aria-hidden="true">◆</span> dev-factory</div>
+        <select class="project-select" aria-label="Project" title="the project this factory is building · switches between concurrent runs once supported"></select>
         <span class="docname" title="the build this factory is driving to SHIPPED">—</span>
         <div class="milestones" title="build milestones — where the build is, and whether it shipped"></div>
         <span class="spacer"></span>
@@ -424,6 +428,28 @@ class DfApp extends UIElement {
       const spec = cells.find((c) => c.layer === "spec" && !String(c.slug).endsWith("-prd")) || cells.find((c) => c.layer === "spec");
       dn.textContent = spec ? spec.slug : (cells.length ? "build" : "—");
     }
+    // project selector — which project this factory is building. One server per instance today, so it is an
+    // INDICATOR (single option); the options + onchange are pre-shaped so the multi-run switcher is a drop-in.
+    const psel = this.querySelector(".project-select");
+    const proj = store.project.value;
+    if (psel && proj) {
+      const cur = proj.current || proj.project;
+      const list = (proj.projects && proj.projects.length) ? proj.projects : [cur];
+      const opts = list.map((p) => `<option value="${escapeHtml(p)}"${p === cur ? " selected" : ""}>${escapeHtml(p)}</option>`).join("");
+      if (psel._opts !== opts) { psel.innerHTML = opts; psel._opts = opts; }
+      psel.value = cur;
+      if (!psel._wired) {
+        psel._wired = true;
+        psel.onchange = () => {
+          const next = psel.value, p = store.project.peek() || {};
+          const c = p.current || p.project;
+          if (next === c) return;
+          // switching between concurrent runs is the forward-looking feature; today it is one server per instance.
+          toast("Single-project mode", `Switching to another run isn't wired yet. Point DEV_FACTORY_DIR at src/${next}/.factory and restart to drive “${next}”.`, "err");
+          psel.value = c;
+        };
+      }
+    }
     // factory-state headline (UI-3) — the WORK state the socket dot does not tell you
     const fs = store.factory.value;
     const fel = this.querySelector(".factory-state");
@@ -434,6 +460,7 @@ class DfApp extends UIElement {
           : fs.state === "paused" ? "heartbeat paused"
           : fs.state === "armed" ? `${fs.ready_to_dispatch} ready`
           : fs.state === "blocked" ? `${a} queued · deps unmet`
+          : fs.state === "awaiting-review" ? `${fs.awaiting_review ?? 0} awaiting your sign-off`
           : fs.state === "drained" ? "queue empty"
           : (a ? `${a} queued · heartbeat off` : "no work queued");
         fel.dataset.state = fs.state;
@@ -1023,6 +1050,37 @@ class DfLedger extends UIElement {
 }
 customElements.define("df-ledger", DfLedger);
 
+// Preview / View Build — loads the BUILT app directly, served live from the clean product tree (src/<project>/)
+// by the dev-server's /preview route (never the .factory/ state). The iframe is built ONCE in connected() so it
+// is not reloaded on every data tick; only the head text reacts to the project signal. When no index.html exists
+// yet, /preview/ serves a placeholder listing the built files — so the tab is never a blank 404.
+class DfPreview extends UIElement {
+  connected() {
+    this.innerHTML = html`
+      <div class="view-head">
+        <h2>Preview <span class="pv-name"></span></h2>
+        <span class="sub pv-sub"></span>
+        <span class="spacer"></span>
+        <button class="icon-btn" data-pv-reload title="Reload the preview">⟲</button>
+        <a class="icon-btn" href="/preview/" target="_blank" rel="noopener" title="Open the built app in a new tab">↗</a>
+      </div>
+      <div class="preview-frame"><iframe class="pv-frame" title="build preview" src="/preview/"></iframe></div>`;
+    const btn = this.querySelector("[data-pv-reload]");
+    if (btn) btn.onclick = () => { const f = this.querySelector(".pv-frame"); if (f) f.src = `/preview/?t=${Date.now()}`; };
+  }
+  render() {
+    const p = store.project.value || {};
+    const name = p.project || "—";
+    const nm = this.querySelector(".pv-name");
+    if (nm) nm.textContent = `· ${name}`;
+    const sub = this.querySelector(".pv-sub");
+    if (sub) sub.innerHTML = p.has_entry
+      ? `the built app, served live from <code>src/${escapeHtml(name)}/</code> — never the <code>.factory/</code> state`
+      : `no bootable <code>index.html</code> in this build yet — the served page lists the built files · from <code>src/${escapeHtml(name)}/</code>, never <code>.factory/</code>`;
+  }
+}
+customElements.define("df-preview", DfPreview);
+
 // ═══════════════════ VIEW 4 · Agent monitor ═══════════════════
 class DfMonitor extends UIElement {
   static template = () => html`
@@ -1344,6 +1402,7 @@ class DfModal extends UIElement {
             <div class="field"><label for="ct-title">${titleLabel}</label><input id="ct-title" name="title" required autocomplete="off" /></div>
             ${mode === "prompt" ? prompt : mode === "instruction" ? instruction : structured}
           </form>
+          <div class="ct-error" role="alert" aria-live="polite"></div>
           <div class="actions">
             <button class="btn ghost" data-cancel>Cancel</button>
             <button class="btn primary" data-submit>${mode === "structured" ? "Create ticket" : mode === "prompt" ? "Create prompt" : "Create instruction"}</button>
@@ -1361,16 +1420,41 @@ class DfModal extends UIElement {
     const form = this.querySelector("#ct-form");
     form?.addEventListener("submit", (e) => { e.preventDefault(); this.#submit(); });
   }
+  // Mirror the server's gate_ticket_ready so the operator sees WHY a structured ticket can't go active up front —
+  // inline in the modal — instead of submitting a ticket that sticks in draft behind a later 409. Returns the
+  // reason string, or null when the bindings would pass the gate.
+  #whyNotReady(g, lattice) {
+    const find = (id) => lattice.find((c) => (c.id || `${c.layer}.${c.scope}.${c.slug}`) === id);
+    const tc = g("target_cell"), from = g("from"), to = g("to"), rb = g("rubric");
+    if (!tc) return "Set a Target cell — a structured ticket can’t go active without one.";
+    if (!find(tc)) return `Target cell “${tc}” isn’t in this lattice — check the id (layer.scope.slug).`;
+    if (!from || !to) return "Set both From and To maturity — the transition needs both ends.";
+    if (!rb) return "Set an Acceptance rubric cell — doneness must be a rubric, not prose.";
+    const r = find(rb);
+    if (!r) return `Rubric cell “${rb}” isn’t in this lattice.`;
+    if (!["validated", "operating"].includes(r.maturity))
+      return `Rubric “${rb}” isn’t validated yet (it’s ${r.maturity || "absent"}) — get that rubric cell to validated before a ticket can start against it.`;
+    return null;
+  }
   async #submit() {
     const f = this.querySelector("#ct-form");
     if (!f.reportValidity()) return;
+    const errEl = this.querySelector(".ct-error");
+    if (errEl) errEl.textContent = "";
     const g = (n) => f.elements[n]?.value?.trim() || "";
     const mode = store.modal.value?.mode || "structured";
+    const target = store.modal.value?.state;
     let body;
     if (mode === "prompt" || mode === "instruction") {
       // free-form intake: no cell — a prompt parks for the planner, an instruction folds into guidance (server-side)
       body = { type: mode, title: g("title"), body: g("body"), created_by: "human" };
     } else {
+      // a structured "+" on a non-draft column will request → active; pre-validate against the readiness gate so
+      // the failure is an inline form error here, not a stuck draft + a 409 a moment later.
+      if (target && target !== "draft") {
+        const why = this.#whyNotReady(g, store.lattice.value || []);
+        if (why) { if (errEl) errEl.textContent = why; return; }
+      }
       body = { type: g("type") || "task", title: g("title"), body: g("body"), created_by: "human" };
       if (g("target_cell")) body.target_cell = g("target_cell");
       if (g("from") || g("to")) body.target_transition = { from: g("from"), to: g("to") };
