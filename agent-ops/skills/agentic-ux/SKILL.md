@@ -6,7 +6,7 @@ description: >
   Carries two active rubrics (agentic-ux
   for the human-facing experience; agentic-architecture for utility and composability), a
   lifecycle + P-E-V + technique knowledge base (ralph loops, subagents, async agents, YOLO,
-  self-improving loops), and an eight-critic council in two sub-councils (Architecture &
+  self-improving loops), and a nine-critic council in two sub-councils (Architecture &
   Utility; UX & Quality), both active.
 
   Trigger when: designing or improving how users work with an AI coding agent, choosing a
@@ -46,7 +46,7 @@ I'll score it across 8 UX dimensions (autonomy calibration, context, observabili
 **Active surface — both rubrics and all eight critics:**
 
 - `references/rubric-agentic-ux.md` (8 dimensions) — the human-facing experience spine.
-- `references/rubric-agentic-architecture.md` (6 dimensions) — the architecture & utility spine.
+- `references/rubric-agentic-architecture.md` (7 dimensions) — the architecture & utility spine.
 - The **UX & Quality sub-council** (Amelia W., Sarah G., Geoffrey L., Karri S.) and the **Architecture & Utility sub-council** (Walden Y., Harrison C., Mitchell H., MCP). Invoke the **`agentic-council`** orchestrator agent — it fans out the selected `critic-*` agents in parallel isolated contexts and runs the cross-council synthesis.
 - The three companion references (`workflow-lifecycles`, `pev-superworkflows`, `techniques-catalog`).
 
@@ -138,7 +138,7 @@ The References table is the routing map. Load only what the lens and scope requi
 | File | Load when |
 | --- | --- |
 | `references/rubric-agentic-ux.md` | Designing or evaluating the **human-facing experience** — 8 dimensions (autonomy, context, observability, steerability, reversibility, loop closure, feedback compounding, lifecycle coverage). Owned by the UX & Quality sub-council. |
-| `references/rubric-agentic-architecture.md` | Designing or evaluating the **architecture & utility** underneath the experience — 6 dimensions (interoperability, orchestration, context architecture, harness, utility/ROI, durable state). Owned by the Architecture & Utility sub-council. |
+| `references/rubric-agentic-architecture.md` | Designing or evaluating the **architecture & utility** underneath the experience — 7 dimensions (interoperability, orchestration, context architecture, harness, utility/ROI, durable state, interpretability & eval integrity). Owned by the Architecture & Utility sub-council. |
 | `references/workflow-lifecycles.md` | Any design task, and Stage 1 of evaluate — to determine which lifecycle(s) (cold-start / orientation / generative / analysis / improving) are in scope and their failure modes. |
 | `references/pev-superworkflows.md` | Choosing or evaluating the **loop shape** — Explore→Plan→Code→Commit, Spec-Driven Development, the agentic loop, and their fit conditions. |
 | `references/techniques-catalog.md` | Choosing or evaluating a **technique** — ralph loops, subagents, background/async agents, YOLO mode, self-improving loops — with fit and risk profiles. |

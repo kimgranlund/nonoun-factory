@@ -2,6 +2,13 @@
 
 All notable changes to **agent-ops** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.1.18] — 2026-06-17
+
+### Added
+
+- **A 13th council critic — `critic-jake-v` ("Jake V."), in the Architecture & Utility sub-council** — the lens distilled from Jake Van Clief's published work: the **Interpretable Context Methodology** (folder-structure-as-agentic-architecture, arXiv 2603.16021) and the **Ethics Engine** / "Mind the Moral Echo" psychometric-audit work on LLM self-presentation bias (arXiv 2510.11742). One stance — **"Nothing Hidden"**: (1) coordination should be **legible, human-editable filesystem structure** (one-stage-one-job contracts with explicit Inputs/Process/Outputs, layered context, every intermediate output an edit surface) rather than orchestration buried in framework code; (2) the success signal must be an **independent check of actual output**, never the agent — or a model of its own family — grading itself ("fake good" self-presentation bias). Carries the meta-warning that this council is itself Claude-family models grading agentic systems — a self-graded scoreboard — and folds that check into §SelfAudit.
+- **Rubric dimension `A7` — "Interpretability & measurement integrity"** in `rubric-agentic-architecture.md` (now **7 dimensions**), with a 1–5 matrix, a 9th first-principle ("nothing is hidden: legible coordination, and an independent scoreboard"), anti-pattern `AP-A7`, and two `§Hard Tests` (visible-coordination, fake-good). The full council is now **13 critics**; the agentic-ux skill's native council is **9**. Obscured per D-4 — the real attribution + sources live in the git-ignored `agents/.name-map.md`; `check-sourcing` green. plugin.json 0.1.17 → 0.1.18.
+
 ## [0.1.17] — 2026-06-17
 
 ### Changed
