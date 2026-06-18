@@ -20,10 +20,10 @@
     },
     {
       "kind": "validation",
-      "name": "app-shell",
+      "name": "render-coherence",
       "target": { "layer": "capability", "slug": "shell" },
-      "verifier": ["node", "${CLAUDE_PLUGIN_ROOT}/bin/app-shell-check.mjs", "{asset}"],
-      "note": "The integration gate: a capability.*.shell cell is the runnable app ENTRY (index.html), graded by app-shell-check — canvas + a module entry + every product import RESOLVES. Catches the 'built modules but no assembled app' gap a headless verify.mjs cannot (a re-export barrel passes module checks but is not a running app). Static/headless; runtime render coherence is the next adapter (a browser/headless-gl harness)."
+      "verifier": ["node", "${CLAUDE_PLUGIN_ROOT}/bin/render-check.mjs", "{asset}"],
+      "note": "The integration gate: a capability.*.shell cell is the runnable app ENTRY (index.html), graded by render-check — which COMPOSES the static app-shell floor (canvas + module entry + every product import RESOLVES) and then EXECUTES the shell's on-load path against a recording mock WebGL2 context + a focused DOM shim, asserting it actually DRAWS a frame (useProgram + a draw call), not just assembles. Catches both the 'built modules but no assembled app' gap a headless verify.mjs cannot AND the 'assembles but throws / never draws' gap the static gate cannot. Node-builtins only (zero-dep, copy-alone-install preserved). The honest limit: the mock reports compile/link SUCCESS, so real-GPU GLSL-compile + pixel fidelity is the OPTIONAL escalation (a browser/SwiftShader or headless-gl harness — a heavy dependency, deliberately not the always-on CI gate). The static-only app-shell-check.mjs remains a standalone tool + the composed floor."
     },
     {
       "kind": "validation",
