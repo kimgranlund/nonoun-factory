@@ -3,6 +3,10 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-18 — opt-in: Tier-1 STRICT acceptance gating (downstream waits for your sign-off)
+
+- **`DEV_FACTORY_TIER1_STRICT=1` makes Tier 1 wait for human ACCEPTANCE cell-by-cell.** By default Tier 1 flows on critic-validation (the build advances; tickets park at `in-review` for async acceptance). With the flag set, a dependent is held until its dependency cells are *accepted* (their tickets `done`), not merely *validated* — so the build advances behind the operator's sign-off. Implemented as a SERVER policy (`heartbeat.strict_accept_filter`, applied in `on_tick` when the flag is set and `tier < 2`) layered on the kernel's partial order — the kernel still only requires deps `validated`; moot at Tier 2+ (auto-accept). Default behavior unchanged. Proven by `evals/tier1-strict-gate/` (S1–S4, both modes). Threaded `app.py` → `on_tick(strict_accept=…)`.
+
 ## 2026-06-18 — observability: `in-review` is not a running worker (the "busy-but-stuck" fix)
 
 - **`agents_running` now counts only ACTUALLY-EXECUTING workers (`claimed`/`in-progress`), not `in-review`.** An in-review ticket is the cell critic-validated and PARKED at the human-acceptance gate (Tier 1) — not a worker. Counting it in the live-workers slice made a finished, fully-validated build read as N frozen agents with future lease times, and drove `factory_state` to report `running` when nothing was executing. (`count_running`, the concurrency/backpressure counter, already excluded in-review — so the loop was always correct; this was purely a display defect, surfaced by the live shader-playground build whose Tier-1 gate parks every validated cell.)

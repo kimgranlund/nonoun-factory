@@ -108,14 +108,30 @@ def count_running(d):
     return sum(1 for t in _api.list_tickets(d) if t.get("state") in ("claimed", "in-progress"))
 
 
+def strict_accept_filter(d, batch):
+    """Tier-1 strict-acceptance policy: keep only dependents whose every dependency cell is human-ACCEPTED
+    (carried by a `done` ticket), not merely critic-`validated`. The kernel's partial order already cleared
+    the deps as validated; this SERVER policy additionally waits for the operator's sign-off, so at Tier 1 the
+    build advances cell-by-cell behind your acceptance instead of flowing on validation. Pure over the tickets."""
+    accepted = {t.get("target_cell") for t in _api.list_tickets(d)
+                if t.get("state") == "done" and t.get("target_cell")}
+    return [t for t in batch
+            if all(c in accepted for c in (t.get("dependencies") or {}).get("cells_ready", []))]
+
+
 PAUSED = {"v": False}
 
 
-def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None):
+def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None, strict_accept=False):
     """One heartbeat tick. Deterministic end to end; agents run only inside dispatch_unit. The autonomy
     tier is READ from the ledger (autonomy.tier_for) unless overridden: Tier 0 dispatches nothing; Tier 1
     dispatches but stops at in-review for human review; Tier 2+ drives the unit to done unattended. Returns
-    a summary {tier, dispatched, reconciled, halted, reason}."""
+    a summary {tier, dispatched, reconciled, halted, reason}.
+
+    `strict_accept` (opt-in policy, DEV_FACTORY_TIER1_STRICT): at Tier 1, hold a dependent until every
+    dependency cell is human-ACCEPTED (its ticket `done`), not merely critic-validated — so the build waits
+    for your sign-off cell-by-cell instead of flowing on validation. A SERVER policy layered on the kernel's
+    partial order (the kernel still only requires deps validated); moot at Tier 2+ (auto-accept)."""
     now = now or _now()
     if PAUSED["v"]:
         return {"halted": True, "reason": "paused (human kill-switch)", "dispatched": []}
@@ -130,6 +146,8 @@ def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None):
     if slots <= 0:
         return {"halted": False, "reason": "no free slot (backpressure)", "tier": tier, "dispatched": [], "reconciled": reconciled}
     batch = _compass.next_batch(d, tier=tier, slots_free=slots)
+    if strict_accept and tier < 2 and batch:
+        batch = strict_accept_filter(d, batch)      # Tier-1 strict: hold dependents until their deps are human-accepted
     auto = tier >= 2                                # Tier 1 dispatches but pauses at in-review (human reviews)
     dispatched = []
     for t in batch:
