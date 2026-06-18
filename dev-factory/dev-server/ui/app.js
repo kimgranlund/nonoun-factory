@@ -335,7 +335,7 @@ const SHELL_HTML = (() => {
     <div class="shell">
       <header class="app-header">
         <div class="brand"><span class="dia" aria-hidden="true">◆</span> dev-factory</div>
-        <select class="project-select" aria-label="Project" title="the project this factory is building · switches between concurrent runs once supported"></select>
+        <select class="project-select" aria-label="Project" title="the project this factory is building · pick another to switch the board to it"></select>
         <span class="docname" title="the build this factory is driving to SHIPPED">—</span>
         <div class="milestones" title="build milestones — where the build is, and whether it shipped"></div>
         <span class="spacer"></span>
@@ -428,8 +428,8 @@ class DfApp extends UIElement {
       const spec = cells.find((c) => c.layer === "spec" && !String(c.slug).endsWith("-prd")) || cells.find((c) => c.layer === "spec");
       dn.textContent = spec ? spec.slug : (cells.length ? "build" : "—");
     }
-    // project selector — which project this factory is building. One server per instance today, so it is an
-    // INDICATOR (single option); the options + onchange are pre-shaped so the multi-run switcher is a drop-in.
+    // project selector — which project this factory is building. Picking another sibling project under src/
+    // re-points the running server at that instance (POST /api/project) and reloads the board against it.
     const psel = this.querySelector(".project-select");
     const proj = store.project.value;
     if (psel && proj) {
@@ -440,13 +440,20 @@ class DfApp extends UIElement {
       psel.value = cur;
       if (!psel._wired) {
         psel._wired = true;
-        psel.onchange = () => {
+        psel.onchange = async () => {
           const next = psel.value, p = store.project.peek() || {};
           const c = p.current || p.project;
           if (next === c) return;
-          // switching between concurrent runs is the forward-looking feature; today it is one server per instance.
-          toast("Single-project mode", `Switching to another run isn't wired yet. Point DEV_FACTORY_DIR at src/${next}/.factory and restart to drive “${next}”.`, "err");
-          psel.value = c;
+          psel.disabled = true;
+          try {
+            const r = await fetch("/api/project", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: next }) });
+            if (r.ok) { location.reload(); return; }   // re-fetch the whole board + Preview against the new instance
+            const e = await r.json().catch(() => ({}));
+            toast("Couldn't switch project", e.detail || `Switching to “${next}” failed (${r.status}).`, "err");
+          } catch (err) {
+            toast("Couldn't switch project", String(err), "err");
+          }
+          psel.disabled = false; psel.value = c;
         };
       }
     }
