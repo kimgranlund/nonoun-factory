@@ -539,7 +539,9 @@ df-preview { display: block; }
 .ct-error:empty { display: none; }
 
 /* per-card Triage action on untriaged intake (prompt/issue) — bind it so it can move to Active */
-.card-actions { margin-top: 0.4rem; }
+.card .meta .id { margin-left: auto; }          /* demote the id to a muted right-aligned token in the existing flex meta row */
+.card.intake { cursor: default; }               /* not draggable — the Triage button is the only forward path */
+.card-foot { margin-top: 0.55rem; padding-top: 0.45rem; border-top: 1px solid var(--border-soft); }  /* a separated action slot */
 .triage-btn { font: 11px/1 var(--mono, ui-monospace, monospace); padding: 0.32rem 0.55rem; border-radius: var(--radius-sm);
   cursor: pointer; border: 1px solid var(--border); background: var(--accent-soft); color: var(--accent); }
 .triage-btn:hover { border-color: var(--accent); }

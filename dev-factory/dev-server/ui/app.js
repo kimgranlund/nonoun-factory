@@ -801,24 +801,27 @@ class DfKanban extends UIElement {
   }
 
   #card(t) {
-    const h = hueFor(t.state);
     const frac = budgetFrac(t);
+    // untriaged intake (prompt/issue, no cell) can't be dragged to Active — the Triage button is its ONLY forward
+    // path, so don't offer the drag/keyboard "move me" gesture that would just dead-end at a refusal.
+    const intake = t.state === "draft" && !t.target_cell && (t.type === "prompt" || t.type === "issue");
     return html`
-      <article class="card" tabindex="0" role="button" aria-roledescription="draggable ticket"
-        draggable="true" data-id="${t.id}" data-state="${t.state}" aria-grabbed="false"
-        aria-label="${t.title || t.id}, state ${t.state}. Press space to pick up, then arrow keys to move.">
+      <article class="card${intake ? " intake" : ""}" tabindex="0" role="button"
+        aria-roledescription="${intake ? "untriaged intake" : "draggable ticket"}"
+        draggable="${intake ? "false" : "true"}" data-id="${t.id}" data-state="${t.state}" data-intake="${intake ? "1" : ""}" aria-grabbed="false"
+        aria-label="${t.title || t.id}, state ${t.state}.${intake ? " Untriaged — use the Triage button to bind it." : " Press space to pick up, then arrow keys to move."}">
         <div class="title">${t.title || raw("<em>untitled</em>")}</div>
         <div class="meta">
           ${raw(chip(t.type || "task", "h-neutral"))}
           ${t.target_cell ? html`<span class="cell">${t.target_cell}</span>` : ""}
+          <span class="id">${shortId(t.id)}${t.claim_worker ? " · " + t.claim_worker : ""}</span>
         </div>
         ${t.from_maturity && t.to_maturity ? html`<div class="cell" style="margin-top:.25rem">${t.from_maturity} → ${t.to_maturity}</div>` : ""}
         ${frac > 0 ? html`<div class="budget ${frac > 0.85 ? "hot" : frac > 0.6 ? "warn" : ""}"><span style="width:${Math.round(frac * 100)}%"></span></div>` : ""}
-        <div class="id">${shortId(t.id)}${t.claim_worker ? " · " + t.claim_worker : ""}</div>
-        ${(t.state === "draft" && !t.target_cell && (t.type === "prompt" || t.type === "issue"))
-          ? html`<div class="card-actions"><button class="triage-btn" type="button" draggable="false" data-triage="${t.id}"
-              title="Bind this intake to a target cell + a validated rubric so it can move to Active">Triage →</button></div>` : ""}
-        <div class="move-hint">Use ← → to move · Enter to drop · Esc to cancel</div>
+        ${intake
+          ? html`<div class="card-foot"><button class="triage-btn" type="button" draggable="false" data-triage="${t.id}"
+              title="Bind this intake to a target cell + a validated rubric so it can move to Active">Triage →</button></div>`
+          : html`<div class="move-hint">← → move · Enter drop · Esc cancel</div>`}
       </article>`;
   }
 
@@ -846,6 +849,7 @@ class DfKanban extends UIElement {
   }
 
   #cardKey(e, card, board) {
+    if (card.dataset.intake) return;   // untriaged intake isn't keyboard-movable — Triage to bind it first
     const grabbed = card.getAttribute("aria-grabbed") === "true";
     if (e.key === " " || (e.key === "Enter" && !grabbed)) {
       e.preventDefault();
