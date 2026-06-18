@@ -2,6 +2,19 @@
 
 All notable changes to **dev-kit-app** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.4.0] — 2026-06-18
+
+### Added
+
+- **The render-coherence gate (`bin/render-check.mjs`) — the kit can now tell an app that RENDERS from one that merely ASSEMBLES.** `app-shell-check` proved the shell assembles (canvas + module entry + every import resolves) but not that it *runs*: an assembled page can still throw on load, link a program and never draw, or wire a uniform that isn't there — passing every static check and rendering nothing. `render-check` **composes** the static app-shell floor and then **executes** the shell's on-load path headlessly against a **recording mock WebGL2 context + a focused DOM shim**, asserting the render contract: the entry runs without throwing, a linked program is `useProgram`'d, and a draw call is issued. It drives both an inline-script shell and the `main.mjs`-exports-`mount(root)` integrator convention. The slug-targeted **`render-coherence`** validation adapter binds `capability.*.shell` to `render-check` (it **supersedes** the static `app-shell` adapter, which composes inside it and remains a standalone tool). Proven by `dev-server/evals/render-coherence-gate/` (R1–R5) + `render-check --selftest`; CI-wired.
+- **Honest limit (deliberate):** the mock GL reports compile/link SUCCESS, so this gate verifies the render PATH executes + draws against a conformant GL — it does NOT catch GLSL-compile errors or verify pixels. Real-GPU fidelity needs a browser/SwiftShader (Playwright) or headless-gl harness — a **heavy dependency** that would break the marketplace's zero-dependency, copy-alone-install property — so it stays an **optional escalation**, not the always-on CI gate. `render-check` is Node-builtins only and runs anywhere `node` does.
+
+### Changed
+
+- `bin/app-shell-check.mjs` exports `checkShell` (composed by `render-check`) and runs its CLI only when invoked directly. The `app-shell` adapter's slug=shell binding is superseded by `render-coherence`; the `app-shell-gate` eval is renamed `render-coherence-gate` and extended (R4 proves the runtime gap — assembles-but-never-draws — the static floor cannot see).
+
+plugin.json 0.3.2 → 0.4.0.
+
 ## [0.3.2] — 2026-06-18
 
 ### Added

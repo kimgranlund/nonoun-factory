@@ -24,8 +24,9 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import url from 'node:url';
 
-function checkShell(entry) {
+export function checkShell(entry) {
   const errs = [];
   if (!fs.existsSync(entry) || !fs.statSync(entry).isFile()) {
     return [`app entry not found: ${entry} — the build produced no runnable shell (a re-export barrel is not an app)`];
@@ -95,10 +96,13 @@ function selftest() {
   return fails.length ? 1 : 0;
 }
 
-const arg = process.argv[2];
-if (arg === '--selftest') process.exit(selftest());
-if (!arg) { console.error('usage: app-shell-check.mjs <index.html> | --selftest'); process.exit(2); }
-const problems = checkShell(arg);
-if (problems.length) { console.error('app-shell INCOHERENT:\n' + problems.map((p) => '  - ' + p).join('\n')); process.exit(1); }
-console.log(`app-shell coherent: ${arg} — canvas + module entry + every product import resolves`);
-process.exit(0);
+// CLI — only when run directly (not when imported by render-check.mjs, which composes checkShell)
+if (process.argv[1] && import.meta.url === url.pathToFileURL(process.argv[1]).href) {
+  const arg = process.argv[2];
+  if (arg === '--selftest') process.exit(selftest());
+  if (!arg) { console.error('usage: app-shell-check.mjs <index.html> | --selftest'); process.exit(2); }
+  const problems = checkShell(arg);
+  if (problems.length) { console.error('app-shell INCOHERENT:\n' + problems.map((p) => '  - ' + p).join('\n')); process.exit(1); }
+  console.log(`app-shell coherent: ${arg} — canvas + module entry + every product import resolves`);
+  process.exit(0);
+}
