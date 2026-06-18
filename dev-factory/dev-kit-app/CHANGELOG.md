@@ -2,6 +2,15 @@
 
 All notable changes to **dev-kit-app** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.5.0] — 2026-06-18
+
+### Added
+
+- **The render-coherence gate now validates DOM/SVG apps, not just WebGL shaders** — the app-family kit builds DOM apps (a token editor, a wireframer, an SVG icon tool) as readily as shader apps, so the gate must grade them. `render-check` now treats a **DOM mount** as a real render (the shell mounted content via `appendChild`/`append`/`replaceChildren`/`insertAdjacent*`/`innerHTML`), alongside the existing WebGL draw: an app *renders* if it draws a frame **OR** mounts DOM, and a shell that does neither is the runtime gap (the DOM analog of "links a program but never draws"). `app-shell-check`'s render-surface requirement is correspondingly relaxed from "a `<canvas>`" to "a `<canvas>` **or** a DOM mount root (`<main>`, `id="app"`/`"root"`, or `[data-app]`)". WebGL apps are unaffected (shader-live still passes, now reporting both signals). New selftest cases 3c/3d (a DOM app that mounts PASSES; one that mounts nothing FAILS).
+- **The honest limit is unchanged**: this verifies the render PATH executes and produces a frame (a draw or a mount) against the headless shim — it does not verify pixels or visual correctness. Real-GPU/real-browser fidelity stays the optional escalation.
+
+plugin.json 0.4.1 → 0.5.0.
+
 ## [0.4.1] — 2026-06-18
 
 ### Fixed
