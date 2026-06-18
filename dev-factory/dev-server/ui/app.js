@@ -434,6 +434,7 @@ class DfApp extends UIElement {
           : fs.state === "paused" ? "heartbeat paused"
           : fs.state === "armed" ? `${fs.ready_to_dispatch} ready`
           : fs.state === "blocked" ? `${a} queued · deps unmet`
+          : fs.state === "awaiting-review" ? `${fs.awaiting_review ?? 0} awaiting your sign-off`
           : fs.state === "drained" ? "queue empty"
           : (a ? `${a} queued · heartbeat off` : "no work queued");
         fel.dataset.state = fs.state;
