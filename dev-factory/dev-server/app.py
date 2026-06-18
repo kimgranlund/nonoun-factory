@@ -275,9 +275,36 @@ def build_app():
 
     @app.get("/api/project")
     def project_info():
-        # which project this factory is building + sibling projects under src/ (the header selector reads this;
-        # pre-shaped for switching between concurrent runs once the fleet/multi-instance model lands).
+        # which project this factory is building + sibling projects under src/ (the header selector reads this).
         return _project_info()
+
+    @app.post("/api/project")
+    async def switch_project(req: Request):
+        # Re-point the running server at a SIBLING project's instance (src/<name>/.factory) — the header
+        # selector's switch. Everything (api/store/heartbeat) reads DIR dynamically and opens the index per
+        # call, so re-projecting the new instance is all it takes; no restart. Guarded: refuse mid-build (a
+        # live worker would be orphaned), reject a name that escapes src/, and LAND PAUSED so a switched-to
+        # project never auto-dispatches — the operator arms/resumes it deliberately (each project's run budget
+        # is its own, on disk under its .factory/run/).
+        global DIR, HEARTBEAT_ENABLED
+        b = await req.json()
+        name = (b.get("project") or b.get("name") or "").strip()
+        src_root = os.path.realpath(os.path.dirname(_product_root()))
+        target = os.path.realpath(os.path.join(src_root, name, ".factory"))
+        if not name or not target.startswith(src_root + os.sep) or not os.path.isdir(target):
+            raise HTTPException(404, f"no such project: {name!r}")
+        if target == os.path.realpath(DIR):
+            return {**_project_info(), "switched": False}
+        running = api.agents_running(DIR)
+        n = len(running) if isinstance(running, (list, tuple)) else (running or 0)
+        if n:
+            raise HTTPException(409, f"a worker is running ({n}) — pause or let it finish before switching projects")
+        DIR = target
+        HEARTBEAT_ENABLED = False            # land paused; the new project is armed/resumed deliberately
+        api.init_instance(DIR)
+        _store.rebuild(DIR)
+        STREAM.publish("lattice", api.lattice_grid(DIR))
+        return {**_project_info(), "switched": True, "paused": True}
 
     @app.get("/preview")
     @app.get("/preview/")
