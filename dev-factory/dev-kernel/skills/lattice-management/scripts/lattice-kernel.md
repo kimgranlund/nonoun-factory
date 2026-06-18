@@ -2,7 +2,7 @@
 
 `lattice-management` carries no lattice code of its own. The grid operations — scan, rank, validity, staleness, block/unblock, init — are the **vendored** `lattice.py` at `${CLAUDE_PLUGIN_ROOT}/bin/lattice.py`: byte-identical from `harness-forge/bin/lattice.py`, selftested, CI-gated, kept in sync by `tools/sync-dev-kernel.py` (see `bin/VENDOR.md`). Per build-plan decision D-A, dev-factory does **not** fork the lattice machine. This file is the invocation contract; it deliberately contains **no Python**, because re-implementing scan/rank/staleness here would be a second copy that drifts — the exact failure the routing law forbids.
 
-`DIR` is the instance state dir under the `.agents/dev-factory/` namespace (the `stateNamespace` in `plugin.json`). The kernel reads/writes `lattice.json` there; every other view is derived.
+`DIR` is the instance state dir — `src/<project>/.factory/` by convention (set per-instance via `--dir` / `DEV_FACTORY_DIR`, not a fixed `.agents/` namespace). The kernel reads/writes `lattice.json` there; every other view is derived.
 
 ## The operations this skill exposes
 

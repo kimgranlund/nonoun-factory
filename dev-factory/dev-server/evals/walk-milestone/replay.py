@@ -43,7 +43,7 @@ def run():
             fails.append(label)
 
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _api.init_instance(d)
         human = {"kind": "human", "id": "operator"}
         _api.seed_cell(d, "rubric", "task", "r", maturity="validated", signal_refs=["signals/rubric.task.r/seed.json"])
@@ -101,7 +101,7 @@ def run():
         check(st(Z["id"]) == "active", "W3b: Z was NOT dispatched past the deadline (the bound held)")
 
         print("· W4 — no reward-hack")
-        forge = {"tool_name": "Write", "tool_input": {"file_path": ".agents/dev-factory/signals/spec.task.z/forged.json"}}
+        forge = {"tool_name": "Write", "tool_input": {"file_path": "src/walk/.factory/signals/spec.task.z/forged.json"}}
         gs = subprocess.run(["python3", os.path.join(_api._store._KERNEL_BIN, "gate-signal"), "--hook"],
                             input=json.dumps(forge), capture_output=True, text=True)
         check(gs.returncode == 2, "W4a: gate-signal denies a worker forging a signal during the unattended run")

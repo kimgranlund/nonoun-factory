@@ -40,7 +40,7 @@ def run():
             fails.append(label)
 
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _lat.scaffold(d)
         # Seed: a VALIDATED rubric (the bound verifier) + an INSTANTIATED spec cell (asset authored by a worker).
         lat = {"cells": [
@@ -83,11 +83,11 @@ def run():
 
         print("· P3: the worker is mechanically unable to forge the signal (gate-signal denies the write)")
         forge = {"tool_name": "Write",
-                 "tool_input": {"file_path": ".agents/dev-factory/signals/spec.task.first-slice/forged.json"}}
+                 "tool_input": {"file_path": "src/x/.factory/signals/spec.task.first-slice/forged.json"}}
         proc = subprocess.run(["python3", os.path.join(_BIN, "gate-signal"), "--hook"],
                               input=json.dumps(forge), capture_output=True, text=True)
         check(proc.returncode == 2, "P3a: gate-signal DENIES a worker write to signals/ (exit 2)")
-        allow = {"tool_name": "Write", "tool_input": {"file_path": ".agents/dev-factory/spec/first-slice.md"}}
+        allow = {"tool_name": "Write", "tool_input": {"file_path": "src/x/.factory/spec/first-slice.md"}}
         proc2 = subprocess.run(["python3", os.path.join(_BIN, "gate-signal"), "--hook"],
                                input=json.dumps(allow), capture_output=True, text=True)
         check(proc2.returncode == 0, "P3b: gate-signal ALLOWS a worker write to its own spec asset (exit 0)")

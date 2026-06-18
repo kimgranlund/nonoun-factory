@@ -171,7 +171,7 @@ def selftest():
         if not c:
             fails.append(m)
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _api.init_instance(d)
         srv = {"kind": "server", "id": "dev-server"}
         _api.seed_cell(d, "rubric", "task", "r", maturity="validated", signal_refs=["signals/rubric.task.r/seed.json"])
@@ -228,7 +228,7 @@ def _arg(argv, flag, default=None):
 def main(argv):
     if not argv or argv[0] == "selftest":
         return selftest()
-    d = _arg(argv, "--dir", ".agents/dev-factory")
+    d = _arg(argv, "--dir", ".factory")
     if argv[0] == "arm":
         b = arm(d, deadline_s=int(_arg(argv, "--deadline-s", "0")) or None,
                 max_dispatches=int(_arg(argv, "--max-dispatches", "0")) or None,

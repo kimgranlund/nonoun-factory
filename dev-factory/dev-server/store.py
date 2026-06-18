@@ -4,7 +4,7 @@
 Two planes, one typing rule (harness-and-storage.md): artifact bodies live in FILES (git-native,
 diff-able, the outer loop rewrites them); tensed status + queryable history live in a DATABASE (fast
 filtered queries, joins, the grid). This module is the database half — a SQLite index at
-`.agents/dev-factory/index.db` that is a **materialized projection** of the ledger + the on-disk files,
+`.factory/index.db` that is a **materialized projection** of the ledger + the on-disk files,
 never an authority. The invariants it upholds (write-path §):
 
   1. Single-writer: only the server process writes this index. Workers/agents read via an MCP query
@@ -231,7 +231,7 @@ def selftest():
         if not c:
             fails.append(m)
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _lat.scaffold(d)
         # seed a lattice + a ticket file + some ledger
         lat = {"cells": [
@@ -295,7 +295,7 @@ def selftest():
 def main(argv):
     if not argv or argv[0] == "selftest":
         return selftest()
-    d = argv[argv.index("--dir") + 1] if "--dir" in argv else ".agents/dev-factory"
+    d = argv[argv.index("--dir") + 1] if "--dir" in argv else ".factory"
     if argv[0] == "rebuild":
         print(json.dumps(rebuild(d)))
         return 0

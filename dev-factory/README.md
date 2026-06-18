@@ -18,7 +18,7 @@ The Kanban board cannot disagree with the lattice grid, by construction. A worke
 |---|---|---|
 | **dev-kernel** | a plugin (invariant machinery) | the 11 schemas, the two state machines, the 4 protective gates + 2 lifecycle predicates, the compass, the **execution-plan assembly** (`dispatch-policy → plan`), the validation path, **autonomy** (trust tiers + mechanical demotion) + **distillation**, the **tamper-evident hash-chained ledger**, a read-only **MCP query perimeter** (`factory-query`), and a 19-agent roster (12 lattice operators + a 7-agent spec review council) across 8 compound skills |
 | **dev-kit-corpus · dev-kit-app** | plugins (family bindings) | ontology · rubric manifest · **real validation harness verifiers** (spec-quality / pattern / test-suite — not a file-exists check) · dispatch policy · seed patterns. `check-kit-conform` enforces **zero kernel edits**. *(dev-kit-corpus provides the `spec-quality` gate `spec-author`'s REVIEW runs — a kernel installed without a kit has spec-author's authoring + council but no mechanical gate; bind a kit via `DEV_FACTORY_KIT`.)* |
-| **Instance** | a user project's `.agents/dev-factory/` | the only stateful tier: `lattice.json · coordination/ · the layer dirs · signals/ · ledger/ · index.db` |
+| **Instance** | a user project's `src/<project>/.factory/` | the only stateful tier: `lattice.json · coordination/ · the layer dirs · signals/ · ledger/ · index.db` |
 | **dev-server** | a Python app (NOT a plugin) | the bounded 30s heartbeat, the dispatcher + DispatchAdapter (mock + headless), the SQLite read-index, the **reporting layer** (DuckDB/stdlib), the REST API, the SSE stream, the **web UI** (Kanban two-lens · lattice grid · ledger · agent monitor · roadmap) |
 
 The one law (inherited): **computation routes to code, never to inference.** Selection, ranking, readiness, staleness, the ledger, validation are scripts; the model supplies the judgment *inside* a cell. Every `bin/` ships a `selftest`.
@@ -45,9 +45,9 @@ Install into your project (**project-local**, the catalog default), then init an
 #      "enabledPlugins": { "dev-kernel@dev-factory": true, "dev-kit-corpus@dev-factory": true }
 #    (until published, point the marketplace source at this repo / a local path.)
 
-# 2. Initialize the instance — scaffold the lattice + coordination dirs under .agents/dev-factory/:
+# 2. Initialize the instance — scaffold the lattice + coordination dirs under src/<project>/.factory/:
 cd your-project
-python3 <plugin-root>/dev-kernel/bin/lattice.py init --dir .agents/dev-factory
+python3 <plugin-root>/dev-kernel/bin/lattice.py init --dir src/<project>/.factory
 #    …or just ask Claude:  "seed a dev-factory lattice for this project"
 
 # 3. Seed the lattice with your project's cells (or let the architect decompose it):
@@ -58,7 +58,7 @@ python3 <plugin-root>/dev-kernel/bin/lattice.py init --dir .agents/dev-factory
 
 # 5. Run the factory (the bounded autonomous loop + the live UI), with a kit bound:
 pip install fastapi uvicorn
-DEV_FACTORY_DIR=$PWD/.agents/dev-factory DEV_FACTORY_KIT=<plugin-root>/dev-kit-corpus \
+DEV_FACTORY_DIR=$PWD/src/<project>/.factory DEV_FACTORY_KIT=<plugin-root>/dev-kit-corpus \
   DEV_FACTORY_HEARTBEAT=1 uvicorn dev-server.app:app --port 8731
 #    open http://127.0.0.1:8731/  →  Kanban (2 lenses) · lattice grid · ledger · agent monitor · roadmap
 
@@ -70,7 +70,7 @@ No server needed to try it: **`python3 dev-server/demo.py`** drives the whole lo
 
 ## Sample prompts
 
-dev-factory ships **one** typed command — **`/factory-init`** (the single deterministic action: scaffold an instance under `.agents/dev-factory/`) — and everything else is **model-invoked**: with `dev-kernel` installed, you drive it in natural language. What to say:
+dev-factory ships **one** typed command — **`/factory-init`** (the single deterministic action: scaffold an instance under `src/<project>/.factory/`) — and everything else is **model-invoked**: with `dev-kernel` installed, you drive it in natural language. What to say:
 
 | Say… | Triggers |
 |---|---|
@@ -100,7 +100,7 @@ python3 dev-server/demo.py
 
 # the live server (heartbeat ON at the EARNED tier, the corpus family bound):
 pip install fastapi uvicorn
-DEV_FACTORY_DIR=/path/to/project/.agents/dev-factory DEV_FACTORY_KIT=$PWD/dev-kit-corpus \
+DEV_FACTORY_DIR=/path/to/project/src/<project>/.factory DEV_FACTORY_KIT=$PWD/dev-kit-corpus \
   DEV_FACTORY_HEARTBEAT=1 uvicorn dev-server.app:app --port 8731     # the web UI at http://127.0.0.1:8731/
 
 # kit conformance (the boundary) + the read-only MCP perimeter:

@@ -7,7 +7,7 @@ heartbeat will call in Walk — the loop is not a separate code path, it is the 
 
 Crawl posture: the heartbeat is DISABLED (`HEARTBEAT_ENABLED = False`). Walk flips it on at Tier 1.
 
-Run:  pip install fastapi uvicorn   &&   DEV_FACTORY_DIR=/path/.agents/dev-factory uvicorn app:app
+Run:  pip install fastapi uvicorn   &&   DEV_FACTORY_DIR=/path/.factory uvicorn app:app
 The operations layer needs no FastAPI — `python3 api.py selftest` verifies the whole path headless.
 
 Python 3.8+. FastAPI/uvicorn are the server's only non-stdlib deps (it is NOT a plugin — plugins are
@@ -23,7 +23,7 @@ import api  # noqa: E402  (the tested operations layer — stdlib)
 import store as _store  # noqa: E402  (for the boot re-projection, DF-2)
 import dispatch as _dispatch  # noqa: E402  (adapter selection — mock vs headless)
 
-DIR = os.environ.get("DEV_FACTORY_DIR", ".agents/dev-factory")
+DIR = os.environ.get("DEV_FACTORY_DIR", ".factory")
 HEARTBEAT_ENABLED = os.environ.get("DEV_FACTORY_HEARTBEAT") == "1"   # OFF in Crawl; Walk sets it
 SERVER_ACTOR = {"kind": "server", "id": "dev-server"}
 
@@ -222,10 +222,13 @@ def build_app():
         ref = c.get("asset_ref")
         if not ref:
             return {"cell": cell_id, "asset_ref": None, "kind": "none"}
-        base = os.path.realpath(DIR)
+        # The asset may be machinery under the `.factory/` instance (DIR) OR product CODE at the project root
+        # (a kit's output_root roots a capability OUT of .factory/, e.g. asset_ref "../snake"). Both live under
+        # the project root, so guard against escapes ABOVE the project, not above the instance.
+        base = os.path.dirname(os.path.realpath(DIR.rstrip("/")))
         absp = os.path.realpath(os.path.join(DIR, ref))
         if absp != base and not absp.startswith(base + os.sep):
-            raise HTTPException(400, "asset path escapes the instance")
+            raise HTTPException(400, "asset path escapes the project")
         if os.path.isdir(absp):
             files = sorted(f for f in os.listdir(absp) if not f.startswith("."))
             return {"cell": cell_id, "asset_ref": ref, "kind": "dir", "files": files}

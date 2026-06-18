@@ -374,7 +374,7 @@ def selftest():
     import lattice as _lat  # noqa: E402
 
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _lat.scaffold(d)
 
         # a tiny lattice: two cells, one validated rubric (a verifier), one blocked spec
@@ -511,7 +511,7 @@ def _arg(argv, flag, default=None):
 def main(argv):
     if not argv or argv[0] == "selftest":
         return selftest()
-    d = _arg(argv, "--dir", ".agents/dev-factory")
+    d = _arg(argv, "--dir", ".factory")
     name = argv[0]
     if name == "all":
         print(json.dumps(all_reports(d), indent=2))

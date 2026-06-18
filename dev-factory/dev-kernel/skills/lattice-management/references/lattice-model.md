@@ -57,4 +57,4 @@ Each cell records `validated_against: {upstream-cell-id → content-hash}` — t
 
 ## What is canonical and what is derived
 
-`lattice.json` (under the `.agents/dev-factory/` state namespace) is **canonical**. Every other grid view — the server's SQLite read-index, the UI lattice grid, any status dashboard — is a **fold** over `lattice.json` and the ledger: deletable, rebuildable, never authoritative. The grid cannot disagree with the lattice because the grid *is* the lattice, projected.
+`lattice.json` (under the `src/<project>/.factory/` state namespace) is **canonical**. Every other grid view — the server's SQLite read-index, the UI lattice grid, any status dashboard — is a **fold** over `lattice.json` and the ledger: deletable, rebuildable, never authoritative. The grid cannot disagree with the lattice because the grid *is* the lattice, projected.

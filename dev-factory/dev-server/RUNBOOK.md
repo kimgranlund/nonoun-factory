@@ -35,7 +35,7 @@ cp dev-factory.env.example dev-factory.env   # then edit DEV_FACTORY_DIR (+ any 
 ./run.sh                                      #   in your project, NEVER commit it into the plugin (it holds your instance path)
 
 # …or pass everything inline (equivalent, nothing persisted):
-DEV_FACTORY_DIR=/path/to/project/.agents/dev-factory uvicorn app:app --port 8731
+DEV_FACTORY_DIR=<repo>/src/<project>/.factory uvicorn app:app --port 8731
 DEV_KERNEL_BIN=/path/to/dev-kernel/bin uvicorn app:app   # point at a different kernel checkout
 ```
 
@@ -118,10 +118,10 @@ Long-running autonomy needs explicit crash semantics, not hope (TDD §15). The s
 
 **Server crash mid-tick → idempotent re-dispatch + rebuild.** A restart adopts existing leases/worktrees (idempotent dispatch, REQ-LOOP-006) so it cannot double-launch; reconciliation then expires any whose worker actually died, and `store.rebuild` re-materializes the index from the ledger + files. Posture: **boot, let `store.rebuild` re-materialize, let the first tick reconcile.** Do not hand-repair tickets or rows; the machinery converges.
 
-**The rebuild-by-replay property — "a corrupted index is a DROP and a replay."** The operational store (`.agents/dev-factory/index.db`) is a **materialized projection** of the ledger + on-disk files — derived, never authoritative (OD-001). When it is corrupted, deleted, or stale:
+**The rebuild-by-replay property — "a corrupted index is a DROP and a replay."** The operational store (`src/<project>/.factory/index.db`) is a **materialized projection** of the ledger + on-disk files — derived, never authoritative (OD-001). When it is corrupted, deleted, or stale:
 
 ```bash
-python3 store.py rebuild --dir /path/to/.agents/dev-factory
+python3 store.py rebuild --dir <repo>/src/<project>/.factory
 ```
 
 `store.rebuild(d)` is a **DROP + replay**: it deletes every projected table, replays the ledger into the `ledger` table and the `activities` fold, re-scans `coordination/tickets/*.json`, and re-projects the canonical `lattice.json` cells into the grid. `store.py selftest` proves the property directly — it nukes `index.db`, rebuilds, and asserts the view is identical. **Never hand-edit rows to "fix" the index**: a manual write makes the DB disagree with the ledger and breaks the never-ahead-of-the-ledger invariant. The correct repair is always to rebuild from the authoritative substrate.

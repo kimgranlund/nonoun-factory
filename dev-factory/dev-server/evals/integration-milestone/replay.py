@@ -70,7 +70,7 @@ def run():
 
     print("· a STRUCTURED spec, the corpus kit bound — the kit drives the dispatch")
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _seed(d, structured=True)
         t = _ticket(d, srv)
         ok, ticket, msg = _disp.dispatch_unit(d, _api.get_ticket(d, t["id"]), _disp.MockAdapter(), srv, tier=2, auto_validate=True)
@@ -85,7 +85,7 @@ def run():
 
     print("· the SAME pipeline with a PROSE spec — the real rubric must REJECT it")
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _seed(d, structured=False)
         t = _ticket(d, srv)
         ok, ticket, msg = _disp.dispatch_unit(d, _api.get_ticket(d, t["id"]), _disp.MockAdapter(), srv, tier=2, auto_validate=True)

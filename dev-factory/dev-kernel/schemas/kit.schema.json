@@ -35,6 +35,22 @@
       "items": { "$ref": "Adapter" }
     },
     "dispatch_policy": { "type": "string", "description": "Path (kit-relative) to this family's dispatch-policy.json (DispatchPolicy) — the deterministic unit→execution-plan map." },
+    "authoring": {
+      "type": "array",
+      "description": "Per-layer authoring shape (kit-local; read by dispatch's _authoring_for/_asset_rel, not gated by check-kit-conform). Declares which layers are authored as a multi-file CODE directory (vs a single .md) and WHERE that directory is rooted, so a family like dev-kit-app can emit a clean runnable product tree while dev-kit-corpus stays single-file.",
+      "items": {
+        "type": "object",
+        "required": ["layer", "mode"],
+        "additionalProperties": false,
+        "properties": {
+          "layer": { "enum": ["ontology", "spec", "rubric", "policy", "capability", "methodology", "protocol", "ledger", "pattern"] },
+          "mode": { "enum": ["multi-file", "single-file"] },
+          "output_root": { "type": "string", "description": "Where this layer's asset dir is rooted, RELATIVE to the instance dir (`.factory/`). Default = the layer name, so the asset stays inside `.factory/`. `..` escapes `.factory/` to the project root (`src/{project}/`), so product CODE lands at the clean, runnable root beside its sibling `verify.mjs` while the factory state stays under `.factory/`." },
+          "layout": { "type": "string", "description": "Optional path template for the asset (informational)." },
+          "note": { "type": "string" }
+        }
+      }
+    },
     "seed_patterns": {
       "type": "array",
       "description": "Seed pattern artifacts (or cell ids) the kit ships to warm the family's pattern layer and the compass cold-start priors.",

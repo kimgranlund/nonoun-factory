@@ -54,7 +54,7 @@ def run():
 
     print("· F2 — Tier 3 lights-out is REACHABLE, but only when earned")
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _lat.scaffold(d)
         _lat.save(d, {"cells": [{"layer": "rubric", "scope": "system", "slug": "r", "maturity": "validated",
                                  "depends_on": [], "signal_refs": ["x"]}]})
@@ -83,7 +83,7 @@ def run():
     print("· F2-tamper — a FORGED audit trail breaks the hash-chain → Tier 3 mechanically unreachable")
     with tempfile.TemporaryDirectory() as root:
         import json as _json
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _lat.scaffold(d)
         _lat.save(d, {"cells": [{"layer": "rubric", "scope": "system", "slug": "r", "maturity": "validated", "depends_on": [], "signal_refs": ["x"]}]})
         os.makedirs(os.path.join(d, "run"), exist_ok=True)

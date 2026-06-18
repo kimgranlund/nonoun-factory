@@ -19,7 +19,7 @@ Ticket `done` ⟺ the target cell advances through the **same** `gate-signal` �
 
 ## Scope — substrate, not the running system
 
-**dev-kernel installed alone provides the contracts, the selftested kernel scripts, and the read perimeter — it does not run the factory.** The protective gates BLOCK only once consent-wired into a worker loop; the autonomous loop, the live operational state (the SQLite index the MCP reads), and the trust-tier enforcement are the separate **dev-server** app's. The dark factory runs when dev-server drives this kernel against an instance under `.agents/dev-factory/`.
+**dev-kernel installed alone provides the contracts, the selftested kernel scripts, and the read perimeter — it does not run the factory.** The protective gates BLOCK only once consent-wired into a worker loop; the autonomous loop, the live operational state (the SQLite index the MCP reads), and the trust-tier enforcement are the separate **dev-server** app's. The dark factory runs when dev-server drives this kernel against an instance under `src/<project>/.factory/`.
 
 ## Skill layering — core vs meta
 
@@ -33,17 +33,17 @@ The **7 core lattice skills** operate the invariant machine over the on-disk gri
 # 1. Enable dev-kernel + a kit for your project (project-local), via .claude/settings.json or /plugin.
 # 2. Initialize the instance — just run the command:  /factory-init <project>
 #    (or by hand — scaffold the lattice + the layer/coordination dirs:)
-LATTICE_PRODUCED_BY=dev-factory python3 bin/lattice.py init --dir .agents/dev-factory
-mkdir -p .agents/dev-factory/coordination/{tickets,roadmap,issues}
+LATTICE_PRODUCED_BY=dev-factory python3 bin/lattice.py init --dir src/<project>/.factory
+mkdir -p src/<project>/.factory/coordination/{tickets,roadmap,issues}
 # 3. The 8 compound skills are now model-invoked — drive the factory in natural language (below).
 # 4. To run the autonomous loop + UI, start the separate dev-server (see ../dev-server/README.md):
-#      DEV_FACTORY_DIR=$PWD/.agents/dev-factory DEV_FACTORY_KIT=../dev-kit-corpus \
+#      DEV_FACTORY_DIR=<repo>/src/<project>/.factory DEV_FACTORY_KIT=../dev-kit-corpus \
 #        DEV_FACTORY_HEARTBEAT=1 uvicorn dev-server.app:app
 ```
 
 ## Sample prompts
 
-There is one typed command — **`/factory-init`** (the single deterministic action: scaffold an instance under `.agents/dev-factory/`). Everything else is **model-invoked** — the skills trigger on natural language:
+There is one typed command — **`/factory-init`** (the single deterministic action: scaffold an instance under `src/<project>/.factory/`). Everything else is **model-invoked** — the skills trigger on natural language:
 
 - *"seed a dev-factory lattice for this project"* · *"decompose this domain into layers and scopes"* — **lattice-management**
 - *"what cell should we advance next?"* · *"rank the frontier"* · *"why is this cell stale?"* — the compass

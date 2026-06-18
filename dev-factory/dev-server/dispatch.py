@@ -111,12 +111,29 @@ def _iso(dt):
 
 # ─────────────────────────────────── hermetic worktrees ───────────────────────────────────
 
+def _repo_root(d):
+    """The enclosing git repo root (nearest ancestor holding `.git`), found by walking UP from the instance
+    dir. The instance now nests as `src/{project}/.factory`, so the old fixed-depth grandparent lands on
+    `src/` (no `.git`) and would lose worktree isolation. The walk finds the NEAREST `.git` — the project's
+    own repo (a real user repo, or the harness's per-run `git init`) — and falls back to the grandparent when
+    none is found (a non-repo instance → the plain-dir worktree)."""
+    cur = os.path.abspath(d.rstrip("/"))
+    while True:
+        parent = os.path.dirname(cur)
+        if parent == cur:
+            break
+        if os.path.isdir(os.path.join(parent, ".git")):
+            return parent
+        cur = parent
+    return os.path.dirname(os.path.dirname(d.rstrip("/"))) or "."
+
+
 def provision_worktree(d, cell_id, worker_id, repo_root=None):
     """A hermetic workspace for one unit. A real git worktree when the instance lives in a repo (so
     parallel workers on different cells never collide); a plain isolated dir otherwise. Returns the path."""
     wt = os.path.join(d, "run", "worktrees", f"{cell_id}--{worker_id}")
     os.makedirs(os.path.dirname(wt), exist_ok=True)
-    repo = repo_root or os.path.dirname(os.path.dirname(d.rstrip("/")))  # the .agents/<plugin> grandparent
+    repo = repo_root or _repo_root(d)   # nearest enclosing git repo (walk up from src/{project}/.factory)
     if os.path.isdir(os.path.join(repo, ".git")):
         try:
             subprocess.run(["git", "-C", repo, "worktree", "add", "--detach", wt, "HEAD"],
@@ -129,7 +146,7 @@ def provision_worktree(d, cell_id, worker_id, repo_root=None):
 
 
 def teardown_worktree(d, wt, repo_root=None):
-    repo = repo_root or os.path.dirname(os.path.dirname(d.rstrip("/")))
+    repo = repo_root or _repo_root(d)
     if os.path.isdir(os.path.join(repo, ".git")):
         subprocess.run(["git", "-C", repo, "worktree", "remove", "--force", wt], capture_output=True)
     shutil.rmtree(wt, ignore_errors=True)
@@ -166,9 +183,14 @@ def _authoring_for(cell, kit_dir=None):
 
 
 def _asset_rel(layer, slug, authoring):
-    """A cell's asset path relative to the instance: a DIRECTORY for multi-file authoring, else {layer}/{slug}.md."""
+    """A cell's asset path RELATIVE TO THE INSTANCE DIR (`.factory/`): a DIRECTORY for multi-file authoring,
+    else {layer}/{slug}.md. A kit's `output_root` re-roots the multi-file directory — `..` escapes `.factory/`
+    so product CODE lands at the project root (`src/{project}/{slug}/`) beside its sibling verify.mjs as a
+    clean runnable tree, while the default (the layer name) keeps the asset inside `.factory/`. Either way
+    `os.path.join(d, asset_rel)` resolves to the on-disk asset (the `..` is normalized on resolution)."""
     if authoring and authoring.get("mode") == "multi-file":
-        return os.path.join(layer, slug)
+        root = authoring.get("output_root", layer)
+        return os.path.join(root, slug) if root else slug
     return os.path.join(layer, f"{slug}.md")
 
 
@@ -182,10 +204,11 @@ class MockAdapter(DispatchAdapter):
         layer, slug = unit["layer"], unit["slug"]
         authoring = _authoring_for({"layer": layer, "slug": slug})
         if authoring and authoring.get("mode") == "multi-file":
-            # multi-file CODE authoring (the worker's GENERATOR side): author source files into the cell's dir.
+            # multi-file CODE authoring (the worker's GENERATOR side): author source files into the cell's dir
+            # (the kit's output_root may re-root it OUT of .factory/ to the product tree — _asset_rel resolves it).
             # The per-cell verify.mjs is the CRITIC's gate — authored by the planner, write-protected from the
             # worker — so the mock never writes it (a real cold-start seeds the real harness; a trivial stub here).
-            asset_rel = os.path.join(layer, slug)
+            asset_rel = _asset_rel(layer, slug, authoring)
             asset_abs = os.path.join(d, asset_rel)
             os.makedirs(asset_abs, exist_ok=True)
             src = os.path.join(asset_abs, "index.mjs")
@@ -285,7 +308,7 @@ class HeadlessClaudeAdapter(DispatchAdapter):
         # by the cell's per-cell critic harness verify.mjs — the worker may READ its contract but CANNOT write it.
         authoring = _authoring_for({"layer": unit["layer"], "slug": unit["slug"]})
         if authoring and authoring.get("mode") == "multi-file":
-            dir_rel = os.path.relpath(os.path.join(d, unit["layer"], unit["slug"]), project_root)
+            dir_rel = os.path.relpath(os.path.join(d, _asset_rel(unit["layer"], unit["slug"], authoring)), project_root)
             plan = unit.get("plan") or {}
             dele = plan.get("delegation") or {}
             # the INTEGRATOR (the SHIP cell) depends on sibling capability cells — it must compose them into a
@@ -320,7 +343,7 @@ class HeadlessClaudeAdapter(DispatchAdapter):
                     f"from `./index.mjs`, so that file MUST exist and surface every declared export no matter how you "
                     f"split the internals. It MUST pass its critic harness `{dir_rel}/verify.mjs` — READ it for the "
                     f"exact contract, but you CANNOT write it (it is the critic's gate; your write is denied).{integ}{team} "
-                    f"Do NOT touch .agents/dev-factory/signals/, the ledger, rubric/, lattice.json, or any verify.mjs. "
+                    f"Do NOT touch the `.factory/` instance state (signals/, the ledger, rubric/, lattice.json) or any verify.mjs. "
                     f"Produce the source files INCLUDING index.mjs.{gtxt}{ftxt}")
 
         asset_abs = os.path.join(d, unit["layer"], f"{unit['slug']}.md")
@@ -334,14 +357,14 @@ class HeadlessClaudeAdapter(DispatchAdapter):
         return (f"You are a dev-factory worker advancing exactly one lattice cell: "
                 f"{unit['layer']}.{unit['scope']}.{unit['slug']} (transition {tt.get('from')} -> {tt.get('to')}). "
                 f"Write its asset to the file `{rel}` (relative to your working directory).{fmt} "
-                f"Do NOT touch .agents/dev-factory/signals/, the ledger, rubric/, or lattice.json — those are "
+                f"Do NOT touch the `.factory/` instance state (signals/, the ledger, rubric/, lattice.json) — those are "
                 f"protected and your write will be denied. Produce ONLY the asset.{cur}{gtxt}{ftxt}")
 
     def dispatch(self, d, unit):
         if shutil.which("claude") is None:
             return {"ok": False, "error": "the `claude` CLI is not on PATH", "metrics": {}}
-        # the worker runs from the PROJECT ROOT so the asset lands in the instance the critic validates,
-        # and the gates' project-relative protected globs (.agents/dev-factory/…) match the worker's writes.
+        # the worker runs from the PROJECT ROOT so the product lands in the clean tree the critic validates,
+        # and the gates' protected `.factory/` globs match the worker's writes.
         project_root = os.path.dirname(os.path.dirname(d.rstrip("/")))
         settings = wire_gates(unit["worktree"], _api._store._KERNEL_BIN)
         budget = unit.get("budget") or {}
@@ -394,7 +417,7 @@ class HeadlessClaudeAdapter(DispatchAdapter):
         # capability produces a DIRECTORY of source (anything but its critic harness), a doc/spec a single `.md`.
         authoring = _authoring_for({"layer": unit["layer"], "slug": unit["slug"]})
         if authoring and authoring.get("mode") == "multi-file":
-            asset_rel = os.path.join(unit["layer"], unit["slug"])                       # a source DIRECTORY
+            asset_rel = _asset_rel(unit["layer"], unit["slug"], authoring)              # a source DIRECTORY (kit-rooted)
             asset_abs = os.path.join(d, asset_rel)
             produced = os.path.isdir(asset_abs) and any(
                 f != "verify.mjs" and not f.startswith(".") for f in os.listdir(asset_abs))
@@ -444,7 +467,8 @@ def _kit_verifier(d, cell, unit, kit_dir=None):
         kit = json.load(open(os.path.join(kit_dir, "kit.json"), encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    asset = os.path.join(d, cell.get("asset_ref") or os.path.join(cell["layer"], f"{cell['slug']}.md"))
+    asset = os.path.normpath(os.path.join(d, cell.get("asset_ref")
+                             or _asset_rel(cell["layer"], cell["slug"], _authoring_for(cell, kit_dir))))
     for a in kit.get("adapters", []):
         if a.get("kind") == "validation" and (a.get("target") or {}).get("layer") == cell["layer"]:
             return [tok.replace("${CLAUDE_PLUGIN_ROOT}", kit_dir).replace("{asset}", asset)
@@ -666,7 +690,10 @@ def self_heal_cell(d, cell_id):
     cell = _lat.find(_lat.load(d), cell_id)
     if not cell:
         return {"healed": False, "reason": "cell not found"}
-    cell_dir = os.path.join(d, cell["layer"], cell["slug"])
+    # the strengthened gate must land where the validator runs it — beside the product source (the cell's
+    # asset_ref), which a kit's output_root may have rooted OUT of .factory/ into the product tree.
+    cell_dir = os.path.normpath(os.path.join(d, cell.get("asset_ref")
+                                or _asset_rel(cell["layer"], cell["slug"], _authoring_for(cell))))
     gen = new_spec["generation"]
     # 1. FOLD — strengthen the gate + persist the new spec
     os.makedirs(cell_dir, exist_ok=True)
@@ -796,7 +823,7 @@ def selftest():
         if not c:
             fails.append(m)
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _api.init_instance(d)
         srv = {"kind": "server", "id": "dev-server"}
         _api.seed_cell(d, "rubric", "task", "r", maturity="validated", signal_refs=["signals/rubric.task.r/seed.json"])

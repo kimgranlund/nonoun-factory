@@ -12,7 +12,7 @@
     "factory_dir": {
       "title": "dev-factory state directory",
       "type": "directory",
-      "description": "Read-only path to the project's dev-factory state directory (.agents/dev-factory) — the lattice.json, index.db, ledger/, and signals/ the read perimeter surfaces. The dev-server scaffolds it on boot. Optional — leave unset and the read tools return a clear configure-factory_dir message.",
+      "description": "Read-only path to the project's dev-factory state directory (src/<project>/.factory) — the lattice.json, index.db, ledger/, and signals/ the read perimeter surfaces. The dev-server scaffolds it on boot. Optional — leave unset and the read tools return a clear configure-factory_dir message.",
       "required": false
     }
   }

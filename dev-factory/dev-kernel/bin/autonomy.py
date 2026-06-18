@@ -180,7 +180,7 @@ def selftest():
         if not c:
             fails.append(m)
     with tempfile.TemporaryDirectory() as root:
-        d = os.path.join(root, ".agents/dev-factory")
+        d = os.path.join(root, ".factory")
         _lat.scaffold(d)
         _lat.save(d, {"cells": []})
         n0 = _now()
@@ -204,7 +204,7 @@ def selftest():
 
         # an UNMEASURED family with a budget still cannot reach Tier 2 (honest scope)
         with tempfile.TemporaryDirectory() as r2:
-            d2 = os.path.join(r2, ".agents/dev-factory")
+            d2 = os.path.join(r2, ".factory")
             _lat.scaffold(d2)
             _lat.save(d2, {"cells": [{"layer": "rubric", "scope": "task", "slug": "r", "maturity": "validated", "depends_on": [], "signal_refs": ["x"]}]})
             os.makedirs(os.path.join(d2, "run"), exist_ok=True)
@@ -245,7 +245,7 @@ def _arg(argv, flag, default=None):
 def main(argv):
     if not argv or argv[0] == "selftest":
         return selftest()
-    d = _arg(argv, "--dir", ".agents/dev-factory")
+    d = _arg(argv, "--dir", ".factory")
     fam = _arg(argv, "--family")
     if argv[0] == "tier":
         print(json.dumps(status(d, fam)))
