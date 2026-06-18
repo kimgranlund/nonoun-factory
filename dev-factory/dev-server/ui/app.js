@@ -1368,6 +1368,24 @@ class DfPanel extends UIElement {
 }
 customElements.define("df-panel", DfPanel);
 
+// Build <optgroup>/<option> markup for a cell-picker <select>, populated from the live lattice so the operator
+// chooses a real cell address (and sees its current maturity) instead of typing `layer.scope.slug` from memory.
+// `filter` narrows the set (e.g. only validated rubric cells); `empty` is the placeholder shown when nothing
+// matches — a disabled option that says WHY it is empty beats a silently blank menu.
+function cellOptions(cells, { filter = null, empty = "— no matching cells —" } = {}) {
+  const idOf = (c) => c.id || `${c.layer}.${c.scope}.${c.slug}`;
+  const layerOf = (c) => c.layer || idOf(c).split(".")[0];
+  const shortOf = (c) => (c.scope && c.slug ? `${c.scope}.${c.slug}` : idOf(c));
+  const list = (cells || []).filter((c) => (filter ? filter(c) : true));
+  if (!list.length) return `<option value="" disabled selected>${escapeHtml(empty)}</option>`;
+  const byLayer = new Map();
+  for (const c of list) { const L = layerOf(c); if (!byLayer.has(L)) byLayer.set(L, []); byLayer.get(L).push(c); }
+  const groups = [...byLayer.entries()].map(([L, cs]) =>
+    `<optgroup label="${escapeHtml(L)}">${cs.map((c) =>
+      `<option value="${escapeHtml(idOf(c))}">${escapeHtml(shortOf(c))} · ${escapeHtml(c.maturity || "absent")}</option>`).join("")}</optgroup>`).join("");
+  return `<option value=""></option>${groups}`;
+}
+
 // ═══════════════════ OVERLAY · create-ticket modal ═══════════════════
 class DfModal extends UIElement {
   connected() {
@@ -1386,7 +1404,8 @@ class DfModal extends UIElement {
       <div class="field"><div class="row">
         <div class="field"><label for="ct-type">Type</label>
           <select id="ct-type" name="type">${raw(["feature", "task", "bug", "chore", "spike", "epic", "issue"].map((x) => `<option>${x}</option>`).join(""))}</select></div>
-        <div class="field"><label for="ct-cell">Target cell</label><input id="ct-cell" name="target_cell" class="mono" placeholder="layer.scope.slug" autocomplete="off" /></div>
+        <div class="field"><label for="ct-cell">Target cell</label>
+          <select id="ct-cell" name="target_cell" class="mono">${raw(cellOptions(store.lattice.peek()))}</select></div>
       </div></div>
       <div class="field"><div class="row">
         <div class="field"><label for="ct-from">From maturity</label>
@@ -1394,7 +1413,11 @@ class DfModal extends UIElement {
         <div class="field"><label for="ct-to">To maturity</label>
           <select id="ct-to" name="to"><option value=""></option>${raw(MATURITIES.map((x) => `<option>${x}</option>`).join(""))}</select></div>
       </div></div>
-      <div class="field"><label for="ct-rubric">Acceptance rubric cell</label><input id="ct-rubric" name="rubric" class="mono" placeholder="rubric.scope.slug" autocomplete="off" /></div>
+      <div class="field"><label for="ct-rubric">Acceptance rubric cell</label>
+        <select id="ct-rubric" name="rubric" class="mono">${raw(cellOptions(store.lattice.peek(), {
+          filter: (c) => c.layer === "rubric" && ["validated", "operating"].includes(c.maturity),
+          empty: "no validated rubric cells yet — get a rubric cell to validated first",
+        }))}</select></div>
       <div class="field"><label for="ct-body">Body</label><textarea id="ct-body" name="body" rows="3"></textarea></div>`;
     const prompt = html`
       <p class="modal-hint">A free-form brief. The cold-start planner triages it into a spec, hydrated lattice cells, and structured build tickets.</p>
@@ -1437,6 +1460,17 @@ class DfModal extends UIElement {
     (m.triageId ? this.querySelector("#ct-cell") : titleEl)?.focus();  // triage: jump straight to the binding field
     const form = this.querySelector("#ct-form");
     form?.addEventListener("submit", (e) => { e.preventDefault(); this.#submit(); });
+    // Picking a target cell fixes "From maturity" to that cell's current state — the gate requires from == the
+    // cell's maturity, and the operator can't be expected to know it. Still overridable afterward.
+    const cellSel = this.querySelector("#ct-cell"), fromSel = this.querySelector("#ct-from");
+    if (cellSel && fromSel) {
+      const syncFrom = () => {
+        const c = (store.lattice.peek() || []).find((x) => (x.id || `${x.layer}.${x.scope}.${x.slug}`) === cellSel.value);
+        if (c && c.maturity) fromSel.value = c.maturity;
+      };
+      cellSel.addEventListener("change", syncFrom);
+      if (cellSel.value) syncFrom();
+    }
   }
   // Mirror the server's gate_ticket_ready so the operator sees WHY a structured ticket can't go active up front —
   // inline in the modal — instead of submitting a ticket that sticks in draft behind a later 409. Returns the

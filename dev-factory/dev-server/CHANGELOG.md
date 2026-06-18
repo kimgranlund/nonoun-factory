@@ -3,6 +3,11 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-18 — create/triage modal: cell fields become lattice-populated menus
+
+- **The `Target cell` and `Acceptance rubric cell` fields are now `<select>` menus, not free text.** A user can't be expected to type a legal `layer.scope.slug` from memory, so the two cell-addressed fields are populated from the live lattice (`store.lattice.peek()` — snapshotted on open, so a lattice poll can't wipe a half-filled form). **Target cell** is grouped by layer (`<optgroup>`) with each cell's current maturity shown as a suffix; **Acceptance rubric cell** is filtered to `rubric`-layer cells that are `validated`/`operating` — the same constraint `gate_ticket_ready` enforces, surfaced at *selection* time instead of as a post-submit rejection. When no rubric qualifies, the menu shows a disabled option that says *why* (validate a rubric first) rather than going silently blank.
+- **Picking a target cell auto-fills `From maturity`** to that cell's current state (the gate requires `from == the cell's maturity`); still overridable. `name="target_cell"`/`name="rubric"` are preserved, so `#submit` and `#whyNotReady` are unchanged. DOM-shim load + `cellOptions` logic selftests green; cache-bust v16→v17.
+
 ## 2026-06-18 — per-card Triage: bind an untriaged intake from the board
 
 - **A `Triage →` button on untriaged intake cards (prompt/issue).** The dashboard let you create a Prompt but gave no way to advance it — a prompt is *untriaged intake* (it parks for the cold-start planner), can't be dragged to Active, and had no triage affordance, so a hand-made prompt was a dead end. Now a draft prompt/issue card shows **Triage →**, which opens the binding form (target cell + from/to + a validated rubric, with the same inline readiness check as create), calls `POST /api/issues/{id}/triage`, and the card becomes a structured ticket draggable to Active.
