@@ -32,7 +32,11 @@ export function checkShell(entry) {
     return [`app entry not found: ${entry} — the build produced no runnable shell (a re-export barrel is not an app)`];
   }
   const html = fs.readFileSync(entry, 'utf8');
-  if (!/<canvas[\s>]/i.test(html)) errs.push('no <canvas> — a shader/web app entry needs a render surface');
+  // a runnable app needs a render surface: a <canvas> (WebGL/2D app) OR a DOM mount root (a DOM/SVG app —
+  // <main>, id="app"/"root", or [data-app/-root/-mount]). <body> alone doesn't count (it's always present).
+  const hasSurface = /<canvas[\s>]/i.test(html) || /<main[\s>]/i.test(html) ||
+    /\bid\s*=\s*["'](app|root|app-root|main|mount)["']/i.test(html) || /\bdata-(app|root|mount)\b/i.test(html);
+  if (!hasSurface) errs.push('no render surface — needs a <canvas> or a DOM mount root (<main>, id="app"/"root", or [data-app])');
   if (!/<script\b[^>]*\btype\s*=\s*["']module["']/i.test(html)) errs.push('no <script type="module"> — nothing wires the modules into a running page');
 
   // collect the module-graph: every relative import reachable from the entry's inline + linked module scripts

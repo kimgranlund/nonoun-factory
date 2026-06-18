@@ -37,7 +37,7 @@ let RENDER_SEQ = 0;             // process-global: every inline-module temp gets
 // app proceeds to set uniforms + draw); compile/link queries report SUCCESS; everything else is a recorded
 // no-op. The trace captures the integration-coherence signal: did a linked program get USED and a frame DRAWN?
 function recordingGL() {
-  const trace = { calls: Object.create(null), drew: false, usedProgram: false, uniforms: 0, programs: 0 };
+  const trace = { calls: Object.create(null), drew: false, usedProgram: false, uniforms: 0, programs: 0, mounted: false };
   const note = (name) => { trace.calls[name] = (trace.calls[name] || 0) + 1; };
   const gl = new Proxy(Object.create(null), {
     get(_t, prop) {
@@ -76,15 +76,19 @@ function makeHost() {
       style: swallow, dataset: {}, children: [], childNodes: [],
       classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
       getContext: (t) => (String(t).includes('webgl') ? gl : null),
-      appendChild: (c) => c, append: () => {}, prepend: () => {}, removeChild: (c) => c, insertBefore: (c) => c,
-      replaceChildren: () => {}, replaceWith: () => {}, before: () => {}, after: () => {},
-      cloneNode: () => mkEl(), insertAdjacentElement: (_p, c) => c, insertAdjacentHTML: () => {},
+      // a DOM/SVG app "renders" by writing DOM — these structural mounts set the trace.mounted signal
+      appendChild: (c) => { trace.mounted = true; return c; }, append: () => { trace.mounted = true; },
+      prepend: () => { trace.mounted = true; }, removeChild: (c) => c, insertBefore: (c) => { trace.mounted = true; return c; },
+      replaceChildren: (...a) => { if (a.length) trace.mounted = true; }, replaceWith: () => {}, before: () => {}, after: () => {},
+      cloneNode: () => mkEl(), insertAdjacentElement: (_p, c) => { trace.mounted = true; return c; },
+      insertAdjacentHTML: (_p, h) => { if (h) trace.mounted = true; },
       remove() {}, setAttribute() {}, removeAttribute() {}, getAttribute: () => null, hasAttribute: () => false,
       addEventListener() {}, removeEventListener() {}, focus() {}, blur() {}, click() {},
       querySelector: () => mkEl(), querySelectorAll: () => [], closest: () => null,
       getBoundingClientRect: () => ({ width: 300, height: 150, top: 0, left: 0, right: 300, bottom: 150 }),
     };
-    return el;
+    // catch structural innerHTML/outerHTML injection (SVG/templating apps) as a mount signal too
+    return new Proxy(el, { set(t, p, v) { if ((p === 'innerHTML' || p === 'outerHTML') && String(v ?? '').trim()) trace.mounted = true; t[p] = v; return true; } });
   };
   const rafCbs = [];
   let rafN = 0;
@@ -165,8 +169,11 @@ async function renderTrace(entry) {
 
   const { trace } = host;
   if (!errs.length) {
-    if (!trace.usedProgram) errs.push('no program was used (gl.useProgram never called) — the shell links nothing into the pipeline');
-    if (!trace.drew) errs.push('the render path issued NO draw call (drawArrays/drawElements) — the app assembles but never draws a frame');
+    // an app RENDERS by drawing a WebGL frame OR by mounting DOM (a DOM/SVG app) — either is a real frame;
+    // an assembled shell that does neither is the runtime gap (the DOM analog of "links but never draws").
+    const rendered = trace.drew || trace.mounted;
+    if (!rendered) errs.push('the render path produced NO frame — no WebGL draw (drawArrays/drawElements) and no DOM mounted (appendChild/innerHTML); the shell assembles but never renders');
+    else if (trace.drew && !trace.usedProgram) errs.push('a draw call ran without gl.useProgram — nothing is linked into the pipeline');
   }
   return { errs, trace };
 }
@@ -230,6 +237,21 @@ async function selftest() {
   </script>`);
   ck((await check(path.join(os, 'hostapi.html'))).errs.length === 0, 'the shim covers replaceChildren + a working localStorage round-trip (a shell using them PASSES)');
 
+  // 3c. a DOM/SVG app (no WebGL) renders by MOUNTING DOM into a root — passes on the DOM-render signal
+  write('dom.mjs', `export function render(root){ const h = document.createElement('h1'); h.textContent = 'hi'; root.appendChild(h); }`);
+  write('domapp.html', `<!doctype html><main id=app></main><script type="module">
+    import { render } from './dom.mjs';
+    render(document.getElementById('app'));
+  </script>`);
+  ck((await check(path.join(os, 'domapp.html'))).errs.length === 0, 'a DOM app (mount root + mounts DOM, no WebGL) PASSES on the DOM-render signal');
+
+  // 3d. a DOM shell that imports the product but mounts NOTHING fails (the DOM analog of "assembles but never draws")
+  write('domnoop.html', `<!doctype html><main id=app></main><script type="module">
+    import { render } from './dom.mjs';
+    const unused = render;   // never actually mounts
+  </script>`);
+  ck((await check(path.join(os, 'domnoop.html'))).errs.some((e) => /never renders|no frame/.test(e)), 'a DOM shell that mounts nothing FAILS (assembles but never renders)');
+
   // 4. src= main.mjs exporting mount(root) — the integrator convention — is driven
   write('main.mjs', `
     import { compileShader } from './core/index.mjs';
@@ -254,5 +276,6 @@ if (arg === '--selftest') process.exit(await selftest());
 if (!arg) { console.error('usage: render-check.mjs <index.html> | --selftest'); process.exit(2); }
 const { errs, trace } = await check(arg);
 if (errs.length) { console.error('render INCOHERENT:\n' + errs.map((p) => '  - ' + p).join('\n')); process.exit(1); }
-console.log(`render coherent: ${arg} — executes, useProgram + ${trace.uniforms} uniform call(s) + a draw (${Object.keys(trace.calls).length} distinct GL ops); real-GPU pixels are the optional escalation`);
+const how = [trace.drew && `a WebGL draw (${trace.uniforms} uniform call(s), ${Object.keys(trace.calls).length} GL ops)`, trace.mounted && 'DOM mounted'].filter(Boolean).join(' + ');
+console.log(`render coherent: ${arg} — executes + renders: ${how}; real-GPU pixels are the optional escalation`);
 process.exit(0);
