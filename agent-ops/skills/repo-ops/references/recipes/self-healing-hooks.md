@@ -24,7 +24,7 @@ status: research-verified
 A self-healing repo:
 
 1. **Refuses to merge PRs** that introduce drift between CLAUDE.md and AGENTS.md.
-2. **Refuses to merge PRs** with broken intra-repo or external links in `.agents/brain/` or `docs/`.
+2. **Refuses to merge PRs** with broken intra-repo or external links in `docs/ops/` or `docs/`.
 3. **Refuses commits** that bloat AGENTS.md / CLAUDE.md past the 200-line ceiling.
 4. **Auto-archives** orphaned docs after a 30-day grace period.
 5. **Surfaces stale content** weekly (scheduled CI), not on a someone-remembered-to-look basis.
@@ -56,7 +56,7 @@ repos:
       # Trip-wire 1: AGENTS.md / CLAUDE.md must not drift
       - id: agents-claude-drift
         name: AGENTS.md / CLAUDE.md must not have drifted prose
-        entry: bash -c 'bash scripts/check-agents-claude-drift.sh'
+        entry: bash -c 'bash scripts/check-entry-pointer-drift.sh'
         language: system
         files: '^(AGENTS\.md|CLAUDE\.md)$'
         pass_filenames: false
@@ -68,66 +68,66 @@ repos:
         language: system
         pass_filenames: false
 
-      # Trip-wire 3: docs in .agents/brain/ or docs/ must have a date
+      # Trip-wire 3: docs in docs/ops/ or docs/ must have a date
       - id: doc-frontmatter-date
-        name: .agents/brain/*.md and docs/*.md must have date frontmatter or "Last reviewed:" line
+        name: docs/ops/*.md and docs/*.md must have date frontmatter or "Last reviewed:" line
         entry: bash -c 'bash scripts/check-doc-dates.sh'
         language: system
-        files: '^(\.agents/brain|docs)/.*\.md$'
+        files: '^(\docs/ops|docs)/.*\.md$'
         pass_filenames: true
 ```
 
-#### `scripts/check-agents-claude-drift.sh`
+#### `scripts/check-entry-pointer-drift.sh`
 
 ```bash
 #!/usr/bin/env bash
-# Trip-wire: AGENTS.md and CLAUDE.md must not have drifted prose.
+# Trip-wire: CLAUDE.md (canonical, Claude-native) and AGENTS.md must not have drifted prose.
 # Pass cases:
-#   (a) CLAUDE.md is a symlink to AGENTS.md → identical content.
-#   (b) CLAUDE.md is a thin pointer (≤15 lines) referencing AGENTS.md.
-#   (c) AGENTS.md exists, CLAUDE.md does not.
+#   (a) AGENTS.md is a symlink to CLAUDE.md → identical content.
+#   (b) AGENTS.md is a thin pointer (≤15 lines) referencing CLAUDE.md.
+#   (c) CLAUDE.md exists, AGENTS.md does not.
 # Fail: both exist as fat (>15 lines) divergent files.
 
 set -euo pipefail
 
-if [ ! -f AGENTS.md ] && [ ! -f CLAUDE.md ]; then
+if [ ! -f CLAUDE.md ] && [ ! -f AGENTS.md ]; then
     exit 0  # Neither exists; not this hook's problem
 fi
 
-if [ ! -f AGENTS.md ]; then
-    echo "ERROR: CLAUDE.md exists but AGENTS.md does not. Promote CLAUDE.md → AGENTS.md."
+if [ ! -f CLAUDE.md ]; then
+    echo "ERROR: AGENTS.md exists but CLAUDE.md does not. Promote AGENTS.md → CLAUDE.md (Claude-native)."
     exit 1
 fi
 
-if [ ! -f CLAUDE.md ]; then
-    exit 0  # AGENTS.md only; fine
+if [ ! -f AGENTS.md ]; then
+    exit 0  # CLAUDE.md only; fine (Claude-native default)
 fi
 
-# CLAUDE.md is a symlink? (clean)
-if [ -L CLAUDE.md ]; then
-    target="$(readlink CLAUDE.md)"
-    if [ "$target" = "AGENTS.md" ]; then
+# AGENTS.md is a symlink? (clean)
+if [ -L AGENTS.md ]; then
+    target="$(readlink AGENTS.md)"
+    if [ "$target" = "CLAUDE.md" ]; then
         exit 0
     else
-        echo "ERROR: CLAUDE.md is a symlink to '$target', not AGENTS.md."
+        echo "ERROR: AGENTS.md is a symlink to '$target', not CLAUDE.md."
         exit 1
     fi
 fi
 
-# CLAUDE.md is thin? (clean)
-claude_lines=$(wc -l < CLAUDE.md)
-if [ "$claude_lines" -le 15 ]; then
-    if grep -q -i "AGENTS\.md" CLAUDE.md; then
+# AGENTS.md is thin? (clean)
+agents_lines=$(wc -l < AGENTS.md)
+if [ "$agents_lines" -le 15 ]; then
+    if grep -q -i "CLAUDE\.md" AGENTS.md; then
         exit 0
     else
-        echo "ERROR: CLAUDE.md is short but doesn't reference AGENTS.md."
+        echo "ERROR: AGENTS.md is short but doesn't reference CLAUDE.md."
         exit 1
     fi
 fi
 
 # Both fat → drift risk.
-echo "ERROR: Both AGENTS.md ($(wc -l <AGENTS.md) lines) and CLAUDE.md ($claude_lines lines) are fat."
-echo "       Demote one to a thin pointer or symlink. See repo-ops/standards/claude-md-convention.md."
+echo "ERROR: Both CLAUDE.md ($(wc -l <CLAUDE.md) lines) and AGENTS.md ($agents_lines lines) are fat."
+echo "       Demote AGENTS.md to a thin pointer or symlink. See repo-ops/standards/claude-md-convention.md."
 exit 1
 ```
 
@@ -135,7 +135,7 @@ exit 1
 
 ```bash
 #!/usr/bin/env bash
-# Trip-wire: every .agents/brain/*.md and docs/*.md must have a date.
+# Trip-wire: every docs/ops/*.md and docs/*.md must have a date.
 set -euo pipefail
 fail=0
 for f in "$@"; do
@@ -160,7 +160,7 @@ name: Repo-brain (PR)
 
 on:
   pull_request:
-    paths: ['**.md', '.agents/brain/**', 'docs/**', 'AGENTS.md', 'CLAUDE.md', '.cursor/**', '.windsurfrules', '.github/copilot-instructions.md']
+    paths: ['**.md', 'docs/ops/**', 'docs/**', 'AGENTS.md', 'CLAUDE.md', '.cursor/**', '.windsurfrules', '.github/copilot-instructions.md']
 
 jobs:
   links:
@@ -170,14 +170,14 @@ jobs:
       - name: Lychee link check
         uses: lycheeverse/lychee-action@v2
         with:
-          args: --cache --max-cache-age=1d --no-progress '.agents/brain/**/*.md' 'docs/**/*.md' '*.md'
+          args: --cache --max-cache-age=1d --no-progress 'docs/ops/**/*.md' 'docs/**/*.md' '*.md'
           fail: true
 
   drift-and-length:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: bash scripts/check-agents-claude-drift.sh
+      - run: bash scripts/check-entry-pointer-drift.sh
       - run: bash scripts/check-entry-file-length.sh
 
   doc-dates:
@@ -186,7 +186,7 @@ jobs:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
       - run: |
-          changed=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- '.agents/brain/**/*.md' 'docs/**/*.md' || true)
+          changed=$(git diff --name-only origin/${{ github.base_ref }}...HEAD -- 'docs/ops/**/*.md' 'docs/**/*.md' || true)
           if [ -n "$changed" ]; then
             bash scripts/check-doc-dates.sh $changed
           fi
@@ -227,7 +227,7 @@ jobs:
       - name: External link check (full)
         uses: lycheeverse/lychee-action@v2
         with:
-          args: --no-progress '.agents/brain/**/*.md' 'docs/**/*.md' '*.md'
+          args: --no-progress 'docs/ops/**/*.md' 'docs/**/*.md' '*.md'
           fail: false  # Don't fail; report
 
       - name: Stale-doc detection (mtime + frontmatter)
@@ -261,11 +261,11 @@ jobs:
 
 ```bash
 #!/usr/bin/env bash
-# Find docs in .agents/brain/ or docs/ not referenced by any entry file or other doc.
+# Find docs in docs/ops/ or docs/ not referenced by any entry file or other doc.
 set -euo pipefail
-all_docs=$(find .agents/brain docs -type f -name '*.md' 2>/dev/null)
+all_docs=$(find docs/ops docs -type f -name '*.md' 2>/dev/null)
 referenced=$(
-  cat AGENTS.md CLAUDE.md README.md .agents/brain/**/*.md docs/**/*.md 2>/dev/null \
+  cat AGENTS.md CLAUDE.md README.md docs/ops/**/*.md docs/**/*.md 2>/dev/null \
   | grep -oE '\[[^]]+\]\(([^)]+)\)' \
   | grep -oE '\(([^)]+)\)' \
   | tr -d '()' \
@@ -306,20 +306,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - name: Move stale orphans to .agents/brain/archive/
+      - name: Move stale orphans to docs/ops/archive/
         run: |
           # An orphan unmodified for 30+ days AND not in /archive/ → archive it.
           while IFS= read -r line; do
             [[ -z "$line" ]] && continue
             f=$(echo "$line" | cut -d' ' -f2)
-            [[ "$f" == .agents/brain/archive/* ]] && continue
+            [[ "$f" == docs/ops/archive/* ]] && continue
             [[ "$f" == docs/archive/* ]] && continue
             mtime=$(git log -1 --format=%ct -- "$f")
             now=$(date +%s)
             age_days=$(( (now - mtime) / 86400 ))
             if [ "$age_days" -gt 30 ]; then
-              mkdir -p .agents/brain/archive
-              git mv "$f" ".agents/brain/archive/$(basename "$f")"
+              mkdir -p docs/ops/archive
+              git mv "$f" "docs/ops/archive/$(basename "$f")"
               echo "Archived: $f (orphan for ${age_days}d)"
             fi
           done < <(bash scripts/find-orphan-docs.sh)
@@ -359,7 +359,7 @@ Self-healing has **two halves** — _presence_ (the trip-wire exists) and _liven
 2. ✅ The `agents-claude-drift`, `entry-file-length`, `doc-frontmatter-date` hooks are wired.
 3. ✅ `.github/workflows/repo-brain-pr.yml` (or equivalent) exists and includes lychee.
 4. ✅ `.github/workflows/repo-brain-weekly.yml` (or equivalent scheduled audit) exists.
-5. ✅ `scripts/check-agents-claude-drift.sh` and the other helper scripts exist.
+5. ✅ `scripts/check-entry-pointer-drift.sh` and the other helper scripts exist.
 
 **Liveness** — the trip-wire has _fired_ within its freshness window. Each run (pre-commit, PR CI, weekly CI) appends a record to the audit-history ledger:
 

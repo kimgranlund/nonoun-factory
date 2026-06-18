@@ -5,10 +5,11 @@ Flags, at write time, the structural smells `repo-ops` audits for on the canonic
 
   UNDATED        a canonical / memory doc with no `date:` frontmatter and no `_Last reviewed:_` line
                  (invisible to staleness detection)
-  ENTRY-BLOAT    AGENTS.md / CLAUDE.md over the ~200-line entry-file ceiling (Anthropic); warns from 150
-  DRIFT-RISK     a substantial CLAUDE.md that is NOT a thin pointer to AGENTS.md (a divergent second copy)
-  NO-FRONTMATTER a doc under a memory dir (.agents/brain/ , docs/{adrs,postmortems,runbooks,decisions}/) with
-                 no YAML frontmatter at all
+  ENTRY-BLOAT    CLAUDE.md / AGENTS.md over the ~200-line entry-file ceiling (Anthropic); warns from 150
+  DRIFT-RISK     a substantial AGENTS.md that is NOT a thin pointer to CLAUDE.md (a divergent second copy;
+                 CLAUDE.md is canonical / Claude-native, AGENTS.md the opt-in cross-tool pointer)
+  NO-FRONTMATTER a doc under a memory dir (docs/ops/ , docs/{adr,adrs,postmortems,runbooks,decisions}/,
+                 opt-in .agents/brain/) with no YAML frontmatter at all
 
 ADVISORY ONLY. `--hook` mode ALWAYS exits 0 — it never blocks a write; it prints suggestions to stderr.
 Direct mode exits 1 when smells are found (for ad-hoc use / CI-as-warning).
@@ -26,7 +27,7 @@ import sys
 
 CANON = re.compile(r"(^|/)(README|CHANGELOG|ROADMAP|PLAN|BACKLOG|ARCHITECTURE|CONTRIBUTING|SECURITY)\.md$", re.I)
 ENTRY = re.compile(r"(^|/)(AGENTS|CLAUDE)\.md$")
-MEMORY = re.compile(r"(^|/)(\.agents/brain|docs)/(adrs|postmortems|runbooks|decisions)/", re.I)
+MEMORY = re.compile(r"(^|/)(docs/ops|\.agents/brain|docs)/(adr|adrs|postmortems|runbooks|decisions)/", re.I)
 DATEISH = re.compile(r"(?mi)^\s*date\s*:|_Last reviewed:")
 
 
@@ -44,8 +45,8 @@ def lint(path, text):
             smells.append(("ENTRY-BLOAT", f"{lines} lines — over the ~200-line entry-file ceiling; move detail into linked subfolders"))
         elif lines > 150:
             smells.append(("ENTRY-BLOAT", f"{lines} lines — approaching the ~200-line ceiling (warn at 150)"))
-        if base.endswith("CLAUDE.md") and lines > 25 and "AGENTS.md" not in text:
-            smells.append(("DRIFT-RISK", "a substantial CLAUDE.md that doesn't point at AGENTS.md — make it a thin pointer, or `ln -s AGENTS.md CLAUDE.md`"))
+        if base.endswith("AGENTS.md") and lines > 25 and "CLAUDE.md" not in text:
+            smells.append(("DRIFT-RISK", "a substantial AGENTS.md that doesn't point at CLAUDE.md — CLAUDE.md is canonical; make AGENTS.md a thin pointer to it, or `ln -s CLAUDE.md AGENTS.md`"))
     if (CANON.search(base) or MEMORY.search(base)) and not _dated(text):
         smells.append(("UNDATED", "no `date:` frontmatter or `_Last reviewed:_` line — invisible to staleness detection"))
     if MEMORY.search(base) and not text.startswith("---"):
@@ -65,10 +66,11 @@ def _selftest():
     import tempfile
     ok = True
     cases = {
-        "AGENTS.md": ("x\n" * 210, "ENTRY-BLOAT"),
-        "CLAUDE.md": ("# rules\n" + "detail line\n" * 30, "DRIFT-RISK"),
+        "CLAUDE.md": ("CLAUDE\n" + "x\n" * 210, "ENTRY-BLOAT"),              # entry ceiling applies to CLAUDE.md
+        os.path.join("nested", "AGENTS.md"): ("# rules\n" + "detail line\n" * 30, "DRIFT-RISK"),  # opt-in AGENTS.md not pointing at CLAUDE.md
+        os.path.join("ok", "CLAUDE.md"): ("# rules\n" + "detail line\n" * 30, None),  # a substantial CLAUDE.md is canonical — not a smell
         "README.md": ("# Title\n\nNo date here.\n", "UNDATED"),
-        os.path.join(".agents/brain", "adrs", "0001-x.md"): ("# ADR\n\nbody\n", "NO-FRONTMATTER"),
+        os.path.join("docs/ops", "adr", "0001-x.md"): ("# ADR\n\nbody\n", "NO-FRONTMATTER"),
         os.path.join("docs", "guide.md"): ("---\ndate: 2026-06-03\n---\n# ok\n", None),
     }
     with tempfile.TemporaryDirectory() as d:

@@ -21,7 +21,7 @@ if [ -n "$ENV_FILE" ] && [ -f "$ENV_FILE" ]; then echo "» env: $ENV_FILE"; . "$
 : "${DEV_KERNEL_BIN:=$HERE/../dev-kernel/bin}"            # the vendored kernel bin, relative to this plugin
 : "${HOST:=127.0.0.1}"
 : "${PORT:=8731}"
-: "${DEV_FACTORY_HEARTBEAT:=0}"                            # Crawl by default; set 1 to auto-dispatch (Walk)
+: "${DEV_FACTORY_HEARTBEAT:=1}"                            # Walk by default — a `run.sh` launch IS a user-initiated run; set 0 to opt into Crawl (human-driven). Safe: adapter defaults to mock (no tokens) + the cap below bounds the loop.
 [ "$DEV_FACTORY_HEARTBEAT" = "1" ] && : "${DEV_FACTORY_MAX_DISPATCHES:=6}"   # bound an armed loop (never unbounded)
 
 set +a

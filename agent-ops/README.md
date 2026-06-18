@@ -2,7 +2,7 @@
 
 **Author, operate, and review full-spectrum agentic systems — and the repos they live in.** The operations-and-architecture counterpart to the build plugins: it knows how to design agent loops and teams, judge what a running workflow is like to drive, keep a repo's agent-facing memory honest, and review a codebase's architecture.
 
-> **Status: 0.1.18 — carved from four mature skills, now with live retrieval.** Five skills, a 13-critic council, six `/ops-*` commands, an advisory doc-hygiene hook, five gates (`audit-history.py` · `check_blueprint.py` · `check-sourcing.py` · `check-self-contained.py` · `doc-hygiene`), and the **`repo-memory` MCP** (per-instance read-only retrieval over a repo's agent docs + `.agents/brain/audit-history/` ledger). Made self-contained (zero cross-plugin paths, enforced by a gate) and red-teamed with the `plugins-factory` council (CONDITIONAL → folded → APPROVED). See [ROADMAP.md](ROADMAP.md).
+> **Status: 0.1.19 — carved from four mature skills, now with live retrieval; `repo-ops` is Claude-native (CLAUDE.md canonical · `.claude/` config · `docs/ops/` memory; AGENTS.md/`.agents/` opt-in).** Five skills, a 13-critic council, six `/ops-*` commands, an advisory doc-hygiene hook, five gates (`audit-history.py` · `check_blueprint.py` · `check-sourcing.py` · `check-self-contained.py` · `doc-hygiene`), and the **`repo-memory` MCP** (per-instance read-only retrieval over a repo's agent docs + `docs/ops/audit-history/` ledger). Made self-contained (zero cross-plugin paths, enforced by a gate) and red-teamed with the `plugins-factory` council (CONDITIONAL → folded → APPROVED). See [ROADMAP.md](ROADMAP.md).
 
 ## Quick start
 
@@ -16,7 +16,7 @@
 - *"I'm picking up an agentic repo — orient me: what's the system, and where are the gaps?"* → `/ops-orient`
 - *"Design the loop and control plane for an overnight refactoring agent — pick a topology and wire termination, verification, and a budget."* → `/ops-loop`
 - *"Review my workflow's agentic UX — what's it actually like to drive? Trust, control, observability, reversibility."* → `/ops-ux`
-- *"Audit this repo's AGENTS.md and docs for staleness, drift, and orphans."* → `/ops-audit`
+- *"Audit this repo's CLAUDE.md and docs for staleness, drift, and orphans."* → `/ops-audit`
 - *"Review this codebase's architecture and give me a cascade-ranked refactor backlog."* → `/ops-review`
 - *"Run the agentic council on our orchestration blueprint — named practitioners, parallel and isolated."* → `/ops-council`
 
@@ -29,7 +29,7 @@
 
 - **Agent loops & teams** — 11 topologies (Ralph · plan-execute · ReAct/Reflexion · evaluator-optimizer · orchestrator-workers · auto-research · debate · self-improving · spec-driven · async) + the router + the control plane (termination · verification · context · budget · durability) + a 14-field Orchestration Blueprint with a mechanical validator.
 - **Agentic-workflow UX** — the operator seat: trust, control, observability, steerability, reversibility, autonomy, across the workflow lifecycle — scored by an 8-dimension rubric + a 7-dimension architecture rubric + a named-practitioner council.
-- **Repo memory & docs** — AGENTS.md-canonical with thin pointers, the canonical files (README · CHANGELOG · ROADMAP · PLAN · ADRs · ARCHITECTURE · postmortems), ~16 audit patterns (stale / orphan / redundant / drift / token-waste), the five promises, and a queryable audit ledger.
+- **Repo memory & docs** — Claude-native: `CLAUDE.md` canonical with thin pointers (config in `.claude/`, planning/decision docs in `docs/ops/`; `AGENTS.md`/`.agents/` opt-in for cross-tool), the canonical files (README · CHANGELOG · ROADMAP · PLAN · ADRs · ARCHITECTURE · postmortems), ~16 audit patterns (stale / orphan / redundant / drift / token-waste), the five promises, and a queryable audit ledger.
 - **Code-architecture review** — the 6-wave Discover → Audit → Synthesize → Adversarial → Polish pipeline → a cascade-ranked refactor backlog (3 P0 / 3 P1 / 6 P2 / ∞ P3) + a tier-1 patterns doc.
 
 ## Shape (the five-primitive model)
