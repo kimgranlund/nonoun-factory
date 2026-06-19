@@ -23,7 +23,7 @@ is the forward view on what "the factory builds real apps" actually requires.
 | 1 | **Shell-authoring gap.** Capability authoring routes every cell to `../{slug}/`, but a shell's `index.html` belongs at the product **root**. The cell's `asset_ref` (`../index.html`) and the authoring layout (`../shell/`) disagreed — dispatch authored to one, validation checked the other. | `design-tokens-lab` shell ticket blocked: *"asset `../shell` absent/empty."* | **Fixed (PR #13).** Slug-specific `single-file` authoring at the root (`_authoring_for` gains slug-specificity; `_asset_rel` resolves `single-file`→`../index.html`). Proven: the factory authored `icon-forge`'s + `design-tokens-lab`'s shells unaided. |
 | 3 | **Integrator-prompt vs. lattice mismatch.** The `is_integrator` prompt told the shell worker to author the *whole assembly* (barrel + `main.mjs` + html), conflicting with those already being separate cells. | The shell worker had no coherent task. | **Fixed (PR #13).** A shell-specific bootstrap prompt: *"the modules are ALREADY BUILT as sibling cells — import + mount them at the root."* |
 | 12 | **Render gate was WebGL-only.** `render-check` asserted a WebGL draw; 3 of 4 apps are DOM/SVG. | A DOM app would fail "no frame." | **Fixed (PR #12).** An app "renders" if it draws a WebGL frame **or** mounts DOM. Proven on `design-tokens-lab` + `icon-forge`. |
-| 2 | **Presence-predicate verifiers (the deep one).** The per-cell `verify.mjs` are mock (`ready === true`). A module reaching `validated` proved only "it exports `ready`," **not** "it implements the spec." | The `design-tokens-lab` modules were good only because the *worker* followed the spec; the *critic* never checked. | **Partially addressed.** We now author a **real** spec-conformance `core/verify.mjs` per app (e.g. icon-forge: ≥6 icons, complete `<svg>`, parametric output, sprite). `core` then validates against a real contract. **Open:** `ui`/`persistence` still mock; and the real verifier is **operator-authored**, not factory-authored. |
+| 2 | **Presence-predicate verifiers (the deep one).** The per-cell `verify.mjs` are mock (`ready === true`). A module reaching `validated` proved only "it exports `ready`," **not** "it implements the spec." | The `design-tokens-lab` modules were good only because the *worker* followed the spec; the *critic* never checked. wireframe-studio's `core` *failed* a real verifier on attempt 1 (a mock check would have passed it) and was fixed on retry — the real gate has teeth. | **Mechanism landed.** Real spec-conformance `core` verifiers proven across the campaign; then made factory-native: a **verifier-authoring dispatch** (`kind == "verifier"` → `_verifier_prompt`, the rubric-architect authoring `verify.mjs` *from the spec*) + `author_verifier()`. **Open:** wire it into the autonomous build loop (run before each capability cell) + the headless verifier-author worktree gate-permit; extend beyond `core` to `ui`/`persistence`. |
 
 ## The open frontier — make verification first-class
 
@@ -33,12 +33,14 @@ as real as the critic, and a presence-predicate critic is no critic. Two moves c
 1. **Real per-cell verifiers as the default**, not mock stubs — the `core` of each app now has one; extend to
    `ui` (drive `mount()` against a DOM shim + assert structure) and `persistence` (pure
    serialize/deserialize round-trip). The render-coherence gate already covers the `shell`.
-2. **Factory-authored verifiers.** Today the operator authors the real `verify.mjs` (the rubric-architect's
-   job done by hand). The systemic fix is a build step that dispatches the **rubric-architect** to author +
-   calibrate the per-cell harness *from the spec* before the capability cell builds — so "validated" means
-   "passed a real, spec-derived test" with no human in the verifier loop. Until then, the honest reading: the
-   factory **authors** whole apps autonomously, but **rigorous validation** still depends on a human-seeded
-   contract for the non-shell, non-core cells.
+2. **Factory-authored verifiers — mechanism now landed.** The verifier-authoring dispatch (`kind == "verifier"`
+   → `HeadlessClaudeAdapter._verifier_prompt`, the rubric-architect authoring `verify.mjs` *from the spec*; the
+   MockAdapter writes a smoke check) + `author_verifier()` mean the **factory** can author the contract-as-test,
+   not the operator by hand. The remaining wiring: run `author_verifier` before each capability cell inside the
+   autonomous build loop, grant the headless verifier-author worktree write to `verify.mjs` (it's the critic
+   side, not the module worker), and extend past `core` to `ui`/`persistence`. Once wired into the loop,
+   "validated" means "passed a real, spec-derived test" with no human in the verifier loop — the green grid
+   earned everywhere.
 
 ## Net
 
