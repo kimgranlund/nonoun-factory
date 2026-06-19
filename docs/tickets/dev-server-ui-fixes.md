@@ -2,9 +2,8 @@
 
 Fixes and issues found while **operating** dev-factory's `dev-server` (the kanban board + the
 bounded loop) on a real instance (`dark-factory-test`, the HCT-palette-generator spec build-out).
-Kept here so the solutions can be passed back to the plugin author. Distinct from the
-author's own [ISSUES.md](../ISSUES.md): this is **external-operator feedback** — what broke when
-a user *ran* the server, with the patch where we already made it.
+Kept here so the solutions can be passed back to the plugin author. This is **external-operator
+feedback** — what broke when a user *ran* the server, with the patch where we already made it.
 
 `UI-n` = Server UI (`dev-server/ui/`). `DF-n` = dev-server / dev-kernel runtime surfaced in the
 same session (non-UI, included because the same author owns them). Severity `P1`(worst)…`P3`.
