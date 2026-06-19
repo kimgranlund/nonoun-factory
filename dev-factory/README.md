@@ -108,4 +108,17 @@ python3 dev-kernel/bin/check-kit-conform.py kit dev-kit-corpus
 DEV_FACTORY_DIR=… python3 dev-kernel/bin/factory-query-mcp.py   # JSON-RPC over stdio
 ```
 
+## Use it (build software with it)
+
+The commands above *verify/develop the factory itself*. To **use it to build software** — scaffold an
+instance, run a bounded build, let it author + validate + assemble a whole app — see
+**[`docs/USAGE.md`](docs/USAGE.md)**, a task-oriented walkthrough of the real workflows:
+
+- **watch the loop run free** (the `mock` heartbeat, no tokens),
+- **a bounded headless build** of one cell (real `claude -p`, capped spend),
+- **build a whole app autonomously** — modules *and* the integration shell, each validated against a real,
+  spec-derived gate the factory authors itself (the verifier-author default),
+- **switch between project instances** on one running server,
+- and the **safety/bounds** model (the adapter is the spend lever; the run budget fails closed).
+
 The design of record is `docs/specs/dev-factory-spec/TDD-01-nonoun-factory.md`; the build narrative is `docs/PLAN.md`.
