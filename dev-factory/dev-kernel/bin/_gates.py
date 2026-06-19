@@ -46,6 +46,11 @@ VERIFIER = [
 ]
 LEDGER = [f"{NS}/ledger/*", f"{NS}/coordination/index.jsonl"]
 
+# The RUBRIC-ARCHITECT's boundary: everything VERIFIER protects EXCEPT `*/verify.mjs`. The verifier-author
+# (the critic side) MUST write a cell's verify.mjs — it is authoring the gate — but must still NOT forge
+# signals, rewrite the lattice/ledger/rubric, or unwire its hooks. `gate-verifier --allow-verify` uses this.
+VERIFIER_AUTHOR = [g for g in VERIFIER if g != "*/verify.mjs"]
+
 
 def is_protected(path, globs):
     """True if `path` matches a protected glob at a path-segment boundary (root-relative or after any

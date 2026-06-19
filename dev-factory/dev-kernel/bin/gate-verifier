@@ -9,7 +9,11 @@ is the focused reward-hack subset, kept distinct because it is the load-bearing 
 
 Consent-wired as a PreToolUse(Write|Edit) hook in the worker loop; non-zero exit = DENY.
 
-Usage:  gate-verifier --hook | check <path> | selftest
+`--allow-verify` switches to the RUBRIC-ARCHITECT boundary (VERIFIER_AUTHOR): a cell's `verify.mjs` becomes
+writable — for the verifier-author authoring the gate — while signals/, rubric/, the lattice/ledger, and the
+wiring stay denied. The module worker is wired WITHOUT this flag, so it still cannot grade its own homework.
+
+Usage:  gate-verifier [--allow-verify] --hook | check <path> | selftest
 Stdlib only; Python 3.8+.
 """
 import os
@@ -19,4 +23,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import _gates  # noqa: E402
 
 if __name__ == "__main__":
-    sys.exit(_gates.run_path_gate("gate-verifier", _gates.VERIFIER, sys.argv[1:], "verifier/immutable asset"))
+    argv = sys.argv[1:]
+    globs = _gates.VERIFIER
+    if "--allow-verify" in argv:                       # the verifier-author may write verify.mjs (it IS the gate)
+        globs = _gates.VERIFIER_AUTHOR
+        argv = [a for a in argv if a != "--allow-verify"]
+    sys.exit(_gates.run_path_gate("gate-verifier", globs, argv, "verifier/immutable asset"))

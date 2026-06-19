@@ -277,16 +277,21 @@ class MockAdapter(DispatchAdapter):
         return {"ok": True, "asset_ref": asset_rel, "metrics": {"tokens": 8000, "iterations": 1}}
 
 
-def wire_gates(worktree, kernel_bin):
+def wire_gates(worktree, kernel_bin, allow_verify=False):
     """Make the immutable boundary ACTIVE inside the worker's worktree: write a .claude/settings.json that
     runs the dev-kernel gates as PreToolUse(Write|Edit) hooks. A worker that tries to forge a signal or
     rewrite the lattice/ledger is denied in-process (gate-verifier emits permissionDecision: deny). This is
-    the §9.2 'gates active inside the worktree' guarantee — wired per dispatch, never bundled."""
+    the §9.2 'gates active inside the worktree' guarantee — wired per dispatch, never bundled.
+
+    `allow_verify` wires the verifier-author boundary (`gate-verifier --allow-verify`): the rubric-architect
+    authoring a cell's verify.mjs may write it (it IS the gate), while signals/lattice/ledger/rubric stay
+    denied. The module worker is wired WITHOUT it, so it still cannot write the gate it must pass."""
     cfg_dir = os.path.join(worktree, ".claude")
     os.makedirs(cfg_dir, exist_ok=True)
+    gv = f"{os.path.join(kernel_bin, 'gate-verifier')} --hook" + (" --allow-verify" if allow_verify else "")
     settings = {"hooks": {"PreToolUse": [
         {"matcher": "Write|Edit|MultiEdit", "hooks": [
-            {"type": "command", "command": f"{os.path.join(kernel_bin, 'gate-verifier')} --hook"},
+            {"type": "command", "command": gv},
             {"type": "command", "command": f"{os.path.join(kernel_bin, 'gate-ledger')} --hook"},
             {"type": "command", "command": f"{os.path.join(kernel_bin, 'gate-naming')} --hook"},
         ]},
@@ -448,7 +453,7 @@ class HeadlessClaudeAdapter(DispatchAdapter):
         # the worker runs from the PROJECT ROOT so the product lands in the clean tree the critic validates,
         # and the gates' protected `.factory/` globs match the worker's writes.
         project_root = os.path.dirname(os.path.dirname(d.rstrip("/")))
-        settings = wire_gates(unit["worktree"], _api._store._KERNEL_BIN)
+        settings = wire_gates(unit["worktree"], _api._store._KERNEL_BIN, allow_verify=(unit.get("kind") == "verifier"))
         budget = unit.get("budget") or {}
         effort = (unit.get("plan") or {}).get("effort") or {}          # the assembled execution plan's effort ladder
         max_turns = effort.get("max_iterations") or budget.get("iterations", 10)
@@ -594,6 +599,7 @@ def author_verifier(d, cell, adapter, repo_root=None):
     BEFORE the capability cell builds, so the worker's module is graded against a real gate. Returns the
     dispatch result {ok, asset_ref, ...}."""
     unit = {"layer": cell["layer"], "scope": cell["scope"], "slug": cell["slug"], "kind": "verifier",
+            "target_cell": f"{cell['layer']}.{cell['scope']}.{cell['slug']}",   # the ledger-tee keys off this
             "ticket": cell.get("ticket", "rubric-author"), "dir": d, "worktree": cell.get("worktree", repo_root or d)}
     return adapter.dispatch(d, unit)
 

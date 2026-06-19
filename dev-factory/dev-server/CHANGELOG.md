@@ -3,6 +3,10 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-18 — the verifier-author worktree permit (closing the #2 loop)
+
+- **A `kind == "verifier"` dispatch wires `gate-verifier --allow-verify`, so a headless rubric-architect can author the cell's `verify.mjs`.** `wire_gates` gains `allow_verify`; the headless adapter passes `allow_verify=(unit.kind == "verifier")`. The verifier-author may write the harness it authors (it IS the gate), while signals/lattice/ledger/rubric stay denied — the module worker is still wired without the flag, so the generator/critic split holds. Proven end-to-end: a real `claude -p` verifier-author writes a spec-conformance `verify.mjs` under the permit. Pairs with dev-kernel 0.2.13 (`gate-verifier --allow-verify`).
+
 ## 2026-06-18 — factory-authored verifiers (#2) + prompt refactor (remove the obsolete integrator branch)
 
 - **The factory can author a cell's REAL critic harness, closing the presence-predicate-verifier weakness.** Per-cell `verify.mjs` were mock (`ready === true`) — so `validated` meant "exports `ready`," not "implements the spec"; the build campaign showed modules were good only because the *worker* followed the spec, never because the *critic* checked. New: a **verifier-authoring** dispatch (`unit.kind == "verifier"`) — `HeadlessClaudeAdapter._verifier_prompt` tasks the **rubric-architect** with a real spec-conformance `verify.mjs` *from the spec* (`import * as m from './index.mjs'`; assert the named exports exist + produce correct results; explicitly NOT a `ready` check); the MockAdapter writes a deterministic smoke check; `author_verifier(d, cell, adapter)` runs it before the module builds, so the worker is graded against a real gate the worker stays gate-denied from writing. (The autonomous-loop integration + the headless verifier-author worktree gate-permit are the remaining wiring; the mechanism + prompt land here.)

@@ -33,14 +33,19 @@ as real as the critic, and a presence-predicate critic is no critic. Two moves c
 1. **Real per-cell verifiers as the default**, not mock stubs — the `core` of each app now has one; extend to
    `ui` (drive `mount()` against a DOM shim + assert structure) and `persistence` (pure
    serialize/deserialize round-trip). The render-coherence gate already covers the `shell`.
-2. **Factory-authored verifiers — mechanism now landed.** The verifier-authoring dispatch (`kind == "verifier"`
-   → `HeadlessClaudeAdapter._verifier_prompt`, the rubric-architect authoring `verify.mjs` *from the spec*; the
-   MockAdapter writes a smoke check) + `author_verifier()` mean the **factory** can author the contract-as-test,
-   not the operator by hand. The remaining wiring: run `author_verifier` before each capability cell inside the
-   autonomous build loop, grant the headless verifier-author worktree write to `verify.mjs` (it's the critic
-   side, not the module worker), and extend past `core` to `ui`/`persistence`. Once wired into the loop,
-   "validated" means "passed a real, spec-derived test" with no human in the verifier loop — the green grid
-   earned everywhere.
+2. **Factory-authored verifiers — landed and proven.** The verifier-authoring dispatch (`kind == "verifier"`
+   → `HeadlessClaudeAdapter._verifier_prompt`, the rubric-architect authoring `verify.mjs` *from the spec*) +
+   `author_verifier()` + the **`gate-verifier --allow-verify` worktree permit** (dev-kernel 0.2.13 — the
+   verifier-author may write the harness it authors while signals/lattice stay denied) mean the **factory**
+   authors the contract-as-test, not the operator. A live demo confirmed it end-to-end **and immediately found
+   a real defect**: a headless rubric-architect authored a real spec-conformance `persistence/verify.mjs` for
+   `icon-forge`; run against the mock-validated module it FAILED — *"persistence must export `saveForge`"* — the
+   module had built `storageGet`/`storageSet` instead, **deviating from its spec'd contract** while the mock
+   `ready` gate rubber-stamped it. The modules cohere with each other (the app runs), but only a real
+   spec-derived verifier enforces the named contract. **The one remaining piece:** run `author_verifier` ahead
+   of each capability cell *inside the autonomous loop* (it's a callable helper today), and extend past `core`
+   to `ui`/`persistence`/`shell`. Then every cell builds against a real, factory-authored, spec-derived gate —
+   "validated" earned everywhere, no human in the verifier loop.
 
 ## Net
 
