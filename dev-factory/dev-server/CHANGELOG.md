@@ -3,6 +3,13 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-19 — harness-council audit fixes (round 1): the false-pass oracle path + verifier-author spend
+
+An independent harness-council review of the app-build campaign's changes surfaced these (top of a larger backlog):
+
+- **`run_refuter` now resolves the cell dir by `asset_ref`/`output_root`, not the naive `.factory/{layer}/{slug}/`** — the single most-corroborated finding (H2 · H6 · H7 convergence). The independent false-pass oracle ran in `.factory/capability/{slug}/` (no `index.mjs`) for any app-kit cell whose code is rooted OUT to the product tree (`src/{project}/{slug}/`) — so it silently no-op'd or manufactured a spurious incident, and since `false_pass_rate` is what the autonomy trajectory consumes, **the app family could never legitimately measure its way to Tier 2.** Now mirrors `self_heal_cell` (the sibling that already did it right). self-heal/demotion/fly evals stay green.
+- **The auto verifier-author pass now attaches its spend metrics**, so it counts against the run's token ceiling (`_tokens_since` sums `metrics.tokens` from any event) — previously the rubric-architect dispatch burned tokens the budget never saw (budget-cost C2).
+
 ## 2026-06-19 — the verifier-author pass is the DEFAULT for real builds (no operator pre-step)
 
 - **`dispatch_unit` now authors a cell's real verifier automatically, before the module builds — on real (headless) builds only.** When the adapter is headless, the target is a capability MODULE (multi-file), the transition is signal-bearing, and the per-cell `verify.mjs` is still a mock `ready` stub (`_is_mock_verifier`), the rubric-architect authors the real, spec-derived harness FIRST (in a gate-permitted worktree), then the module worker builds against it. So every real build grades its modules against a real contract with zero operator action — closing #2's last gap (it was a deliberate `author_app_verifiers` pre-step; now it's the default). **Mock builds (CI/Crawl) skip it** (the adapter isn't headless), so the eval suite is unaffected; the run's token ceiling bounds the extra spend; a non-stub/hand-authored verifier is left untouched. `dispatch.selftest` (incl. `_is_mock_verifier`) + integration/crawl/walk/tier1/render/server-smoke evals green.

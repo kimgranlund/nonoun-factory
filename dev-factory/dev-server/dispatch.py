@@ -707,9 +707,12 @@ def dispatch_unit(d, ticket, adapter, actor, tier=1, repo_root=None, auto_valida
         try:
             vr = author_verifier(d, {"layer": cell["layer"], "scope": cell["scope"], "slug": cell["slug"],
                                      "worktree": vwt, "ticket": f"verifier-{tid}"}, adapter, repo_root)
+            # attach the pass's spend so it COUNTS against the run's token ceiling (heartbeat._tokens_since sums
+            # metrics.tokens from any event) — else the auto verifier-author burned tokens the budget never saw.
             _led.append(d, "handoff", {"kind": "agent", "id": "rubric-architect"},
                         {"ticket": tid, "cell": ticket["target_cell"]},
-                        f"verifier-author pass: real critic harness authored (ok={bool(vr.get('ok'))})")
+                        f"verifier-author pass: real critic harness authored (ok={bool(vr.get('ok'))})",
+                        metrics={"activity": act_id, "verifier_author": True, **(vr.get("metrics") or {})})
         finally:
             teardown_worktree(d, vwt, repo_root)
 
@@ -971,7 +974,12 @@ def run_refuter(d, cell_id):
         return None
     if not harness or shutil.which("node") is None:
         return None
-    cell_dir = os.path.join(d, cell["layer"], cell["slug"])
+    # the refuter must run BESIDE the product source (the cell's asset_ref) — a kit's output_root may have
+    # rooted it OUT of .factory/ into the product tree (src/{project}/{slug}/), where index.mjs actually lives.
+    # Mirrors self_heal_cell; the naive .factory/{layer}/{slug}/ silently no-ops the false-pass oracle for any
+    # app-kit cell (harness-council H2/H6/H7 convergence — the oracle the autonomy trajectory consumes).
+    cell_dir = os.path.normpath(os.path.join(d, cell.get("asset_ref")
+                                or _asset_rel(cell["layer"], cell["slug"], _authoring_for(cell))))
     rp = os.path.join(cell_dir, ".refute.mjs")
     try:
         open(rp, "w", encoding="utf-8").write(harness)
