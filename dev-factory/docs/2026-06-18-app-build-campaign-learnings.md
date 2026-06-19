@@ -33,6 +33,18 @@ as real as the critic, and a presence-predicate critic is no critic. Two moves c
 1. **Real per-cell verifiers as the default**, not mock stubs — the `core` of each app now has one; extend to
    `ui` (drive `mount()` against a DOM shim + assert structure) and `persistence` (pure
    serialize/deserialize round-trip). The render-coherence gate already covers the `shell`.
+3. **Extending real verifiers to DOM cells — the learning loop, run on the factory itself.** Pushing
+   factory-authored verifiers past the pure-logic cells (`core`, `persistence`) to `ui` taught two things, fast.
+   (a) **The verifier-author punted on DOM modules** — pointed at `ui` (functions that take a root element), the
+   rubric-architect left the mock `ready` check, because the prompt never said how to test a DOM module with no
+   DOM. Fixed: `_verifier_prompt` now guides a `globalThis.document` shim + driving the render functions against
+   a mock root (it then produced a real 168-line DOM verifier). (b) **That real DOM verifier immediately caught a
+   defect**: the `ui` *barrel* (`index.mjs`) didn't re-export `renderGallery`/etc. — the shell had been importing
+   them from the sub-files directly, so the spec-required "barrel surfaces the full API" was quietly violated and
+   the mock gate missed it. Two real bugs surfaced by *making the gate real* — the whole point of #2, now true
+   across logic AND DOM cells. The capstone re-build pattern (author verifier → re-build module to pass it) fixes
+   each; doing it for `ui` (which would also tighten the barrel) is the same recipe applied once more.
+
 2. **Factory-authored verifiers — landed and proven.** The verifier-authoring dispatch (`kind == "verifier"`
    → `HeadlessClaudeAdapter._verifier_prompt`, the rubric-architect authoring `verify.mjs` *from the spec*) +
    `author_verifier()` + the **`gate-verifier --allow-verify` worktree permit** (dev-kernel 0.2.13 — the
