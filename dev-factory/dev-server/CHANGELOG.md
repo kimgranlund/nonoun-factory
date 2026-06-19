@@ -3,6 +3,10 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-19 — the verifier-author handles DOM cells (it was punting on them)
+
+- **`_verifier_prompt` now guides DOM-cell verifier authoring.** Extending real verifiers from pure-logic cells (`core`, `persistence`) to `ui` exposed a gap: pointed at a DOM module (`renderGallery`/`renderControls`/`renderPreview`, which take a root element), the rubric-architect **punted — it left the mock `ready` check** (Node has no DOM, and the prompt didn't say how to test one). The prompt now instructs: if the module renders to the DOM, author a minimal shim at the top of `verify.mjs` (`globalThis.document` with a `createElement` that returns a RECORDING element tracking `appendChild`/`textContent`/`innerHTML`/`addEventListener`, plus `getElementById`/`querySelector`), then CALL each render function with a mock root + its callbacks and assert it actually mounted content and wired its handlers — explicitly NOT a bare `ready` check. Surfaced by the breadth frontier; `dispatch.selftest` green.
+
 ## 2026-06-18 — the verifier-author PASS: `author_app_verifiers` (run before the modules build)
 
 - **`author_app_verifiers(d, slugs, adapter)` runs the rubric-architect over every listed capability cell's `verify.mjs` BEFORE the modules build** — each in its own provisioned, gate-permitted worktree. After the pass, every cell is graded against a real, spec-derived gate, so a module deviating from its spec'd contract is REFUSED, not rubber-stamped. This is the build-orchestration step that wires factory-authored verifiers into a build (`#2`). `dispatch.selftest` covers it (the pass authors a harness for each listed cell).

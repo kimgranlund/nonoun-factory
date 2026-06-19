@@ -444,8 +444,15 @@ class HeadlessClaudeAdapter(DispatchAdapter):
                 f"Do NOT settle for `ready === true` — a presence check is exactly what this REPLACES. On any "
                 f"failure `console.error('FAIL: …'); process.exit(1)`; on success `console.log('pass — …'); "
                 f"process.exit(0)`. The module may not exist yet — you author the GATE it must pass, so test the "
-                f"CONTRACT (the spec), not one implementation, and don't over-fit to internals. Author ONLY "
-                f"`{dir_rel}/verify.mjs`; do NOT author the module or touch `.factory/` state.{spec_txt}{gtxt}{ftxt}")
+                f"CONTRACT (the spec), not one implementation, and don't over-fit to internals. "
+                f"If the module RENDERS to the DOM (functions that take a root element, or that use `document`), Node "
+                f"has NO DOM — author a minimal shim at the top of verify.mjs: set `globalThis.document` to a stub "
+                f"whose `createElement` returns a RECORDING element (tracks `appendChild`/`append`/`textContent`/"
+                f"`innerHTML`/`addEventListener`/`setAttribute`), plus `getElementById`/`querySelector`; then CALL each "
+                f"render function with a mock root + the callbacks it expects and ASSERT it actually mounted something "
+                f"(appended children or set content) and wired its handlers. Do NOT skip DOM functions with a bare "
+                f"`ready` check — that punt is exactly the presence-predicate this replaces. "
+                f"Author ONLY `{dir_rel}/verify.mjs`; do NOT author the module or touch `.factory/` state.{spec_txt}{gtxt}{ftxt}")
 
     def dispatch(self, d, unit):
         if shutil.which("claude") is None:
