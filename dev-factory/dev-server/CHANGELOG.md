@@ -3,6 +3,10 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-18 — the verifier-author PASS: `author_app_verifiers` (run before the modules build)
+
+- **`author_app_verifiers(d, slugs, adapter)` runs the rubric-architect over every listed capability cell's `verify.mjs` BEFORE the modules build** — each in its own provisioned, gate-permitted worktree. After the pass, every cell is graded against a real, spec-derived gate, so a module deviating from its spec'd contract is REFUSED, not rubber-stamped. This is the build-orchestration step that wires factory-authored verifiers into a build (`#2`). `dispatch.selftest` covers it (the pass authors a harness for each listed cell).
+
 ## 2026-06-18 — the verifier-author worktree permit (closing the #2 loop)
 
 - **A `kind == "verifier"` dispatch wires `gate-verifier --allow-verify`, so a headless rubric-architect can author the cell's `verify.mjs`.** `wire_gates` gains `allow_verify`; the headless adapter passes `allow_verify=(unit.kind == "verifier")`. The verifier-author may write the harness it authors (it IS the gate), while signals/lattice/ledger/rubric stay denied — the module worker is still wired without the flag, so the generator/critic split holds. Proven end-to-end: a real `claude -p` verifier-author writes a spec-conformance `verify.mjs` under the permit. Pairs with dev-kernel 0.2.13 (`gate-verifier --allow-verify`).

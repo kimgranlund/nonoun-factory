@@ -604,6 +604,24 @@ def author_verifier(d, cell, adapter, repo_root=None):
     return adapter.dispatch(d, unit)
 
 
+def author_app_verifiers(d, slugs, adapter, repo_root=None, scope="system"):
+    """The VERIFIER-AUTHOR PASS: run the rubric-architect over each capability cell's critic harness BEFORE the
+    modules build, each in its own provisioned worktree (gate-permitted to write verify.mjs). After this, every
+    listed cell is graded against a real, spec-derived gate instead of a mock `ready` stub — so a module that
+    deviates from its spec'd contract is REFUSED, not rubber-stamped (#2). Run it ahead of the build tickets.
+    Returns {slug: ok}."""
+    results = {}
+    for slug in slugs:
+        wt, _ = provision_worktree(d, f"capability.{scope}.{slug}", "rubric-architect", repo_root)
+        try:
+            r = author_verifier(d, {"layer": "capability", "scope": scope, "slug": slug, "worktree": wt,
+                                    "ticket": f"verifier-{slug}"}, adapter, repo_root)
+            results[slug] = bool(r.get("ok"))
+        finally:
+            teardown_worktree(d, wt, repo_root)
+    return results
+
+
 # ─────────────────────────────────── the dispatch loop ───────────────────────────────────
 
 def _activity_kind(to_mat):
@@ -1151,6 +1169,15 @@ def selftest():
             del os.environ["DEV_FACTORY_KIT"]
         expect(r.get("ok") and os.path.isfile(os.path.join(d, "vf", "core", "verify.mjs")),
                "author_verifier must make the factory author the cell's verify.mjs critic harness")
+        # the verifier-author PASS authors a harness for every listed cell (run before the modules build)
+        os.environ["DEV_FACTORY_KIT"] = os.path.join(d, "vf")
+        try:
+            passres = author_app_verifiers(os.path.join(d, "vf"), ["core", "store"], MockAdapter(), repo_root=os.path.join(d, "vf"))
+        finally:
+            del os.environ["DEV_FACTORY_KIT"]
+        expect(passres == {"core": True, "store": True}
+               and os.path.isfile(os.path.join(d, "vf", "store", "verify.mjs")),
+               "author_app_verifiers must author a real verify.mjs for EVERY listed capability cell")
 
         # team EXECUTION: a delegation=team plan makes the worker an ORCHESTRATOR that spawns the planned sub-agent
         # team (the Task tool is added; the prompt names the depth) — so 'team, depth 2' is executed, not just ledgered.
