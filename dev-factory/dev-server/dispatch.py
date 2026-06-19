@@ -176,10 +176,18 @@ def _authoring_for(cell, kit_dir=None):
         kit = json.load(open(os.path.join(kit_dir, "kit.json"), encoding="utf-8"))
     except (OSError, ValueError):
         return None
+    # match by layer; a slug-specific entry (e.g. capability.*.shell → a single-file root entry) wins over the
+    # layer-default, regardless of list order — mirrors _kit_verifier's slug-specificity.
+    chosen = None
     for a in kit.get("authoring", []):
-        if a.get("layer") == cell["layer"]:
-            return a
-    return None
+        if a.get("layer") != cell["layer"]:
+            continue
+        if a.get("slug"):
+            if a["slug"] == cell.get("slug"):
+                return a
+        elif chosen is None:
+            chosen = a
+    return chosen
 
 
 def _asset_rel(layer, slug, authoring):
@@ -188,6 +196,12 @@ def _asset_rel(layer, slug, authoring):
     so product CODE lands at the project root (`src/{project}/{slug}/`) beside its sibling verify.mjs as a
     clean runnable tree, while the default (the layer name) keeps the asset inside `.factory/`. Either way
     `os.path.join(d, asset_rel)` resolves to the on-disk asset (the `..` is normalized on resolution)."""
+    if authoring and authoring.get("mode") == "single-file":
+        # a single runnable ENTRY FILE at output_root (e.g. the integration shell `index.html` at the product
+        # root) — NOT a ../{slug}/ module dir. Resolves to `<output_root>/<entry>` (e.g. `../index.html`).
+        root = authoring.get("output_root", layer)
+        entry = authoring.get("entry") or f"{slug}.html"
+        return os.path.join(root, entry) if root else entry
     if authoring and authoring.get("mode") == "multi-file":
         root = authoring.get("output_root", layer)
         return os.path.join(root, slug) if root else slug
@@ -203,6 +217,22 @@ class MockAdapter(DispatchAdapter):
     def dispatch(self, d, unit):
         layer, slug = unit["layer"], unit["slug"]
         authoring = _authoring_for({"layer": layer, "slug": slug})
+        if authoring and authoring.get("mode") == "single-file":
+            # the integration shell: a single runnable entry at the product root (e.g. index.html). The mock
+            # authors a minimal bootstrap that imports a sibling module + mounts DOM — enough to clear both the
+            # static (imports a product module) and render (mounts a frame) gates deterministically. A real
+            # worker authors the actual integration; this keeps mock builds + evals of the shell cell green.
+            asset_rel = _asset_rel(layer, slug, authoring)
+            asset_abs = os.path.join(d, asset_rel)
+            os.makedirs(os.path.dirname(asset_abs), exist_ok=True)
+            if not os.path.exists(asset_abs) or os.path.getsize(asset_abs) == 0:
+                open(asset_abs, "w", encoding="utf-8").write(
+                    "<!doctype html><meta charset=utf-8><title>app</title><main id=app></main>\n"
+                    '<script type="module">\n'
+                    "  import './core/index.mjs';\n"
+                    "  document.getElementById('app').appendChild(document.createElement('div'));\n"
+                    "</script>\n")
+            return {"ok": True, "asset_ref": asset_rel, "metrics": {"tokens": 6000, "iterations": 1}}
         if authoring and authoring.get("mode") == "multi-file":
             # multi-file CODE authoring (the worker's GENERATOR side): author source files into the cell's dir
             # (the kit's output_root may re-root it OUT of .factory/ to the product tree — _asset_rel resolves it).
@@ -304,9 +334,28 @@ class HeadlessClaudeAdapter(DispatchAdapter):
         ftxt = (f"\n\nYour PREVIOUS attempt on this cell FAILED its gate:\n  {last_fail}\nRe-read `verify.mjs` and make "
                 "THAT specific check pass — do not repeat the same mistake.") if last_fail else ""
 
+        authoring = _authoring_for({"layer": unit["layer"], "slug": unit["slug"]})
+        # the INTEGRATION SHELL (a single-file root entry): the capability modules are ALREADY separate cells —
+        # the shell is a thin bootstrap that imports + mounts them, authored at the product root, NOT a re-author
+        # of the whole assembly. (Distinct from the legacy `is_integrator` prompt, which assumed one cell built
+        # the lot — the lattice-vs-integrator mismatch that blocked the shell.)
+        if authoring and authoring.get("mode") == "single-file":
+            entry_rel = os.path.relpath(os.path.join(d, _asset_rel(unit["layer"], unit["slug"], authoring)), project_root)
+            _cell = _lat.find(_lat.load(d), f"{unit['layer']}.{unit['scope']}.{unit['slug']}") or {}
+            sibs = ", ".join(sorted({str(dep).split(".")[-1] for dep in (_cell.get("depends_on") or []) if str(dep).startswith("capability.")}))
+            return (f"You are a dev-factory worker authoring the INTEGRATION SHELL at `{entry_rel}` — the product's "
+                    f"runnable browser entry, at the PROJECT ROOT. The capability MODULES are ALREADY BUILT as sibling "
+                    f"directories ({sibs or 'at the product root'}); do NOT re-implement them. Author a thin, runnable "
+                    f"`{entry_rel}`: (a) a render surface — a `<main id=\"app\">` for a DOM app OR a `<canvas>` for a "
+                    f"WebGL app; (b) a `<script type=\"module\">` that IMPORTS the modules' public API from `./<module>/…` "
+                    f"(e.g. a `mount(root)` the ui module exports, or the renderer + editor) and MOUNTS the app into the "
+                    f"surface ON LOAD; (c) CSS (inline or a sibling styles.css) so it looks like a real app. It MUST run "
+                    f"+ render on load — the critic executes it headlessly and requires a real frame (a WebGL draw OR DOM "
+                    f"mounted). Every `./…` import MUST resolve to a real sibling file. Do NOT touch `.factory/` state or "
+                    f"any verify.mjs.{gtxt}{ftxt}")
+
         # multi-file CODE authoring (a kit's capability/code layer): author N source files to a directory, graded
         # by the cell's per-cell critic harness verify.mjs — the worker may READ its contract but CANNOT write it.
-        authoring = _authoring_for({"layer": unit["layer"], "slug": unit["slug"]})
         if authoring and authoring.get("mode") == "multi-file":
             dir_rel = os.path.relpath(os.path.join(d, _asset_rel(unit["layer"], unit["slug"], authoring)), project_root)
             plan = unit.get("plan") or {}
@@ -416,7 +465,11 @@ class HeadlessClaudeAdapter(DispatchAdapter):
         # metrics. (A crash that writes nothing → no asset → correctly failed.) Authoring-aware: a multi-file
         # capability produces a DIRECTORY of source (anything but its critic harness), a doc/spec a single `.md`.
         authoring = _authoring_for({"layer": unit["layer"], "slug": unit["slug"]})
-        if authoring and authoring.get("mode") == "multi-file":
+        if authoring and authoring.get("mode") == "single-file":
+            asset_rel = _asset_rel(unit["layer"], unit["slug"], authoring)              # the entry FILE (e.g. ../index.html)
+            asset_abs = os.path.join(d, asset_rel)
+            produced = os.path.isfile(asset_abs) and os.path.getsize(asset_abs) > 0
+        elif authoring and authoring.get("mode") == "multi-file":
             asset_rel = _asset_rel(unit["layer"], unit["slug"], authoring)              # a source DIRECTORY (kit-rooted)
             asset_abs = os.path.join(d, asset_rel)
             produced = os.path.isdir(asset_abs) and any(
@@ -991,6 +1044,27 @@ def selftest():
             del os.environ["DEV_FACTORY_KIT"]
         expect("multiple files under" in p and "verify.mjs" in p and "CANNOT write it" in p,
                "the multi-file worker prompt must demand source files + name the worker-protected verify.mjs gate")
+
+        # the shell-authoring gap fix: a slug-specific SINGLE-FILE authoring entry routes the integration SHELL
+        # to a root index.html (NOT a ../shell/ dir) and gives it a bootstrap prompt that imports+mounts the
+        # already-built modules — so the factory can author the shell, not just the modules.
+        kits = os.path.join(root, "kits"); os.makedirs(kits, exist_ok=True)
+        json.dump({"name": "dev-kit-s", "family": "s", "authoring": [
+            {"layer": "capability", "slug": "shell", "mode": "single-file", "output_root": "..", "entry": "index.html"},
+            {"layer": "capability", "mode": "multi-file"}]}, open(os.path.join(kits, "kit.json"), "w"))
+        ashell = _authoring_for({"layer": "capability", "slug": "shell"}, kit_dir=kits)
+        acore = _authoring_for({"layer": "capability", "slug": "core"}, kit_dir=kits)
+        expect(ashell and ashell.get("mode") == "single-file", "the slug-specific shell entry must win over the multi-file layer-default")
+        expect(acore and acore.get("mode") == "multi-file", "a non-shell capability must still get the multi-file layer-default")
+        expect(_asset_rel("capability", "shell", ashell) == os.path.join("..", "index.html"),
+               "the shell's asset must be a single index.html at the product ROOT, not a ../shell/ dir")
+        os.environ["DEV_FACTORY_KIT"] = kits
+        try:
+            ps = hca._prompt(d, {"layer": "capability", "scope": "system", "slug": "shell", "transition": {"from": "regenerating", "to": "validated"}}, root)
+        finally:
+            del os.environ["DEV_FACTORY_KIT"]
+        expect("INTEGRATION SHELL" in ps and "index.html" in ps and "ALREADY BUILT" in ps,
+               "the shell prompt must be a root-entry bootstrap that imports+mounts the already-built modules")
 
         # team EXECUTION: a delegation=team plan makes the worker an ORCHESTRATOR that spawns the planned sub-agent
         # team (the Task tool is added; the prompt names the depth) — so 'team, depth 2' is executed, not just ledgered.
