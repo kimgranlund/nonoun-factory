@@ -629,6 +629,21 @@ def author_app_verifiers(d, slugs, adapter, repo_root=None, scope="system"):
     return results
 
 
+def _is_mock_verifier(d, cell):
+    """True iff a multi-file capability cell's per-cell verify.mjs is still the seeded MOCK stub (a short
+    `ready === true` presence check), or is missing — i.e. not yet a real, spec-derived harness. The shell
+    (single-file, render-gated) and doc cells return False. Drives the verifier-author DEFAULT below."""
+    authoring = _authoring_for(cell)
+    if not authoring or authoring.get("mode") != "multi-file":
+        return False
+    vpath = os.path.normpath(os.path.join(d, _asset_rel(cell["layer"], cell["slug"], authoring), "verify.mjs"))
+    try:
+        src = open(vpath, encoding="utf-8").read()
+    except OSError:
+        return True
+    return "import { ready }" in src and src.count("\n") < 6
+
+
 # ─────────────────────────────────── the dispatch loop ───────────────────────────────────
 
 def _activity_kind(to_mat):
@@ -681,6 +696,22 @@ def dispatch_unit(d, ticket, adapter, actor, tier=1, repo_root=None, auto_valida
                          "delegation_mode": _dele.get("mode", "none"), "depth": _dele.get("max_depth", 0),
                          "parallelism": _eff.get("parallelism", 1), "model_tier": _eff.get("model_tier"),
                          "reasoning_effort": _eff.get("reasoning_effort"), "worktree": wt})
+
+    # the VERIFIER-AUTHOR DEFAULT (#2): on a REAL (headless) build of a capability MODULE whose critic harness is
+    # still a mock `ready` stub, the rubric-architect authors the cell's REAL verifier FIRST — so the module the
+    # worker is about to build is graded against a real, spec-derived gate, automatically, with no operator pass.
+    # Mock builds (CI/Crawl) keep their deterministic stub (the eval suite is unaffected); the run's token ceiling
+    # bounds the extra spend. A non-stub verifier (already real, or hand-authored) is left untouched.
+    if isinstance(adapter, HeadlessClaudeAdapter) and to_mat in _lc.SIGNAL_BEARING and _is_mock_verifier(d, cell):
+        vwt, _vh = provision_worktree(d, f"verifier--{ticket['target_cell']}", worker_id, repo_root)
+        try:
+            vr = author_verifier(d, {"layer": cell["layer"], "scope": cell["scope"], "slug": cell["slug"],
+                                     "worktree": vwt, "ticket": f"verifier-{tid}"}, adapter, repo_root)
+            _led.append(d, "handoff", {"kind": "agent", "id": "rubric-architect"},
+                        {"ticket": tid, "cell": ticket["target_cell"]},
+                        f"verifier-author pass: real critic harness authored (ok={bool(vr.get('ok'))})")
+        finally:
+            teardown_worktree(d, vwt, repo_root)
 
     # worker starts → authors the asset
     _api.transition_ticket(d, tid, "in-progress", actor)
@@ -1185,6 +1216,21 @@ def selftest():
         expect(passres == {"core": True, "store": True}
                and os.path.isfile(os.path.join(d, "vf", "store", "verify.mjs")),
                "author_app_verifiers must author a real verify.mjs for EVERY listed capability cell")
+        # _is_mock_verifier drives the verifier-author DEFAULT: a seeded `ready` stub → True; a real harness →
+        # False; the single-file shell (render-gated) → False; a missing harness → True.
+        vfd = os.path.join(d, "vf")
+        os.environ["DEV_FACTORY_KIT"] = vfd
+        try:
+            open(os.path.join(vfd, "core", "verify.mjs"), "w").write("import { ready } from './index.mjs';\nif(!ready)process.exit(1);\n")
+            expect(_is_mock_verifier(vfd, {"layer": "capability", "scope": "system", "slug": "core"}),
+                   "_is_mock_verifier must flag a seeded ready-stub harness")
+            open(os.path.join(vfd, "core", "verify.mjs"), "w").write("import * as m from './index.mjs';\n" + "// real\n" * 20 + "console.log('pass');\n")
+            expect(not _is_mock_verifier(vfd, {"layer": "capability", "scope": "system", "slug": "core"}),
+                   "_is_mock_verifier must NOT flag a real (long, spec-testing) harness")
+            expect(not _is_mock_verifier(vfd, {"layer": "spec", "scope": "system", "slug": "app"}),
+                   "_is_mock_verifier must skip non-multi-file cells (doc/spec, or the render-gated shell)")
+        finally:
+            del os.environ["DEV_FACTORY_KIT"]
 
         # team EXECUTION: a delegation=team plan makes the worker an ORCHESTRATOR that spawns the planned sub-agent
         # team (the Task tool is added; the prompt names the depth) — so 'team, depth 2' is executed, not just ledgered.
