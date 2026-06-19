@@ -6,6 +6,14 @@ stdlib-only markdown + bins); it is a separately-distributed Python app that dri
 `dev-kernel` substrate. The same kernel can also be driven by a CI trigger or by a human running one cell
 by hand — the server is just the heartbeat that automates it.
 
+> **Building real apps (the app-build campaign).** The runtime gained, this round: a **project selector**
+> that re-points the running server at any sibling instance under `src/` with no restart (`POST /api/project`);
+> a **Preview** tab serving the built product live (`/preview`); the **verifier-author default** — on a real
+> (headless) build, `dispatch_unit` has the rubric-architect author each capability cell's real, spec-derived
+> `verify.mjs` *before* the module builds, so "validated" means "implements the spec"; and the **lease-reaper /
+> Tier-1** fixes that keep an awaiting-sign-off cell from being reaped. See **[`../docs/USAGE.md`](../docs/USAGE.md)**
+> for the build workflows and the spend/bounds model.
+
 ## Architecture — a tested stdlib core under a thin transport
 
 The coordination logic is **stdlib + `sqlite3`**, so the whole path is CI-verifiable with no external deps.
