@@ -2,6 +2,14 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.13] — 2026-06-18
+
+### Added
+
+- **`gate-verifier --allow-verify` — the rubric-architect boundary, so the FACTORY can author per-cell verifiers.** Closing the presence-predicate-verifier weakness needs a worker (the rubric-architect) that authors a cell's `verify.mjs` from the spec — but the standard gate denies any `*/verify.mjs` write (a module worker must never grade its own homework). New `_gates.VERIFIER_AUTHOR` = the `VERIFIER` boundary **minus** `*/verify.mjs`: the verifier-author may write the harness it is authoring, while signals/, rubric/, the lattice/ledger, refuters/verify-spec, the schemas, and the wiring stay denied. `gate-verifier --allow-verify` switches to it; the module worker stays wired without the flag. The dev-server wires `--allow-verify` only for a `kind == "verifier"` dispatch. Gate selftests confirm `verify.mjs` becomes writable while a signal-forge stays denied; `_gates.py` is dev-factory-native (not vendored — `sync-dev-kernel --check` stays green).
+
+plugin.json 0.2.12 → 0.2.13.
+
 ## [0.2.12] — 2026-06-18
 
 ### Changed
