@@ -216,6 +216,20 @@ class MockAdapter(DispatchAdapter):
 
     def dispatch(self, d, unit):
         layer, slug = unit["layer"], unit["slug"]
+        if unit.get("kind") == "verifier":
+            # author the cell's critic harness (#2). The mock writes a SMOKE check (loads + ready) — lenient so
+            # mock-built modules still pass in CI; a headless rubric-architect writes the real spec-conformance
+            # test (see HeadlessClaudeAdapter._verifier_prompt). Either way the FACTORY authors the gate, not a seed.
+            dir_abs = os.path.join(d, _asset_rel("capability", slug, _authoring_for({"layer": "capability", "slug": slug})))
+            os.makedirs(dir_abs, exist_ok=True)
+            vpath = os.path.join(dir_abs, "verify.mjs")
+            open(vpath, "w", encoding="utf-8").write(
+                "// critic harness authored by the (mock) rubric-architect — a smoke check; a headless\n"
+                "// rubric-architect authors a real spec-conformance test against the module's contract.\n"
+                "import * as m from './index.mjs';\n"
+                "if (m.ready !== true) { console.error('FAIL: index.mjs must export ready=true'); process.exit(1); }\n"
+                "console.log('pass'); process.exit(0);\n")
+            return {"ok": True, "asset_ref": os.path.relpath(vpath, d), "metrics": {"tokens": 4000, "iterations": 1}}
         authoring = _authoring_for({"layer": layer, "slug": slug})
         if authoring and authoring.get("mode") == "single-file":
             # the integration shell: a single runnable entry at the product root (e.g. index.html). The mock
@@ -334,6 +348,12 @@ class HeadlessClaudeAdapter(DispatchAdapter):
         ftxt = (f"\n\nYour PREVIOUS attempt on this cell FAILED its gate:\n  {last_fail}\nRe-read `verify.mjs` and make "
                 "THAT specific check pass — do not repeat the same mistake.") if last_fail else ""
 
+        # VERIFIER-AUTHORING (#2): the rubric-architect authors the cell's REAL critic harness from the spec — a
+        # spec-conformance test, not a mock `ready` presence check — so reaching `validated` means the module
+        # implements its contract. The module worker is gate-denied from writing verify.mjs; THIS authors it.
+        if unit.get("kind") == "verifier":
+            return self._verifier_prompt(d, unit, project_root, gtxt, ftxt)
+
         authoring = _authoring_for({"layer": unit["layer"], "slug": unit["slug"]})
         # the INTEGRATION SHELL (a single-file root entry): the capability modules are ALREADY separate cells —
         # the shell is a thin bootstrap that imports + mounts them, authored at the product root, NOT a re-author
@@ -360,20 +380,11 @@ class HeadlessClaudeAdapter(DispatchAdapter):
             dir_rel = os.path.relpath(os.path.join(d, _asset_rel(unit["layer"], unit["slug"], authoring)), project_root)
             plan = unit.get("plan") or {}
             dele = plan.get("delegation") or {}
-            # the INTEGRATOR (the SHIP cell) depends on sibling capability cells — it must compose them into a
-            # RUNNABLE app (a real UI), not just an API barrel. Detect it and steer the worker accordingly.
-            _cell = _lat.find(_lat.load(d), f"{unit['layer']}.{unit['scope']}.{unit['slug']}") or {}
-            is_integrator = unit["layer"] == "capability" and any(
-                str(dep).startswith("capability.") for dep in (_cell.get("depends_on") or []))
-            integ = ""
-            if is_integrator:
-                integ = (" You are the INTEGRATOR — compose the sibling capabilities into a RUNNABLE web app that "
-                         "actually PLAYS in a browser, not just an API barrel. Author (a) `index.mjs` re-exporting "
-                         "every capability's API; (b) `main.mjs` that imports the capabilities and EXPORTS "
-                         "`mount(root)` — building an INTERACTIVE UI into `root` (render the state to the DOM, wire "
-                         "up user input/clicks, update on change); (c) `index.html` with a `<div id=\"app\">` and a "
-                         "`<script type=\"module\" src=\"./main.mjs\">` that calls `mount(document.getElementById('app'))`. "
-                         "Include the CSS (inline or a styles.css linked from index.html) so it looks like a real app.")
+            # NO integrator branch. Integration is the single-file SHELL cell (authored at the product root — see
+            # the single-file path above), so a capability MODULE that merely depends on another capability
+            # (e.g. ui → core) is STILL just a module, not the app assembler. The old `is_integrator` prompt told
+            # such modules to author index.html + main.mjs + mount(root), conflicting with the modular lattice —
+            # the shell-authoring build campaign surfaced this as harmful (ui got the integrator prompt); removed.
             team = ""
             if dele.get("mode") == "team":   # the planned orchestrator-workers team (execplan) — execute it, don't just record it
                 par = (plan.get("effort") or {}).get("parallelism", 1)
@@ -391,7 +402,7 @@ class HeadlessClaudeAdapter(DispatchAdapter):
                     f"public API (a barrel, e.g. `export * from './foo.mjs';`) — the critic harness imports the API "
                     f"from `./index.mjs`, so that file MUST exist and surface every declared export no matter how you "
                     f"split the internals. It MUST pass its critic harness `{dir_rel}/verify.mjs` — READ it for the "
-                    f"exact contract, but you CANNOT write it (it is the critic's gate; your write is denied).{integ}{team} "
+                    f"exact contract, but you CANNOT write it (it is the critic's gate; your write is denied).{team} "
                     f"Do NOT touch the `.factory/` instance state (signals/, the ledger, rubric/, lattice.json) or any verify.mjs. "
                     f"Produce the source files INCLUDING index.mjs.{gtxt}{ftxt}")
 
@@ -408,6 +419,28 @@ class HeadlessClaudeAdapter(DispatchAdapter):
                 f"Write its asset to the file `{rel}` (relative to your working directory).{fmt} "
                 f"Do NOT touch the `.factory/` instance state (signals/, the ledger, rubric/, lattice.json) — those are "
                 f"protected and your write will be denied. Produce ONLY the asset.{cur}{gtxt}{ftxt}")
+
+    def _verifier_prompt(self, d, unit, project_root, gtxt, ftxt):
+        """The RUBRIC-ARCHITECT authors a cell's REAL critic harness (verify.mjs) from the spec — a spec-
+        conformance test, not a `ready` presence check (closes the presence-predicate-verifier weakness). The
+        module worker is gate-denied from writing verify.mjs; this authors the CONTRACT the worker must pass."""
+        slug = unit["slug"]
+        dir_rel = os.path.relpath(os.path.join(d, _asset_rel("capability", slug,
+                  _authoring_for({"layer": "capability", "slug": slug}))), project_root)
+        spec_abs = os.path.join(d, "spec", "app.md")
+        spec_txt = ("\n\nTHE SPEC (this cell's contract — author the harness to test it):\n"
+                    + open(spec_abs, encoding="utf-8").read()[:4000]) if os.path.exists(spec_abs) else ""
+        return (f"You are the dev-factory RUBRIC-ARCHITECT authoring the CRITIC HARNESS for the capability "
+                f"`{unit['layer']}.{unit['scope']}.{slug}`. Write ONLY `{dir_rel}/verify.mjs` — a REAL "
+                f"spec-conformance test (Node builtins only, an ES module). It MUST `import * as m from "
+                f"'./index.mjs';` and assert the module actually IMPLEMENTS its contract: the named exports the "
+                f"spec requires exist and are the right kind, AND — where the logic is pure + testable — that they "
+                f"produce CORRECT results on concrete inputs (known values, round-trips, immutability, edge cases). "
+                f"Do NOT settle for `ready === true` — a presence check is exactly what this REPLACES. On any "
+                f"failure `console.error('FAIL: …'); process.exit(1)`; on success `console.log('pass — …'); "
+                f"process.exit(0)`. The module may not exist yet — you author the GATE it must pass, so test the "
+                f"CONTRACT (the spec), not one implementation, and don't over-fit to internals. Author ONLY "
+                f"`{dir_rel}/verify.mjs`; do NOT author the module or touch `.factory/` state.{spec_txt}{gtxt}{ftxt}")
 
     def dispatch(self, d, unit):
         if shutil.which("claude") is None:
@@ -464,6 +497,14 @@ class HeadlessClaudeAdapter(DispatchAdapter):
         # not the worker's process code — so `ok` means "an asset exists to validate"; the exit code is advisory
         # metrics. (A crash that writes nothing → no asset → correctly failed.) Authoring-aware: a multi-file
         # capability produces a DIRECTORY of source (anything but its critic harness), a doc/spec a single `.md`.
+        if unit.get("kind") == "verifier":
+            asset_rel = os.path.join(_asset_rel("capability", unit["slug"],                # the critic harness FILE
+                        _authoring_for({"layer": "capability", "slug": unit["slug"]})), "verify.mjs")
+            asset_abs = os.path.join(d, asset_rel)
+            produced = os.path.isfile(asset_abs) and os.path.getsize(asset_abs) > 0
+            err = None if produced else f"no verify.mjs authored (claude exited {proc.returncode})"
+            return {"ok": produced, "asset_ref": asset_rel, "error": err,
+                    "metrics": {"cost_usd": cost, "tokens": tokens, "exit": proc.returncode}}
         authoring = _authoring_for({"layer": unit["layer"], "slug": unit["slug"]})
         if authoring and authoring.get("mode") == "single-file":
             asset_rel = _asset_rel(unit["layer"], unit["slug"], authoring)              # the entry FILE (e.g. ../index.html)
@@ -542,6 +583,19 @@ def _kit_verifier(d, cell, unit, kit_dir=None):
                 .replace("{worktree}", unit.get("worktree", "")).replace("{cell}", _lat.cid(cell))
                 for tok in chosen.get("verifier", [])]
     return None
+
+
+def author_verifier(d, cell, adapter, repo_root=None):
+    """Author a capability cell's critic harness via the FACTORY (the rubric-architect role) — a real
+    spec-conformance `verify.mjs`, not a mock `ready` stub nor an operator-hand-authored one. The mock adapter
+    writes a smoke check; a headless worker writes a real test FROM THE SPEC (HeadlessClaudeAdapter._verifier_
+    prompt). The module worker stays gate-denied from writing verify.mjs. This is the #2 fix: the loop's
+    legitimacy stops resting on a seeded presence-predicate; the factory authors the contract-as-test. Run it
+    BEFORE the capability cell builds, so the worker's module is graded against a real gate. Returns the
+    dispatch result {ok, asset_ref, ...}."""
+    unit = {"layer": cell["layer"], "scope": cell["scope"], "slug": cell["slug"], "kind": "verifier",
+            "ticket": cell.get("ticket", "rubric-author"), "dir": d, "worktree": cell.get("worktree", repo_root or d)}
+    return adapter.dispatch(d, unit)
 
 
 # ─────────────────────────────────── the dispatch loop ───────────────────────────────────
@@ -1065,6 +1119,32 @@ def selftest():
             del os.environ["DEV_FACTORY_KIT"]
         expect("INTEGRATION SHELL" in ps and "index.html" in ps and "ALREADY BUILT" in ps,
                "the shell prompt must be a root-entry bootstrap that imports+mounts the already-built modules")
+
+        # #2 (factory-authored verifiers): a kind=verifier dispatch authors the cell's REAL critic harness, not
+        # a `ready` stub. The headless prompt is the rubric-architect's (tests the SPEC); the mock writes a smoke
+        # check via author_verifier. Also confirms the obsolete is_integrator branch is GONE from the module prompt.
+        os.environ["DEV_FACTORY_KIT"] = kits
+        try:
+            vp = hca._prompt(d, {"layer": "capability", "scope": "system", "slug": "core", "kind": "verifier"}, root)
+            # a multi-file MODULE that depends on another capability is still just a module — no integrator prompt
+            modp = hca._prompt(d, {"layer": "capability", "scope": "system", "slug": "core", "transition": {"from": "regenerating", "to": "validated"}}, root)
+        finally:
+            del os.environ["DEV_FACTORY_KIT"]
+        expect("RUBRIC-ARCHITECT" in vp and "verify.mjs" in vp and "ready === true" in vp and "spec-conformance" in vp,
+               "the verifier prompt must task the rubric-architect with a REAL spec-conformance verify.mjs (not a ready check)")
+        expect("INTEGRATOR" not in modp and "mount(document.getElementById" not in modp,
+               "the obsolete is_integrator branch must be GONE from the module prompt (integration is the shell cell)")
+        # author_verifier via the mock writes a verify.mjs at the cell dir (the factory authors the gate)
+        os.makedirs(os.path.join(d, "vf", "core"), exist_ok=True)
+        kitv = os.path.join(d, "vf", "kit.json")
+        json.dump({"name": "k", "authoring": [{"layer": "capability", "mode": "multi-file", "output_root": "."}]}, open(kitv, "w"))
+        os.environ["DEV_FACTORY_KIT"] = os.path.join(d, "vf")
+        try:
+            r = author_verifier(os.path.join(d, "vf"), {"layer": "capability", "scope": "system", "slug": "core"}, MockAdapter())
+        finally:
+            del os.environ["DEV_FACTORY_KIT"]
+        expect(r.get("ok") and os.path.isfile(os.path.join(d, "vf", "core", "verify.mjs")),
+               "author_verifier must make the factory author the cell's verify.mjs critic harness")
 
         # team EXECUTION: a delegation=team plan makes the worker an ORCHESTRATOR that spawns the planned sub-agent
         # team (the Task tool is added; the prompt names the depth) — so 'team, depth 2' is executed, not just ledgered.
