@@ -2,6 +2,14 @@
 
 All notable changes to **dev-kit-app** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.5.1] — 2026-06-18
+
+### Fixed
+
+- **The factory can now author the integration SHELL, not just the modules** — closes the shell-authoring gap a live design-tokens-lab build reproduced. The kit authored every capability to `../{slug}/` (a module dir), so the shell cell was sent to `../shell/` while its `index.html` belongs at the **product root** — the worker had no valid path and the ticket blocked (*"asset `../shell` absent/empty"*). New slug-specific authoring entry `{ slug: "shell", mode: "single-file", output_root: "..", entry: "index.html" }` routes the shell to a single runnable entry at the root (it wins over the capability multi-file layer-default, via `_authoring_for`'s new slug-specificity — mirroring `_kit_verifier`). `dispatch._asset_rel` resolves `single-file` to `../index.html`; the headless worker gets a **shell-specific bootstrap prompt** ("the modules are ALREADY BUILT — import + mount them at the root", distinct from the legacy whole-assembly integrator prompt that conflicted with the modular decomposition); the mock authors a minimal valid bootstrap; the asset-recording checks the entry file. Graded by the render-coherence gate (0.5.0). dispatch.selftest gains a single-file-shell case.
+
+plugin.json 0.5.0 → 0.5.1.
+
 ## [0.5.0] — 2026-06-18
 
 ### Added
