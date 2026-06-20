@@ -161,14 +161,20 @@ def tail(d, n=20):
 
 
 def no_progress(d, cell, n=3):
-    """A no-progress loop = the last `n` failure signals on `cell` carry the SAME signature (the
-    deterministic failure-loop detector, in code, not the agent's counting). Returns (bool, reason)."""
-    sigs = [e for e in read(d, cell=cell, event="signal") if e.get("to") == "fail" or e.get("metrics", {}).get("result") == "fail"]
-    fails = [e for e in read(d, cell=cell) if e.get("event") == "block" or (e.get("event") == "transition" and e.get("to") == "blocked")]
-    # signature = the rationale tail; N identical consecutive failure rationales = a stuck loop
-    rats = [e.get("rationale", "") for e in read(d, cell=cell)][-n:]
+    """A no-progress loop = the last `n` FAILURE events on `cell` carry the SAME signature (the deterministic
+    failure-loop detector, in code, not the agent's counting). Only failure events count — an `activity-fail`, a
+    fail signal, or a `block`/`→blocked` — so the retry transitions that interleave them (a failed dispatch returns
+    the ticket to `active`) cannot mask a genuine repeated failure (which the old all-events tail did). Returns
+    (bool, reason)."""
+    def _is_fail(e):
+        ev = e.get("event")
+        return (ev in ("activity-fail", "block")
+                or (ev == "signal" and (e.get("to") == "fail" or (e.get("metrics") or {}).get("result") == "fail"))
+                or (ev == "transition" and e.get("to") == "blocked"))
+    # signature = the rationale tail of the FAILURE events; N identical = a stuck loop retrying won't break
+    rats = [e.get("rationale", "") for e in read(d, cell=cell) if _is_fail(e)][-n:]
     if len(rats) >= n and len(set(rats)) == 1 and rats[0]:
-        return True, f"no-progress: last {n} attempts on {cell} share one failure signature"
+        return True, f"no-progress: last {n} failures on {cell} share one signature"
     return False, "progressing"
 
 

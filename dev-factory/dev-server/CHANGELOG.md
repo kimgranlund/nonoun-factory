@@ -3,6 +3,24 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-20 — harness-council audit fixes (round 4): budget realism (H5)
+
+The token ceiling read success-path telemetry only, headless was dollar-uncapped by default, and the shipped
+signature-based no-progress detector was never wired — so the run budget was softer than it looked on a real build.
+
+- **Failure-path spend now counts (H5-C1).** A worker run that produced no artifact still spent tokens/dollars, but
+  its `activity-fail` recorded no metrics — so a failure-then-retry burned spend the ceiling never saw. The
+  worker-failure `activity-fail` now carries the adapter's `cost_usd`/`tokens`, which `_tokens_since`/`_cost_since`
+  sum. (The verifier-author spend was already fixed in round 1.)
+- **A window DOLLAR ceiling + a per-dispatch default cap (H5-C3).** `arm` gains `dollar_ceiling`
+  (`DEV_FACTORY_DOLLAR_CEILING`); `budget_exhausted` halts the window when `_cost_since` crosses it (alongside the
+  deadline / max-dispatches / token ceiling). And every headless dispatch now ALWAYS passes `--max-budget-usd` —
+  the ticket's `dollars` if set, else `DEV_FACTORY_DISPATCH_USD` (default $10) — so a single run is never unbounded
+  (previously the cap was appended only when a ticket set `dollars`, which the default budget never did).
+- **The no-progress signature detector is WIRED (H5-major).** `dispatch_unit` now calls the (now-fixed)
+  `ledger.no_progress` (`n=2`): two identical failure signatures block a deterministically-stuck cell early, while
+  distinct failures still retry to the attempt cap. A new selftest distinguishes the two backstops.
+
 ## 2026-06-20 — harness-council audit fixes (round 3): the LIVE refuter producer (H6 — earned autonomy)
 
 The H6 cap's root: nothing in the dev-server validation path PRODUCED the refuter sidecars the false-pass oracle

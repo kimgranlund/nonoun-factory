@@ -416,7 +416,8 @@ def _wire_heartbeat(app):
         heartbeat.arm(DIR,
                       deadline_s=int(os.environ.get("DEV_FACTORY_DEADLINE_S", "0")) or None,
                       max_dispatches=int(os.environ.get("DEV_FACTORY_MAX_DISPATCHES", "0")) or None,
-                      token_ceiling=int(os.environ.get("DEV_FACTORY_TOKEN_CEILING", "0")) or None)
+                      token_ceiling=int(os.environ.get("DEV_FACTORY_TOKEN_CEILING", "0")) or None,
+                      dollar_ceiling=float(os.environ.get("DEV_FACTORY_DOLLAR_CEILING", "0")) or None)
         tier = int(os.environ.get("DEV_FACTORY_TIER", "1"))
         conc = int(os.environ.get("DEV_FACTORY_CONCURRENCY", "2"))
         period = int(os.environ.get("DEV_FACTORY_PERIOD", "30"))

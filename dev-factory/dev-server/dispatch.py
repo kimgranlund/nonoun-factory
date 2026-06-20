@@ -491,8 +491,11 @@ class HeadlessClaudeAdapter(DispatchAdapter):
                "--max-turns", str(max_turns),
                "--output-format", "stream-json", "--verbose",
                "--settings", settings]
-        if budget.get("dollars"):
-            cmd += ["--max-budget-usd", str(budget["dollars"])]
+        # ALWAYS pass a per-dispatch dollar cap — a single headless run is never unbounded. The ticket's `dollars`
+        # wins; absent it, DEV_FACTORY_DISPATCH_USD (default $10) is the per-dispatch ceiling (H5-C3: the cap used to
+        # be appended ONLY when a ticket set `dollars`, and the default ticket budget sets none → uncapped by default).
+        per_dispatch_usd = budget.get("dollars") or float(os.environ.get("DEV_FACTORY_DISPATCH_USD", "10"))
+        cmd += ["--max-budget-usd", str(per_dispatch_usd)]
         if model:
             cmd += ["--model", model]
         try:
@@ -758,8 +761,12 @@ def dispatch_unit(d, ticket, adapter, actor, tier=1, repo_root=None, auto_valida
     _api.transition_ticket(d, tid, "in-progress", actor)
     result = adapter.dispatch(d, unit)
     if not result.get("ok"):
+        # ATTACH the failed run's spend (the adapter reports cost/tokens even when it produced no artifact) so it
+        # COUNTS against the run's token/dollar ceiling — a failure-then-retry that burns tokens the budget never
+        # saw was the H5-C1 leak (a stuck cell could spend past the ceiling, one uncounted failed dispatch at a time).
         _led.append(d, "activity-fail", {"kind": "agent", "id": agent}, {"ticket": tid, "cell": ticket["target_cell"]},
-                    f"{agent} failed: {result.get('error', 'no artifact')}", metrics={"activity": act_id})
+                    f"{agent} failed: {result.get('error', 'no artifact')}",
+                    metrics={"activity": act_id, **(result.get("metrics") or {})})
         # RETRY, don't dead-end: most worker failures are transient (a flaky tool call, a `claude` that errored
         # late, an operator interruption). Returning the ticket to `active` lets the next tick re-dispatch it; only
         # after MAX_WORKER_ATTEMPTS consecutive failures (a genuinely stuck cell) does it `block` and drop out of
@@ -768,15 +775,20 @@ def dispatch_unit(d, ticket, adapter, actor, tier=1, repo_root=None, auto_valida
         # dispatches, so retries can't run away.
         teardown_worktree(d, wt, repo_root)
         fails = _consecutive_fails(d, tid)
-        if fails < MAX_WORKER_ATTEMPTS:
+        # Two backstops bound retries: the attempt COUNT (many distinct failures) AND the kernel's signature-based
+        # no-progress detector (the SAME failure repeating — a deterministically stuck cell that retrying won't fix).
+        # The signature detector blocks EARLY, before the full attempt budget is burned on a futile loop (H5: the
+        # shipped ledger.no_progress was never called from the dispatch loop).
+        stuck, sreason = _led.no_progress(d, ticket["target_cell"], n=2)
+        if fails < MAX_WORKER_ATTEMPTS and not stuck:
             _api.transition_ticket(d, tid, "active", actor,
                                    reason=f"worker failed (attempt {fails}/{MAX_WORKER_ATTEMPTS}) — retrying next tick")
             _api._store.rebuild(d)
             return False, _api.get_ticket(d, tid), f"worker failed; retrying ({fails}/{MAX_WORKER_ATTEMPTS})"
         _api.transition_ticket(d, tid, "blocked", actor,
-                               reason=f"worker failed {fails}× consecutively — blocked (retries exhausted)")
+                               reason=(sreason if stuck else f"worker failed {fails}× consecutively") + " — blocked")
         _api._store.rebuild(d)
-        return False, _api.get_ticket(d, tid), "worker did not complete — blocked after retries"
+        return False, _api.get_ticket(d, tid), "worker did not complete — blocked (" + ("no-progress" if stuck else "retries exhausted") + ")"
     # the server records the authored asset on the cell (workers cannot write lattice.json)
     _api.seed_cell(d, cell["layer"], cell["scope"], cell["slug"], maturity=cell["maturity"],
                    asset_ref=result.get("asset_ref"), depends_on=cell.get("depends_on", []),
@@ -1223,26 +1235,40 @@ def selftest():
         expect(_api.get_ticket(d, tr["id"])["state"] == "in-review",
                "awaiting-human ticket bounced off in-review by the lease reaper")
 
-        # retry-then-block: a worker failure RETRIES up to MAX_WORKER_ATTEMPTS (a transient hiccup self-recovers
-        # instead of wedging the build); only a persistently-stuck cell blocks and drops from dispatch.
+        # retry-then-block, TWO backstops: a transient worker failure RETRIES (self-recovers instead of wedging the
+        # build), but the kernel's signature detector (ledger.no_progress, n=2) blocks a DETERMINISTICALLY stuck cell
+        # EARLY — two IDENTICAL failure signatures → block at attempt 2 (don't burn the 3rd on a futile loop), while
+        # DISTINCT failures retry up to the attempt cap (they might be transient). The failed run's spend is counted.
+        def _drive_to_block(slug, adapter):
+            _api.seed_cell(d, "spec", "task", slug, maturity="instantiated", asset_ref=f"spec/{slug}.md")
+            open(os.path.join(d, "spec", f"{slug}.md"), "w").write(f"# {slug}\n")
+            tk = _api.create_ticket(d, "task", slug, target_cell=f"spec.task.{slug}",
+                                    target_transition={"from": "instantiated", "to": "validated"},
+                                    acceptance={"rubric_cell": "rubric.task.r"}, budget={"iterations": 1, "tokens": 1000})
+            _api.transition_ticket(d, tk["id"], "active", srv)
+            states = []
+            for _ in range(MAX_WORKER_ATTEMPTS + 1):
+                if _api.get_ticket(d, tk["id"])["state"] == "blocked":
+                    break
+                dispatch_unit(d, _api.get_ticket(d, tk["id"]), adapter, srv, tier=1, repo_root=root)
+                states.append(_api.get_ticket(d, tk["id"])["state"])
+            return tk, states
         class _AlwaysFail(DispatchAdapter):
             name = "always-fail"
             def dispatch(self, d, unit):
-                return {"ok": False, "error": "boom (test)", "metrics": {}}
-        _api.seed_cell(d, "spec", "task", "flaky", maturity="instantiated", asset_ref="spec/flaky.md")
-        open(os.path.join(d, "spec", "flaky.md"), "w").write("# flaky\n")
-        tf = _api.create_ticket(d, "task", "flaky", target_cell="spec.task.flaky",
-                                target_transition={"from": "instantiated", "to": "validated"},
-                                acceptance={"rubric_cell": "rubric.task.r"}, budget={"iterations": 1, "tokens": 1000})
-        _api.transition_ticket(d, tf["id"], "active", srv)
-        seen = []
-        for _ in range(MAX_WORKER_ATTEMPTS):
-            dispatch_unit(d, _api.get_ticket(d, tf["id"]), _AlwaysFail(), srv, tier=1, repo_root=root)
-            seen.append(_api.get_ticket(d, tf["id"])["state"])
-        expect(seen[:-1] == ["active"] * (MAX_WORKER_ATTEMPTS - 1),
-               f"a transient worker failure must RETRY (return to active), got {seen[:-1]}")
-        expect(seen[-1] == "blocked",
-               f"a cell stuck for {MAX_WORKER_ATTEMPTS} consecutive failures must block, got {seen[-1]}")
+                return {"ok": False, "error": "boom (test)", "metrics": {"tokens": 500}}
+        class _VaryFail(DispatchAdapter):
+            name = "vary-fail"
+            _i = 0
+            def dispatch(self, d, unit):
+                _VaryFail._i += 1
+                return {"ok": False, "error": f"distinct failure {_VaryFail._i}", "metrics": {"tokens": 500}}
+        tf, seen = _drive_to_block("flaky", _AlwaysFail())
+        expect(seen == ["active", "blocked"],
+               f"two IDENTICAL failure signatures must BLOCK early (no-progress detector), got {seen}")
+        _tv, seenv = _drive_to_block("flaky2", _VaryFail())
+        expect(seenv == ["active", "active", "blocked"],
+               f"DISTINCT failures must retry to the attempt cap, not early-block, got {seenv}")
         # smart retry: after a failure, the next dispatch's prompt folds the SPECIFIC gate failure (so the worker
         # fixes that, not re-reads the contract blind) — and it resets on a success.
         expect(_last_failure(d, tf["id"]) is not None, "_last_failure surfaces the prior gate failure for the retry prompt")

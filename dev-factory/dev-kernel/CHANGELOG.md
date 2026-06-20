@@ -2,6 +2,14 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.15] — 2026-06-20
+
+### Fixed
+
+- **`ledger.no_progress` now compares the last `n` FAILURE events, not the last `n` of ALL events (harness-council H5).** The signature-based stuck-loop detector took the rationale tail of every event on a cell — but a failed dispatch interleaves a retry `transition → active` between failures, so the tail was never `n` identical failure signatures and the detector effectively never fired. It now filters to failure events (`activity-fail`, a fail signal, a `block`/`→blocked`) before comparing, so a genuinely stuck cell (the same failure repeating despite the smart-retry folding the error into the next prompt) IS detected. The dev-server dispatch loop now WIRES it (`n=2`): two identical failure signatures block the cell early instead of burning the full attempt budget on a futile loop; distinct failures still retry to the attempt cap. Selftest unchanged-green + a new dispatch eval distinguishes the two backstops.
+
+plugin.json 0.2.14 → 0.2.15.
+
 ## [0.2.14] — 2026-06-19
 
 ### Changed

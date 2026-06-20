@@ -48,13 +48,14 @@ def _budget_path(d):
     return os.path.join(d, "run", "heartbeat.json")
 
 
-def arm(d, now=None, deadline_s=None, max_dispatches=None, token_ceiling=None):
+def arm(d, now=None, deadline_s=None, max_dispatches=None, token_ceiling=None, dollar_ceiling=None):
     """Arm the loop's window. MUST be called before the loop runs (the arming discipline): an unarmed loop
-    does not dispatch (fail-closed)."""
+    does not dispatch (fail-closed). The window is bounded by ANY of: a wall-clock deadline, a max-dispatch
+    count, a token ceiling, or a DOLLAR ceiling — whichever is hit first halts dispatch."""
     now = now or _now()
     b = {"start_ts": now.isoformat(timespec="seconds"), "ticks": 0,
          "deadline_ts": (now + datetime.timedelta(seconds=deadline_s)).isoformat(timespec="seconds") if deadline_s else None,
-         "max_dispatches": max_dispatches, "token_ceiling": token_ceiling}
+         "max_dispatches": max_dispatches, "token_ceiling": token_ceiling, "dollar_ceiling": dollar_ceiling}
     os.makedirs(os.path.dirname(_budget_path(d)), exist_ok=True)
     json.dump(b, open(_budget_path(d), "w"), indent=2)
     return b
@@ -84,6 +85,15 @@ def _tokens_since(d, start_ts):
     return tot
 
 
+def _cost_since(d, start_ts):
+    tot = 0.0
+    for e in _led.read(d, since=start_ts):
+        m = e.get("metrics") or {}
+        if isinstance(m.get("cost_usd"), (int, float)):
+            tot += m["cost_usd"]
+    return tot
+
+
 def budget_exhausted(d, now=None):
     """(exhausted, reason). Unarmed → fail-closed (the loop must arm first). Computed from code + the
     ledger, never an agent's counting."""
@@ -101,6 +111,10 @@ def budget_exhausted(d, now=None):
         t = _tokens_since(d, b["start_ts"])
         if t >= b["token_ceiling"]:
             return True, f"token ceiling reached ({t}/{b['token_ceiling']})"
+    if b.get("dollar_ceiling") is not None:
+        c = _cost_since(d, b["start_ts"])
+        if c >= b["dollar_ceiling"]:
+            return True, f"dollar ceiling reached (${c:.2f}/${b['dollar_ceiling']:.2f})"
     return False, None
 
 
@@ -235,6 +249,17 @@ def selftest():
         s2 = on_tick(d)
         expect(s2["halted"] and "deadline" in s2["reason"], f"exhausted budget did not halt: {s2}")
         expect(_api.get_ticket(d, t2["id"])["state"] == "active", "dispatched past the deadline (burned through the bound)")
+
+        # the DOLLAR ceiling halts too — and FAILURE-path spend counts toward it (H5-C1/C3): a worker run that
+        # produced no artifact still spent, so its activity-fail carries cost_usd/tokens, which _cost_since sums.
+        arm(d, dollar_ceiling=1.0)
+        bts = load_budget(d)["start_ts"]
+        _led.append(d, "activity-fail", {"kind": "agent", "id": "headless-claude"}, {"cell": "spec.task.s3"},
+                    "worker failed: no artifact", metrics={"activity": "a", "cost_usd": 1.5, "tokens": 9000},
+                    ts=bts)
+        expect(_cost_since(d, bts) >= 1.5, "_cost_since must sum FAILURE-path cost_usd (H5-C1: the ceiling must see failed-run spend)")
+        ex, why = budget_exhausted(d)
+        expect(ex and "dollar ceiling" in (why or ""), f"dollar ceiling did not halt on failure-path spend: {why}")
     if fails:
         sys.stderr.write("heartbeat selftest: FAIL\n")
         for f in fails:
@@ -257,7 +282,8 @@ def main(argv):
     if argv[0] == "arm":
         b = arm(d, deadline_s=int(_arg(argv, "--deadline-s", "0")) or None,
                 max_dispatches=int(_arg(argv, "--max-dispatches", "0")) or None,
-                token_ceiling=int(_arg(argv, "--token-ceiling", "0")) or None)
+                token_ceiling=int(_arg(argv, "--token-ceiling", "0")) or None,
+                dollar_ceiling=float(_arg(argv, "--dollar-ceiling", "0")) or None)
         print(json.dumps(b))
         return 0
     if argv[0] == "tick":

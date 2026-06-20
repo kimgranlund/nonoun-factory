@@ -140,7 +140,8 @@ Guarded: it refuses mid-build (a running worker) and rejects a name that escapes
 | Lever | Effect |
 |---|---|
 | `DEV_FACTORY_ADAPTER` | `mock` (free, deterministic) vs `headless` (real `claude -p`, real tokens). **The spend control.** |
-| `DEV_FACTORY_MAX_DISPATCHES` / `DEADLINE_S` / `TOKEN_CEILING` | the armed run budget — dispatch halts when any is hit; fails closed unless armed. |
+| `DEV_FACTORY_MAX_DISPATCHES` / `DEADLINE_S` / `TOKEN_CEILING` / `DOLLAR_CEILING` | the armed run budget — dispatch halts when ANY is hit (incl. a window dollar ceiling that counts failure-path spend too); fails closed unless armed. |
+| `DEV_FACTORY_DISPATCH_USD` | per-dispatch `--max-budget-usd` cap (default `$10`) so a single headless run is never unbounded, even when a ticket sets no `dollars`. |
 | `DEV_FACTORY_TIER` | 0 attended · 1 gated (human sign-off at `in-review`) · 2+ unattended-to-`done`. Higher tiers are *earned + mechanically revocable*. |
 | the gates | a worker cannot forge a signal, rewrite the lattice/ledger, or write the `verify.mjs` it must pass. |
 
