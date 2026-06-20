@@ -2,6 +2,14 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.16] — 2026-06-20
+
+### Added
+
+- **`compass.detect_cycle` + `compass.surface_cycle` — the dependency-cycle detector the contracts asserted but no code implemented (harness-council H1).** The `dependency-arbiter` and `decomposition` methodologies both say "detection is the filter's (`lattice.py`/`compass.py`); resolution is the arbiter's" — but nothing detected a `depends_on` cycle, so a cyclic decomposition left its cells un-advanceable forever (every dispatch refused by the partial-order gate) with no event naming the loop. `detect_cycle` is a deterministic DFS over the `depends_on` graph returning the back-edge path; `surface_cycle` ledgers it ONCE per signature (a `block` event the operator/arbiter reads). The dev-server heartbeat calls `surface_cycle` whenever non-terminal work exists, so a starved frontier is NAMED, not a silent spin. The claims in `dependency-arbiter.md`/`decomposition.md` are now backed.
+
+plugin.json 0.2.15 → 0.2.16.
+
 ## [0.2.15] — 2026-06-20
 
 ### Fixed

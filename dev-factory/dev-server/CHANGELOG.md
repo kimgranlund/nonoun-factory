@@ -3,6 +3,15 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-20 — harness-council audit fixes (round 5): the frontier never silently starves (H1)
+
+- **The heartbeat now NAMES a dependency cycle (H1).** A `depends_on` cycle leaves its cells un-advanceable forever
+  (each waits on another around the loop, so every dispatch is refused by the partial-order gate) — and the loop
+  used to just spin with no event saying why. `on_tick` now calls `compass.surface_cycle` whenever non-terminal
+  work exists: a cycle is detected (`compass.detect_cycle`, dev-kernel 0.2.16) and ledgered ONCE so the operator /
+  `dependency-arbiter` sees the loop to break. The tick summary carries `cycle`. (The detector lives in `compass.py`
+  exactly as the `dependency-arbiter`/`decomposition` contracts always claimed — now true.)
+
 ## 2026-06-20 — harness-council audit fixes (round 4): budget realism (H5)
 
 The token ceiling read success-path telemetry only, headless was dollar-uncapped by default, and the shipped

@@ -129,6 +129,54 @@ def next_batch(d, tier=1, slots_free=1):
     return rank(d, rd)[:max(slots_free, 0)]
 
 
+def detect_cycle(lat):
+    """Find a dependency CYCLE in the lattice's `depends_on` graph — cells that can NEVER become ready because each
+    waits on another around a loop, so every dispatch is refused by the partial-order gate forever and the frontier
+    silently starves. The readiness filter REPORTS the cycle (the dependency-arbiter contract's job); resolving it —
+    deciding which contested edge is wrong — is the arbiter's judgment. Returns the cycle as a list of cell ids (the
+    closed back-edge path, e.g. [A, B, A]) or None. DFS with a recursion stack; deterministic (sorted), so the SAME
+    cycle is named the same way every tick (→ idempotent `surface_cycle`)."""
+    cells = {_lat.cid(c): c for c in lat.get("cells", [])}
+    color = {cid: 0 for cid in cells}   # 0 white / 1 grey (on stack) / 2 black (done)
+    stack, found = [], [None]
+
+    def visit(cid):
+        color[cid] = 1
+        stack.append(cid)
+        for dep in sorted(cells[cid].get("depends_on", []) or []):
+            if dep not in cells or found[0]:
+                continue
+            if color[dep] == 1:                          # back edge into the current stack → a cycle
+                found[0] = stack[stack.index(dep):] + [dep]
+                return
+            if color[dep] == 0:
+                visit(dep)
+                if found[0]:
+                    return
+        stack.pop()
+        color[cid] = 2
+
+    for cid in sorted(cells):
+        if color[cid] == 0 and not found[0]:
+            visit(cid)
+    return found[0]
+
+
+def surface_cycle(d):
+    """Detect a dependency cycle and NAME it ONCE in the ledger (idempotent per signature) — the readiness filter
+    REPORTING the cycle so the operator/dependency-arbiter sees the loop to break, instead of the heartbeat spinning
+    on refused dispatches with no event saying why. Returns the cycle (list of cell ids) or None."""
+    cycle = detect_cycle(_lat.load(d))
+    if not cycle:
+        return None
+    sig = " → ".join(cycle)
+    if not any((e.get("metrics") or {}).get("cycle") == sig for e in _led.read(d, event="block")):
+        _led.append(d, "block", {"kind": "server", "id": "dependency-arbiter"}, {"cell": cycle[0]},
+                    f"dependency CYCLE starves the frontier: {sig} — break it (drop the contested edge)",
+                    metrics={"cycle": sig})
+    return cycle
+
+
 def selftest():
     import tempfile
     fails = []
@@ -182,6 +230,21 @@ def selftest():
         _led.append(d, "signal", {"kind": "agent", "id": "v"}, {"cell": "spec.task.b"}, "validated",
                     to="pass", metrics={"tokens": 12000})
         expect(abs(probe_cost(d, "spec", "task") - 12000.0) < 1, "probe_cost did not go empirical from the ledger")
+
+        # cycle detection (H1): a depends_on loop is found + reported, normal waiting is not a cycle
+        cyc = detect_cycle({"cells": [{"layer": "spec", "scope": "task", "slug": "p", "depends_on": ["spec.task.q"]},
+                                      {"layer": "spec", "scope": "task", "slug": "q", "depends_on": ["spec.task.p"]}]})
+        expect(cyc and set(cyc) == {"spec.task.p", "spec.task.q"} and cyc[0] == cyc[-1],
+               f"detect_cycle must find the p↔q loop (a closed back-edge path), got {cyc}")
+        expect(detect_cycle({"cells": [{"layer": "spec", "scope": "task", "slug": "z", "depends_on": ["spec.task.b"]}]}) is None,
+               "detect_cycle must return None for an acyclic graph (normal waiting on a dep is not a cycle)")
+        # surface_cycle ledgers the cycle ONCE (idempotent), and returns None when the live lattice is acyclic
+        expect(surface_cycle(d) is None, "surface_cycle must report no cycle for the acyclic selftest lattice")
+        _lat.save(d, {"cells": [{"layer": "spec", "scope": "task", "slug": "p", "maturity": "instantiated", "depends_on": ["spec.task.q"]},
+                                {"layer": "spec", "scope": "task", "slug": "q", "maturity": "instantiated", "depends_on": ["spec.task.p"]}]})
+        s1 = surface_cycle(d); s2 = surface_cycle(d)
+        blocks = [e for e in _led.read(d, event="block") if (e.get("metrics") or {}).get("cycle")]
+        expect(s1 and s2 and len(blocks) == 1, f"surface_cycle must report the cycle and ledger it ONCE (idempotent), got {len(blocks)} block(s)")
     if fails:
         sys.stderr.write("compass selftest: FAIL\n")
         for f in fails:

@@ -160,6 +160,13 @@ def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None, strict_acce
     if slots <= 0:
         return {"halted": False, "reason": "no free slot (backpressure)", "tier": tier, "dispatched": [], "reconciled": reconciled}
     batch = _compass.next_batch(d, tier=tier, slots_free=slots)
+    # the frontier must never SILENTLY starve: a depends_on CYCLE leaves its cells un-advanceable forever (each
+    # waits on another around the loop, so every dispatch is refused by the partial-order gate with no event saying
+    # why). When there is non-terminal work, check for a cycle and NAME it ONCE so the operator/dependency-arbiter
+    # sees the loop to break — instead of the loop spinning on refused dispatches (harness-council H1).
+    cycle = None
+    if any(t.get("state") in ("active", "claimed", "draft", "in-progress") for t in _api.list_tickets(d)):
+        cycle = _compass.surface_cycle(d)   # the readiness filter reports any cycle; the arbiter resolves it
     if strict_accept and tier < 2 and batch:
         batch = strict_accept_filter(d, batch)      # Tier-1 strict: hold dependents until their deps are human-accepted
     auto = tier >= 2                                # Tier 1 dispatches but pauses at in-review (human reviews)
@@ -187,7 +194,8 @@ def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None, strict_acce
         b["ticks"] = b.get("ticks", 0) + 1
         json.dump(b, open(_budget_path(d), "w"), indent=2)
     return {"halted": False, "reason": None, "tier": tier, "dispatched": dispatched,
-            "reconciled": reconciled, "produced": produced, "refuted": refuted, "distilled": distilled}
+            "reconciled": reconciled, "produced": produced, "refuted": refuted, "distilled": distilled,
+            "cycle": cycle}
 
 
 def run(d, adapter=None, tier=1, max_concurrency=2, period_s=30):
@@ -260,6 +268,25 @@ def selftest():
         expect(_cost_since(d, bts) >= 1.5, "_cost_since must sum FAILURE-path cost_usd (H5-C1: the ceiling must see failed-run spend)")
         ex, why = budget_exhausted(d)
         expect(ex and "dollar ceiling" in (why or ""), f"dollar ceiling did not halt on failure-path spend: {why}")
+
+        # H1 — when a depends_on CYCLE starves the frontier, on_tick NAMES it (never a silent idle tick)
+        with tempfile.TemporaryDirectory() as croot:
+            cd = os.path.join(croot, ".factory")
+            _api.init_instance(cd)
+            _api.seed_cell(cd, "rubric", "task", "r", maturity="validated", signal_refs=["signals/rubric.task.r/s.json"])
+            for a, b in (("cyca", "cycb"), ("cycb", "cyca")):
+                _api.seed_cell(cd, "spec", "task", a, maturity="instantiated", asset_ref=f"spec/{a}.md",
+                               depends_on=[f"spec.task.{b}"])
+                ct = _api.create_ticket(cd, "feature", a, target_cell=f"spec.task.{a}",
+                                        target_transition={"from": "instantiated", "to": "validated"},
+                                        acceptance={"rubric_cell": "rubric.task.r"}, budget={"iterations": 1, "tokens": 100})
+                _api.transition_ticket(cd, ct["id"], "active", srv)
+            arm(cd, max_dispatches=5, deadline_s=3600)
+            cs = on_tick(cd, tier=1)
+            expect(cs.get("cycle") and set(cs["cycle"]) == {"spec.task.cyca", "spec.task.cycb"},
+                   f"on_tick must NAME a dependency cycle that starves the frontier, got {cs.get('cycle')}")
+            expect(any((e.get("metrics") or {}).get("cycle") for e in _led.read(cd, event="block")),
+                   "the cycle must be ledgered (the operator/arbiter sees the loop to break, not a silent idle)")
     if fails:
         sys.stderr.write("heartbeat selftest: FAIL\n")
         for f in fails:
