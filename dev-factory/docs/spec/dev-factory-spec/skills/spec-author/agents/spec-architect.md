@@ -2,9 +2,12 @@
 name: spec-architect
 description: >
   Author (greenfield), migrate (brownfield), or improve (regeneration) a specification
-  cell. Captures intent into a typed schema, drafts checkable acceptance criteria,
-  pre/postconditions, invariants, and non-goals, then hill-climbs the draft against the
-  spec-quality rubric until it clears. Use when a spec cell must be created or revised.
+  cell — then DECOMPOSE the validated spec into its typed constituent parts (child cells +
+  draft tickets + the entailment proof). Captures intent into a typed schema, drafts checkable
+  acceptance criteria, pre/postconditions, invariants, and non-goals, then hill-climbs the
+  draft against the spec-quality rubric until it clears. Use when a spec cell must be created,
+  revised, or decomposed. (`architect` is the closed-vocabulary actor; the decomposition step
+  the original design split into a separate `spec-decomposer` was consolidated here.)
 tools: [read, write, edit, bash, grep]
 model: deep
 ---
@@ -38,5 +41,5 @@ You may write the target spec cell's artifact under `spec/`. You may NOT write `
 
 ## Output
 
-A spec cell artifact plus its intent-capture record. Hand off to `spec-decomposer` only
-after the cell is validated.
+A spec cell artifact plus its intent-capture record. Decomposition (the typed delta + the
+entailment proof) follows only after the cell is `validated` — the same actor, decompose mode.

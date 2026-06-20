@@ -35,8 +35,8 @@ binds to it. The verifier of specs is verified (meta-verification).
 
 ## The Decomposition Output Contract
 
-Once a spec cell is validated, `spec-decomposer` turns it into the constituent parts the
-factory operates on. The output is a **typed delta**, never prose:
+Once a spec cell is validated, `spec-architect` (in decompose mode) turns it into the
+constituent parts the factory operates on. The output is a **typed delta**, never prose:
 
 1. **Lattice-seed delta** — child cells the spec implies, placed down the scope ladder
    (`fleet → system → workflow → task → call`) and across layers, each at honest maturity
@@ -60,7 +60,7 @@ This folder is self-contained substrate (the compound-skill pattern):
 ```
 spec-author/
 ├── SKILL.md                         (this file)
-├── agents/{spec-architect, spec-decomposer}.md
+├── agents/spec-architect.md           (author · migrate · improve · decompose)
 ├── rubric/spec-quality.rubric.json  (the validated verifier; gate + review dims)
 ├── methodologies/spec-intake.md     (capture → author/migrate/improve → decompose)
 ├── policy/spec-readiness.policy.json (the doneness gate, incl. entailment)
