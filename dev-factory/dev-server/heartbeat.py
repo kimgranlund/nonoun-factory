@@ -48,13 +48,14 @@ def _budget_path(d):
     return os.path.join(d, "run", "heartbeat.json")
 
 
-def arm(d, now=None, deadline_s=None, max_dispatches=None, token_ceiling=None):
+def arm(d, now=None, deadline_s=None, max_dispatches=None, token_ceiling=None, dollar_ceiling=None):
     """Arm the loop's window. MUST be called before the loop runs (the arming discipline): an unarmed loop
-    does not dispatch (fail-closed)."""
+    does not dispatch (fail-closed). The window is bounded by ANY of: a wall-clock deadline, a max-dispatch
+    count, a token ceiling, or a DOLLAR ceiling — whichever is hit first halts dispatch."""
     now = now or _now()
     b = {"start_ts": now.isoformat(timespec="seconds"), "ticks": 0,
          "deadline_ts": (now + datetime.timedelta(seconds=deadline_s)).isoformat(timespec="seconds") if deadline_s else None,
-         "max_dispatches": max_dispatches, "token_ceiling": token_ceiling}
+         "max_dispatches": max_dispatches, "token_ceiling": token_ceiling, "dollar_ceiling": dollar_ceiling}
     os.makedirs(os.path.dirname(_budget_path(d)), exist_ok=True)
     json.dump(b, open(_budget_path(d), "w"), indent=2)
     return b
@@ -84,6 +85,15 @@ def _tokens_since(d, start_ts):
     return tot
 
 
+def _cost_since(d, start_ts):
+    tot = 0.0
+    for e in _led.read(d, since=start_ts):
+        m = e.get("metrics") or {}
+        if isinstance(m.get("cost_usd"), (int, float)):
+            tot += m["cost_usd"]
+    return tot
+
+
 def budget_exhausted(d, now=None):
     """(exhausted, reason). Unarmed → fail-closed (the loop must arm first). Computed from code + the
     ledger, never an agent's counting."""
@@ -101,6 +111,10 @@ def budget_exhausted(d, now=None):
         t = _tokens_since(d, b["start_ts"])
         if t >= b["token_ceiling"]:
             return True, f"token ceiling reached ({t}/{b['token_ceiling']})"
+    if b.get("dollar_ceiling") is not None:
+        c = _cost_since(d, b["start_ts"])
+        if c >= b["dollar_ceiling"]:
+            return True, f"dollar ceiling reached (${c:.2f}/${b['dollar_ceiling']:.2f})"
     return False, None
 
 
@@ -146,6 +160,13 @@ def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None, strict_acce
     if slots <= 0:
         return {"halted": False, "reason": "no free slot (backpressure)", "tier": tier, "dispatched": [], "reconciled": reconciled}
     batch = _compass.next_batch(d, tier=tier, slots_free=slots)
+    # the frontier must never SILENTLY starve: a depends_on CYCLE leaves its cells un-advanceable forever (each
+    # waits on another around the loop, so every dispatch is refused by the partial-order gate with no event saying
+    # why). When there is non-terminal work, check for a cycle and NAME it ONCE so the operator/dependency-arbiter
+    # sees the loop to break — instead of the loop spinning on refused dispatches (harness-council H1).
+    cycle = None
+    if any(t.get("state") in ("active", "claimed", "draft", "in-progress") for t in _api.list_tickets(d)):
+        cycle = _compass.surface_cycle(d)   # the readiness filter reports any cycle; the arbiter resolves it
     if strict_accept and tier < 2 and batch:
         batch = strict_accept_filter(d, batch)      # Tier-1 strict: hold dependents until their deps are human-accepted
     auto = tier >= 2                                # Tier 1 dispatches but pauses at in-review (human reviews)
@@ -154,9 +175,13 @@ def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None, strict_acce
         ok, _t, _msg = _disp.dispatch_unit(d, _api.get_ticket(d, t["id"]), adapter,
                                            {"kind": "server", "id": "heartbeat"}, tier=tier, auto_validate=auto)
         dispatched.append({"ticket": t["id"], "ok": ok, "to": "done" if auto else "in-review"})
-    # INDEPENDENT REFUTER (false-pass measurement → earned autonomy): re-check one validated-but-unrefuted cell
-    # against its HIDDEN refuter harness. The check is the false-pass denominator; a DISAGREEMENT records an
-    # incident (autonomy demotes — the NEXT tick reads the lower tier_for). One per tick keeps ticks cheap.
+    # PRODUCE → MEASURE the false-pass oracle (earned autonomy):
+    #  1. ARM — a freshly-validated CODE cell (Tier 1 human-accepted OR Tier 2 auto) gets an independent refuter, so
+    #     it becomes MEASURABLE. Without this live producer false_pass stays 'unmeasured' and Tier 2 is unreachable.
+    #  2. RE-CHECK — re-validate one armed-but-unrefuted cell against its HIDDEN refuter. The check is the false-pass
+    #     denominator; a DISAGREEMENT records an incident (autonomy demotes — the NEXT tick reads the lower tier_for).
+    # One re-check per tick keeps ticks cheap.
+    produced = _disp.produce_refuters(d)
     refuted = None
     frontier = _disp.refute_frontier(d)
     if frontier:
@@ -169,7 +194,8 @@ def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None, strict_acce
         b["ticks"] = b.get("ticks", 0) + 1
         json.dump(b, open(_budget_path(d), "w"), indent=2)
     return {"halted": False, "reason": None, "tier": tier, "dispatched": dispatched,
-            "reconciled": reconciled, "refuted": refuted, "distilled": distilled}
+            "reconciled": reconciled, "produced": produced, "refuted": refuted, "distilled": distilled,
+            "cycle": cycle}
 
 
 def run(d, adapter=None, tier=1, max_concurrency=2, period_s=30):
@@ -209,6 +235,9 @@ def selftest():
         # armed + the family has EARNED Tier 2 (a validated verifier + an agreeing refuter check + a budget)
         # → the tick drives the ready ticket to done, UNATTENDED (Tier 1 would stop at in-review)
         arm(d, max_dispatches=5, deadline_s=3600)
+        # SIMULATE the earned refuter check so this UNIT test can exercise the heartbeat's Tier-2 DISPATCH path on a
+        # node-free spec cell. NOT a production shortcut: on a real CODE build the live producer (produce_refuters)
+        # + run_refuter earn this measurement for real — proven end-to-end, node-gated, in evals/earned-autonomy.
         _auto.record_refuter_check(d, "spec.task.s", agreed=True)    # measured-clean false-pass → Tier 2
         s1 = on_tick(d, max_concurrency=2)                            # no tier override → the EARNED tier
         expect(s1.get("tier") == 2, f"family should have earned Tier 2; got tier {s1.get('tier')}")
@@ -228,6 +257,36 @@ def selftest():
         s2 = on_tick(d)
         expect(s2["halted"] and "deadline" in s2["reason"], f"exhausted budget did not halt: {s2}")
         expect(_api.get_ticket(d, t2["id"])["state"] == "active", "dispatched past the deadline (burned through the bound)")
+
+        # the DOLLAR ceiling halts too — and FAILURE-path spend counts toward it (H5-C1/C3): a worker run that
+        # produced no artifact still spent, so its activity-fail carries cost_usd/tokens, which _cost_since sums.
+        arm(d, dollar_ceiling=1.0)
+        bts = load_budget(d)["start_ts"]
+        _led.append(d, "activity-fail", {"kind": "agent", "id": "headless-claude"}, {"cell": "spec.task.s3"},
+                    "worker failed: no artifact", metrics={"activity": "a", "cost_usd": 1.5, "tokens": 9000},
+                    ts=bts)
+        expect(_cost_since(d, bts) >= 1.5, "_cost_since must sum FAILURE-path cost_usd (H5-C1: the ceiling must see failed-run spend)")
+        ex, why = budget_exhausted(d)
+        expect(ex and "dollar ceiling" in (why or ""), f"dollar ceiling did not halt on failure-path spend: {why}")
+
+        # H1 — when a depends_on CYCLE starves the frontier, on_tick NAMES it (never a silent idle tick)
+        with tempfile.TemporaryDirectory() as croot:
+            cd = os.path.join(croot, ".factory")
+            _api.init_instance(cd)
+            _api.seed_cell(cd, "rubric", "task", "r", maturity="validated", signal_refs=["signals/rubric.task.r/s.json"])
+            for a, b in (("cyca", "cycb"), ("cycb", "cyca")):
+                _api.seed_cell(cd, "spec", "task", a, maturity="instantiated", asset_ref=f"spec/{a}.md",
+                               depends_on=[f"spec.task.{b}"])
+                ct = _api.create_ticket(cd, "feature", a, target_cell=f"spec.task.{a}",
+                                        target_transition={"from": "instantiated", "to": "validated"},
+                                        acceptance={"rubric_cell": "rubric.task.r"}, budget={"iterations": 1, "tokens": 100})
+                _api.transition_ticket(cd, ct["id"], "active", srv)
+            arm(cd, max_dispatches=5, deadline_s=3600)
+            cs = on_tick(cd, tier=1)
+            expect(cs.get("cycle") and set(cs["cycle"]) == {"spec.task.cyca", "spec.task.cycb"},
+                   f"on_tick must NAME a dependency cycle that starves the frontier, got {cs.get('cycle')}")
+            expect(any((e.get("metrics") or {}).get("cycle") for e in _led.read(cd, event="block")),
+                   "the cycle must be ledgered (the operator/arbiter sees the loop to break, not a silent idle)")
     if fails:
         sys.stderr.write("heartbeat selftest: FAIL\n")
         for f in fails:
@@ -250,7 +309,8 @@ def main(argv):
     if argv[0] == "arm":
         b = arm(d, deadline_s=int(_arg(argv, "--deadline-s", "0")) or None,
                 max_dispatches=int(_arg(argv, "--max-dispatches", "0")) or None,
-                token_ceiling=int(_arg(argv, "--token-ceiling", "0")) or None)
+                token_ceiling=int(_arg(argv, "--token-ceiling", "0")) or None,
+                dollar_ceiling=float(_arg(argv, "--dollar-ceiling", "0")) or None)
         print(json.dumps(b))
         return 0
     if argv[0] == "tick":

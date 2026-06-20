@@ -83,7 +83,7 @@
       "emit"
     ]
   },
-  "_block_note": "The `block` vocabulary is the closed set {ticket, activity, roadmap, lattice, frontier, cell, signal, kit} unioned with every `layer` value; gate-naming computes it. (NB: `block`/`unblock` are also OPERATION verbs on a cell's condition flag — a distinct axis from the `block` object vocab; both are intentional.)",
+  "_block_note": "The `block` vocabulary is the closed set {ticket, activity, roadmap, lattice, frontier, cell, signal, kit} unioned with every `layer` value, documented HERE for reference — gate-naming does NOT enforce it (the gate computes only the `actor`, `gateverb`, and singular-`layer`-dir classes). (NB: `block`/`unblock` are also OPERATION verbs on a cell's condition flag — a distinct axis from the `block` object vocab; both are intentional.)",
   "block_extra": [
     "ticket",
     "activity",

@@ -53,7 +53,9 @@ def main():
             open(os.path.join(d, "spec", f"{slug}.md"), "w").write(
                 f"# {slug}\n\n```json\n" + json.dumps(_structured(slug, f"spec.system.{slug}"), indent=2) + "\n```\n")
 
-        # earn Tier 2 (validated verifier + a clean refuter check + an armed budget), then create the work
+        # earn Tier 2 (validated verifier + a clean refuter check + an armed budget), then create the work.
+        # This is a DOC-domain dry run (no node, no code cells), so the refuter check is simulated here; the live
+        # code path earns it for real via produce_refuters + run_refuter (proven in evals/earned-autonomy).
         heartbeat.arm(d, max_dispatches=9, deadline_s=3600)
         autonomy.record_refuter_check(d, "rubric.system.spec-quality", agreed=True)
         A = api.create_ticket(d, "feature", "advance alpha", target_cell="spec.system.alpha",

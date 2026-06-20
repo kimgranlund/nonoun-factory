@@ -121,4 +121,4 @@ instance, run a bounded build, let it author + validate + assemble a whole app â
 - **switch between project instances** on one running server,
 - and the **safety/bounds** model (the adapter is the spend lever; the run budget fails closed).
 
-The design of record is `docs/specs/dev-factory-spec/TDD-01-nonoun-factory.md`; the build narrative is `docs/PLAN.md`.
+The design of record is `docs/spec/dev-factory-spec/TDD-01-nonoun-factory.md`; the build narrative is `docs/PLAN.md`.

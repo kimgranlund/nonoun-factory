@@ -66,4 +66,4 @@ python3 evals/tracer-bullet/replay.py                 # the morphism, in isolati
 python3 bin/check-kit-conform.py kit ../dev-kit-corpus # the kernel/kit boundary
 ```
 
-The system-level proofs (Crawl · Walk · Run · Fly · demotion · integration · server-smoke) live with the runtime in `../dev-server/evals/`. The design of record is `../docs/specs/dev-factory-spec/`.
+The system-level proofs (Crawl · Walk · Run · Fly · demotion · integration · server-smoke) live with the runtime in `../dev-server/evals/`. The design of record is `../docs/spec/dev-factory-spec/`.

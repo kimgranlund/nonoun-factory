@@ -3,6 +3,55 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-20 — harness-council audit fixes (round 5): the frontier never silently starves (H1)
+
+- **The heartbeat now NAMES a dependency cycle (H1).** A `depends_on` cycle leaves its cells un-advanceable forever
+  (each waits on another around the loop, so every dispatch is refused by the partial-order gate) — and the loop
+  used to just spin with no event saying why. `on_tick` now calls `compass.surface_cycle` whenever non-terminal
+  work exists: a cycle is detected (`compass.detect_cycle`, dev-kernel 0.2.16) and ledgered ONCE so the operator /
+  `dependency-arbiter` sees the loop to break. The tick summary carries `cycle`. (The detector lives in `compass.py`
+  exactly as the `dependency-arbiter`/`decomposition` contracts always claimed — now true.)
+
+## 2026-06-20 — harness-council audit fixes (round 4): budget realism (H5)
+
+The token ceiling read success-path telemetry only, headless was dollar-uncapped by default, and the shipped
+signature-based no-progress detector was never wired — so the run budget was softer than it looked on a real build.
+
+- **Failure-path spend now counts (H5-C1).** A worker run that produced no artifact still spent tokens/dollars, but
+  its `activity-fail` recorded no metrics — so a failure-then-retry burned spend the ceiling never saw. The
+  worker-failure `activity-fail` now carries the adapter's `cost_usd`/`tokens`, which `_tokens_since`/`_cost_since`
+  sum. (The verifier-author spend was already fixed in round 1.)
+- **A window DOLLAR ceiling + a per-dispatch default cap (H5-C3).** `arm` gains `dollar_ceiling`
+  (`DEV_FACTORY_DOLLAR_CEILING`); `budget_exhausted` halts the window when `_cost_since` crosses it (alongside the
+  deadline / max-dispatches / token ceiling). And every headless dispatch now ALWAYS passes `--max-budget-usd` —
+  the ticket's `dollars` if set, else `DEV_FACTORY_DISPATCH_USD` (default $10) — so a single run is never unbounded
+  (previously the cap was appended only when a ticket set `dollars`, which the default budget never did).
+- **The no-progress signature detector is WIRED (H5-major).** `dispatch_unit` now calls the (now-fixed)
+  `ledger.no_progress` (`n=2`): two identical failure signatures block a deterministically-stuck cell early, while
+  distinct failures still retry to the attempt cap. A new selftest distinguishes the two backstops.
+
+## 2026-06-20 — harness-council audit fixes (round 3): the LIVE refuter producer (H6 — earned autonomy)
+
+The H6 cap's root: nothing in the dev-server validation path PRODUCED the refuter sidecars the false-pass oracle
+(`refute_frontier` → `run_refuter`) consumes — only `self_heal_cell` re-armed one post-incident, and eval fixtures
+hand-seeded them. So `false_pass` stayed `unmeasured` forever, the app family could never legitimately reach Tier 2
+(`autonomy.tier_for`), and the only in-tree paths to Tier 2 asserted `record_refuter_check(agreed=True)`.
+
+- **`dispatch.produce_refuter` / `produce_refuters` — the live producer.** When a CODE cell reaches `validated`, the
+  server recovers its exports from its `verify.mjs` (`_exports_from_verify`) and arms an INDEPENDENT refuter — a
+  `verify_gen.fresh_refute` oracle (generic invariants: export stability + determinism) distinct from the gate the
+  worker coded to — plus the verify-spec. The heartbeat runs `produce_refuters` each tick (a sweep) BEFORE the
+  refuter frontier, so a cell validated this epoch (Tier 1 human-accepted OR Tier 2 auto) is measurable next tick.
+  Idempotent + non-clobbering (a self-heal-re-armed or planner oracle is never overwritten); only multi-file code
+  cells with a real `verify.mjs` get one — a presence-stub-validated cell stays honestly unmeasured. **This makes
+  the verify-spec genuinely persist in `dev-server` (not just `debug/` ralph) — the prior CHANGELOG claim is now
+  backed by code.**
+- **`evals/earned-autonomy` — the affirmative proof.** A validated code cell is UNMEASURED (Tier 1 even with a
+  budget); the producer arms a real oracle; `run_refuter` MEASURES it → `false_pass` 0.0 → **Tier 2 EARNED**, with no
+  `record_refuter_check` fake; a disagreeing oracle mechanically REVOKES it. Wired into `dev-factory.yml`.
+- The remaining `record_refuter_check(agreed=True)` calls (heartbeat selftest, `demo.py`) are now clearly labeled
+  as **node-free unit/doc-domain simulations** of what the live code path earns for real — not production shortcuts.
+
 ## 2026-06-19 — harness-council audit fixes (round 2): the integrity floor on the LIVE path
 
 Round 1 fixed the two unambiguous bugs; round 2 hardens the verification floor the audit found "mock-deep" on the

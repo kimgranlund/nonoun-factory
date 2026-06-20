@@ -36,23 +36,29 @@ not refuter-attested** — the correction the audit delivered.
   product barrel; `_is_mock_verifier` is marker+behavioral (not line count); `evals/real-verifier-teeth` proves a
   real gate has teeth, is satisfiable, and that the stub it replaces is blind to the same deviation — wired into CI.
 
-## Remaining backlog (prioritized, NOT yet done)
+## The bigger items — now CLOSED (rounds 3–6)
 
-These are the bigger / trade-off items the rounds above did not close — surfaced here so they are not lost:
+The backlog the first two rounds deferred has been worked through:
 
-1. **H5-C1/C3 · budget realism** — the token ceiling reads success-path telemetry only (failure runs carry no
-   tokens); headless is dollar-uncapped by default (`--max-budget-usd` only when `budget.dollars` is set). Add
-   tokens to `activity-fail`; default a window `$` ceiling.
-2. **H6 · live refuter producer in `dev-server`** — the cold-start verify-spec/refuter producer exists in `debug/`
-   ralph but NOT the server path; `dev-server/CHANGELOG.md` (the older "cold-start planner persists the verify-spec"
-   claim) has no `dev-server/` code behind it. Wire it, and stop the demos/heartbeat reaching Tier 2 via hardcoded
-   `agreed=True`.
-3. **H1-M1 · the cycle detector** — asserted by the dependency-arbiter/decomposition agent contracts, but no code
-   detects a `depends_on` cycle (it silently starves the frontier). Implement it (dev-server side; `lattice.py` is
-   vendored).
-4. **H4 · template drift** — `docs/specs/` (a pluralized layer-like dir in the spec template) and a `decomposer`
-   off-vocab actor. *Verify first* — `docs/specs/` is a docs folder, not a lattice instance layer dir, so the gate
-   may be over-flagging; confirm before renaming (it would move spec links).
-5. **Verifier-author residual `Bash` surface** — the rubric-architect keeps `Bash` (it calibrates) + can write
-   `verify.mjs`; signals stay gate-protected but the inline-interpreter forge is not caught by the heuristic. Lower
-   threat (authors the gate, not the product; runs before the module exists) — accepted for now, noted here.
+1. **H6 · live refuter producer (round 3, #25).** `dispatch.produce_refuter`/`produce_refuters` arm an independent
+   `fresh_refute` oracle when a code cell validates; the heartbeat sweeps it; `run_refuter` measures it. Tier 2 is
+   now EARNABLE on a real build (`evals/earned-autonomy` proves it, no `agreed=True` fake). The "cold-start persists
+   the verify-spec" claim is now backed by code.
+2. **H5-C1/C3 + no-progress · budget realism (round 4).** Failure-path `activity-fail` now carries `cost_usd`/`tokens`
+   (the ceiling sees failed-run spend); a window `DEV_FACTORY_DOLLAR_CEILING` + an always-on per-dispatch
+   `--max-budget-usd` (`DEV_FACTORY_DISPATCH_USD`, default $10); and the kernel's `ledger.no_progress` was fixed
+   (it compares failure events, not all events) and WIRED (`n=2`) so a stuck cell blocks early.
+3. **H1 · the cycle detector (round 5).** `compass.detect_cycle`/`surface_cycle` — a deterministic DFS that NAMES a
+   `depends_on` cycle once in the ledger; the heartbeat calls it whenever non-terminal work exists. The detector
+   lives in `compass.py` exactly as the `dependency-arbiter`/`decomposition` contracts always claimed.
+4. **H4 · naming drift (round 6).** `docs/specs/` → `docs/spec/` (the repo now matches its own "spec/, never specs/"
+   rule); the off-vocab `spec-decomposer` design agent consolidated into `spec-architect` (the actor the build
+   already uses); and `naming.schema.json`'s `_block_note` corrected — it claimed gate-naming computes the `block`
+   vocab, which it does not (the gate computes only `actor`/`gateverb`/singular-`layer`-dir).
+
+## Remaining (accepted, low threat)
+
+- **Verifier-author residual `Bash` surface** — the rubric-architect keeps `Bash` (it calibrates) + can write
+  `verify.mjs`; signals stay gate-protected but the inline-interpreter forge is not caught by the heuristic. Lower
+  threat (authors the gate, not the product; runs before the module exists; denied the `index.mjs` barrel since
+  round 2) — accepted, noted here.

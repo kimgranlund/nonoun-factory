@@ -2,6 +2,22 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.16] — 2026-06-20
+
+### Added
+
+- **`compass.detect_cycle` + `compass.surface_cycle` — the dependency-cycle detector the contracts asserted but no code implemented (harness-council H1).** The `dependency-arbiter` and `decomposition` methodologies both say "detection is the filter's (`lattice.py`/`compass.py`); resolution is the arbiter's" — but nothing detected a `depends_on` cycle, so a cyclic decomposition left its cells un-advanceable forever (every dispatch refused by the partial-order gate) with no event naming the loop. `detect_cycle` is a deterministic DFS over the `depends_on` graph returning the back-edge path; `surface_cycle` ledgers it ONCE per signature (a `block` event the operator/arbiter reads). The dev-server heartbeat calls `surface_cycle` whenever non-terminal work exists, so a starved frontier is NAMED, not a silent spin. The claims in `dependency-arbiter.md`/`decomposition.md` are now backed.
+
+plugin.json 0.2.15 → 0.2.16.
+
+## [0.2.15] — 2026-06-20
+
+### Fixed
+
+- **`ledger.no_progress` now compares the last `n` FAILURE events, not the last `n` of ALL events (harness-council H5).** The signature-based stuck-loop detector took the rationale tail of every event on a cell — but a failed dispatch interleaves a retry `transition → active` between failures, so the tail was never `n` identical failure signatures and the detector effectively never fired. It now filters to failure events (`activity-fail`, a fail signal, a `block`/`→blocked`) before comparing, so a genuinely stuck cell (the same failure repeating despite the smart-retry folding the error into the next prompt) IS detected. The dev-server dispatch loop now WIRES it (`n=2`): two identical failure signatures block the cell early instead of burning the full attempt budget on a futile loop; distinct failures still retry to the attempt cap. Selftest unchanged-green + a new dispatch eval distinguishes the two backstops.
+
+plugin.json 0.2.14 → 0.2.15.
+
 ## [0.2.14] — 2026-06-19
 
 ### Changed
