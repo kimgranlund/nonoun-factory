@@ -56,9 +56,14 @@ The backlog the first two rounds deferred has been worked through:
    already uses); and `naming.schema.json`'s `_block_note` corrected — it claimed gate-naming computes the `block`
    vocab, which it does not (the gate computes only `actor`/`gateverb`/singular-`layer`-dir).
 
-## Remaining (accepted, low threat)
+## Every finding closed
 
-- **Verifier-author residual `Bash` surface** — the rubric-architect keeps `Bash` (it calibrates) + can write
-  `verify.mjs`; signals stay gate-protected but the inline-interpreter forge is not caught by the heuristic. Lower
-  threat (authors the gate, not the product; runs before the module exists; denied the `index.mjs` barrel since
-  round 2) — accepted, noted here.
+5. **Verifier-author residual `Bash` surface (round 7).** Closed: NO headless worker carries `Bash` anymore. The
+   verifier-author kept it through rounds 2–6 to self-calibrate the harness it writes, but its calibration is the
+   downstream validation loop, so it now authors `verify.mjs` Write-only like every other worker. The
+   inline-interpreter forge surface the gate's heuristic couldn't catch is gone — every headless worker is Write-only
+   over a deny-list (signals · ledger · lattice · the `index.mjs` barrel). A selftest locks the no-Bash invariant.
+
+Every Critical and Major the council raised is now remediated; the only deliberate residual the panel itself
+sanctioned (the render gate verifies the render *path*, not real-GPU pixels — the optional browser/SwiftShader
+escalation) is documented in `dev-kit-app`'s README as a known, bounded limit.
