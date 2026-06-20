@@ -2,6 +2,14 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.22] — 2026-06-20
+
+### Fixed (harness-council re-audit, round 4)
+
+- **`autonomy.record_incident` un-ships cells bound to a staled rubric via their `verifier` field, not only `validated_against` (H7).** The incident fixpoint keyed on `validated_against` edges, but a cell validated by a rubric records it in `verifier`; such cells survived stale-but-trusted when an incident demoted their rubric. They are now staled directly and seed the transitive un-ship fixpoint.
+
+plugin.json 0.2.21 → 0.2.22.
+
 ## [0.2.21] — 2026-06-20
 
 ### Fixed (harness-council re-audit, round 3)

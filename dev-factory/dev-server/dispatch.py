@@ -959,30 +959,37 @@ def _exports_from_verify(src):
 
 
 def _refuter_discriminates(refute, exports):
-    """A positive CAN-DISAGREE proof (harness-council re-audit 3): run the refute set's harness against a stub whose
-    exports return a deterministic POISON sentinel; if the harness AGREES (exit 0) with that deliberately-wrong
-    module, the refute set is a tautology that cannot disagree (e.g. `compute(1)===compute(1)`, `[compute(1)].length
-    ===1`, `compute(1),true`) and must NOT count as measuring. Only a refute set that DISAGREES with the poison
-    (exit ≠ 0) earns `measuring`. This is the semantic check the syntactic `verify_gen.is_behavioral` can only
-    approximate — a denylist of forms always leaks. Fail-CLOSED: no node / any error → not discriminating."""
+    """A positive CAN-DISAGREE proof (harness-council re-audit 3 → 4): run the refute harness against TWO
+    deliberately-wrong stubs whose exports return distinct, randomly-keyed POISON values — one a NUMBER, one a STRING
+    — and require it to DISAGREE (exit ≠ 0) with BOTH. A real value assertion (`compute(7,8)===15`) disagrees with
+    every wrong value; a tautology (`compute(1)===compute(1)`, `[compute(1)].length===1`) AGREES with both; and a
+    type-coercion annihilator (`compute(1)*0===0`, which `NaN`s a string but holds for a number) AGREES with the
+    number poison — so a single string poison would have leaked it (re-audit 4). Requiring disagreement with both
+    types closes that class. This is the semantic check a syntactic denylist (`verify_gen.is_behavioral`) only
+    approximates. The poison stubs are server-authored — the graded worker module is NOT in this loop. Fail-CLOSED:
+    no node / any error / agrees with either poison → not discriminating (→ the cell stays unmeasured)."""
     names = [e for e in (exports or []) if isinstance(e, str) and e.strip()]
     if not refute or not names or shutil.which("node") is None:
         return False
-    poison = "'__df_poison_" + os.urandom(6).hex() + "__'"   # random, deterministic, unguessable by the refute author
-    stub = "".join(f"export const {e} = (...a) => ({poison});\n" for e in names)
-    sdir = tempfile.mkdtemp(prefix="df-calib-")
-    try:
-        spath = os.path.join(sdir, "index.mjs")
-        open(spath, "w", encoding="utf-8").write(stub)
-        abs_stub = pathlib.Path(os.path.abspath(spath)).as_uri()
-        harness = _vg.gen_cap_verify(names, refute).replace("'./index.mjs'", f"'{abs_stub}'")
-        rc = subprocess.run(["node", "--input-type=module", "-e", harness],
-                            cwd=sdir, capture_output=True, text=True, timeout=30).returncode
-        return rc != 0   # the refute set DISAGREED with the poison stub → it can disagree → measuring
-    except (OSError, subprocess.SubprocessError):
-        return False
-    finally:
-        shutil.rmtree(sdir, ignore_errors=True)
+    poisons = [str(int.from_bytes(os.urandom(5), "big")),          # a random NUMBER
+               "'__df_poison_" + os.urandom(6).hex() + "__'"]      # a random STRING
+    for poison in poisons:
+        stub = "".join(f"export const {e} = (...a) => ({poison});\n" for e in names)
+        sdir = tempfile.mkdtemp(prefix="df-calib-")
+        try:
+            spath = os.path.join(sdir, "index.mjs")
+            open(spath, "w", encoding="utf-8").write(stub)
+            abs_stub = pathlib.Path(os.path.abspath(spath)).as_uri()
+            harness = _vg.gen_cap_verify(names, refute).replace("'./index.mjs'", f"'{abs_stub}'")
+            rc = subprocess.run(["node", "--input-type=module", "-e", harness],
+                                cwd=sdir, capture_output=True, text=True, timeout=30).returncode
+            if rc == 0:        # the refute set AGREED with a deliberately-wrong module → it is vacuous on this type
+                return False
+        except (OSError, subprocess.SubprocessError):
+            return False
+        finally:
+            shutil.rmtree(sdir, ignore_errors=True)
+    return True   # disagreed with BOTH wrong stubs → it can genuinely disagree → measuring
 
 
 def produce_refuter(d, cell_id):
@@ -1100,8 +1107,11 @@ def self_heal_cell(d, cell_id):
     # is authored — it does NOT silently re-earn Tier 2 on a tautology).
     sidecar = os.path.join(d, "coordination", "refuters", f"{cell_id}.json")
     if refuter_harness:
-        rearm_measuring = _vg.is_behavioral(new_spec.get("refute") or [], new_spec.get("exports") or [])
-        json.dump({"harness": refuter_harness, "refute": new_spec.get("refute") or [], "measuring": rearm_measuring},
+        _rf, _ex = new_spec.get("refute") or [], new_spec.get("exports") or []
+        # re-armed `measuring` requires BOTH the syntactic pre-filter AND the poison calibration — the same AND-gate
+        # the live produce_refuter uses (re-audit 4 N: a fold must not certify an invoking-but-vacuous re-arm).
+        rearm_measuring = _vg.is_behavioral(_rf, _ex) and _refuter_discriminates(_rf, _ex)
+        json.dump({"harness": refuter_harness, "refute": _rf, "measuring": rearm_measuring},
                   open(sidecar, "w", encoding="utf-8"), indent=2)
     elif os.path.isfile(sidecar):
         os.remove(sidecar)
@@ -1174,20 +1184,23 @@ def run_refuter(d, cell_id):
     cell_dir = os.path.normpath(os.path.join(d, cell.get("asset_ref")
                                 or _asset_rel(cell["layer"], cell["slug"], _authoring_for(cell))))
     abs_index = pathlib.Path(os.path.abspath(os.path.join(cell_dir, "index.mjs"))).as_uri()
-    # AGREE requires proof the harness ran its checks to COMPLETION. Exit 0 alone is forgeable (a module that
-    # `process.exit(0)`s on import), and a `pass:` substring is forgeable (a module that prints `pass` on import). So
-    # inject a per-run NONCE printed ONLY at the harness's success exit, and require it. CRUCIALLY the harness is run
-    # via `node -e` (NOT a temp FILE): with no harness file, the graded module — which executes in this process at
-    # import, BEFORE the harness's checks — cannot read the cleartext nonce. `process.argv[1]` is undefined under
-    # `-e` (so `readFileSync(process.argv[1])` throws), the harness source is not on disk, and the nonce is not in
-    # env (harness-council re-audit 3: a file harness let the module grep the nonce off its own importer). cwd is an
-    # empty temp dir, isolating the harness's node env from cell_dir.
-    nonce = "RF-" + os.urandom(12).hex()
+    # AGREE requires proof the harness ran its checks to a genuine SUCCESS. A per-run NONCE is printed ONLY at the
+    # harness's success path; AGREE requires it in stdout. Two structural defenses make it unforgeable by the
+    # worker-authored module (which executes in this process at IMPORT, before the harness's checks):
+    #   (a) the harness is piped over STDIN (`node -`), NOT argv/`-e` — so the nonce-bearing program text is in
+    #       neither process.argv, process.execArgv, /proc/self/cmdline, nor `ps`; the module cannot READ the nonce
+    #       (harness-council re-audit 4: the `-e` program text was readable via process.execArgv[2]).
+    #   (b) failures THROW (not `process.exit(1)`), so a module that overrides `process.exit` or handles
+    #       `uncaughtException` cannot fall through to the success line that emits the nonce — a thrown failure never
+    #       reaches it. The module can neither read the nonce nor make the harness emit it without the checks passing.
+    # cwd is an empty temp dir (the module's own relative deps still resolve from cell_dir via the absolute URL).
+    nonce = "RF-" + os.urandom(16).hex()
     rewritten = (harness.replace("'./index.mjs'", f"'{abs_index}'")
+                        .replace("process.exit(1)", "throw new Error('RF_REFUTE_FAIL')")
                         .replace("process.exit(0)", f"console.log('{nonce}');process.exit(0)"))
     iso = tempfile.mkdtemp(prefix="df-refute-")
     try:
-        proc = subprocess.run(["node", "--input-type=module", "-e", rewritten],
+        proc = subprocess.run(["node", "--input-type=module", "-"], input=rewritten,
                               cwd=iso, capture_output=True, text=True, timeout=60)
         rc, out = proc.returncode, (proc.stdout or "")
     except (OSError, subprocess.SubprocessError):

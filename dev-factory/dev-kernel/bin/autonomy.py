@@ -173,7 +173,17 @@ def record_incident(d, cell, reason, family=None, now=None):
         # `validated_against`; correct where they do.)
         lat2 = _lat.load(d)
         marker = f"incident-{now.isoformat(timespec='seconds')}"
-        flipped, frontier, seen = [], list(staled), set(staled)
+        # ALSO un-ship cells bound to a staled rubric via their `verifier` field, not just `validated_against`
+        # (re-audit 4 H7: a cell validated by a rubric records the rubric in `verifier`, which the kernel's
+        # `validated_against`-keyed propagate_staleness does not reach). Stale them directly + seed the fixpoint.
+        vstale = []
+        for c in lat2.get("cells", []):
+            if c.get("verifier") in staled and c.get("maturity") in _lat.SETTLED:
+                c["maturity"] = "stale"
+                vstale.append(_lat.cid(c))
+        if vstale:
+            _lat.save(d, lat2)
+        flipped, frontier, seen = list(vstale), list(staled) + list(vstale), set(staled) | set(vstale)
         while frontier:
             nxt = []
             for cid in frontier:

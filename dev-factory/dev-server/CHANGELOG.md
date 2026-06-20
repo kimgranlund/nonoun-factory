@@ -3,6 +3,27 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-20 — harness-council RE-AUDIT round 4 (round 13): the nonce leaves the process entirely
+
+The round-3 `node -e` nonce was readable in-process via `process.execArgv[2]` / `/proc/self/cmdline` / `ps` — the
+secret had only moved from a file to the command line. The structural close (the secret is never where the imported
+module can reach it):
+
+- **`run_refuter` pipes the harness over STDIN (`node -`), not argv/`-e`,** so the nonce-bearing program is in NONE of
+  `process.argv`, `process.execArgv`, `/proc/self/cmdline`, or `ps` — the worker-authored module cannot READ it.
+- **Failures THROW (not `process.exit(1)`),** so a module that overrides `process.exit` or handles
+  `uncaughtException` cannot fall through to the success line that emits the nonce — a thrown failure never reaches it.
+  `earned-autonomy` H4 now sweeps EVERY channel (execArgv · argv · /proc · ps · exit-override · uncaughtException ·
+  print-`pass`) and proves all are caught.
+- **`_refuter_discriminates` calibrates against TWO typed poisons (a number AND a string),** closing the type-coercion
+  annihilator class (`compute(1)*0===0` held over numbers but `NaN`s a string, so a single string poison leaked it).
+- The self-heal re-arm now AND-gates `_refuter_discriminates` (matching the live producer); `record_incident`
+  un-ships verifier-bound dependents too (dev-kernel 0.2.22).
+
+The keystone measurement — the `measuring: True` refuter agreement the autonomy ladder consumes — is now unforgeable
+by a worker-authored `index.mjs`: it can neither read the nonce (not in-process) nor make the harness emit it without
+the discriminating checks genuinely passing (throw-on-failure), and a vacuous refute set fails the typed calibration.
+
 ## 2026-06-20 — harness-council RE-AUDIT round 3 (round 12): the nonce was readable off disk; is_behavioral leaked
 
 A THIRD council verification caught two more measurement forges (and three structural majors). The keystone fixes:

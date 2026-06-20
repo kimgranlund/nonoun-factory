@@ -81,3 +81,23 @@ in-process module isolation (monkey-patching globals) would need a `vm`/sandbox,
 `lattice stale` CLI is one-hop (vendored) with the `lattice-health` rubric as the structural backstop. The keystone
 **measurement** — the false-pass signal the autonomy ladder consumes — is now unforgeable by a worker-authored module
 (no harness file to read; the refute set must prove it can disagree) and counts fail-closed.
+
+## Round 4 — the nonce had only moved to the command line; now it leaves the process
+
+A FOURTH verification found the round-3 `node -e` nonce readable in-process via `process.execArgv[2]`, `/proc/self/cmdline`,
+and `ps -o args= -p <pid>` — `argv[1]` was closed, but the program text relocated to the command line, still attacker-
+readable. The structural close (verified empirically against every channel):
+
+| # | Finding (council, round 4) | Fix |
+| --- | --- | --- |
+| **CRITICAL** | the `-e` program text (with the nonce) is `process.execArgv[2]` / `/proc/self/cmdline` / `ps` — readable by the module on import. | `run_refuter` pipes the harness over **STDIN** (`node -`), so the program is in none of argv/execArgv/cmdline/ps; AND failures **THROW** (not `process.exit(1)`), so an `exit`-override / `uncaughtException` handler can't fall through to the nonce-emitting success line. `earned-autonomy` H4 sweeps all channels + the override. |
+| **MAJOR** | `_refuter_discriminates`' single STRING poison admitted the type-coercion annihilator `compute(1)*0===0` (holds over numbers, `NaN`s a string). | Calibrate against **two typed poisons** (a number AND a string); require disagreement with both. |
+| **MAJOR** | the self-heal re-arm certified `measuring` from `is_behavioral` alone, skipping the poison calibration. | AND `_refuter_discriminates` into the re-arm, matching the live producer. |
+| **MAJOR** | `record_incident` un-shipped `validated_against` dependents but not cells bound to a staled rubric via their `verifier` field. | Stale verifier-bound cells directly and seed the transitive fixpoint (dev-kernel 0.2.22). |
+
+dev-kernel 0.2.22. **The decisive question — can a worker that authors `index.mjs` force `agreed=True, measuring=True`
+without a discriminating check actually passing? — is now NO.** The module cannot READ the nonce (it is on consumed
+stdin, in no argv/env/disk channel) and cannot make the harness EMIT it without the checks genuinely passing (a thrown
+failure never reaches the success line); and a vacuous refute set fails the typed calibration. The remaining residuals
+(the vendored `validate.py` exit-trust gate with the refuter as backstop; a `vm`-level sandbox for in-process global
+monkey-patching; the one-hop operator `lattice stale` CLI) are accepted and documented.

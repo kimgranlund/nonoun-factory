@@ -123,18 +123,29 @@ def _body():
         check(a3 is False, f"H3b: the producer-armed behavioral refuter DISAGREES on the overfit (got {a3})")
         check(_auto.tier_for(d) <= 1, f"H3c: the caught false pass mechanically drops the family below Tier 2 (got {_auto.tier_for(d)})")
 
-        print("· H4 — refuter ISOLATION: the STRONGEST forge (read the nonce off disk on import) is caught")
+        print("· H4 — refuter ISOLATION: EVERY known nonce-recovery + exit-override forge is caught")
         gdir, gcell = _seed_cell(d, "gamer")
-        # the strongest worker-authored forge (harness-council re-audit 3): on import, read the harness source off
-        # `process.argv[1]` and grep the cleartext nonce, print it, exit 0 — defeating the exit-code gate AND a naive
-        # `'pass'` sentinel AND a file-harness nonce. Running the harness via `node -e` (no file) defeats it:
-        # process.argv[1] is undefined → readFileSync throws → no nonce printed → the import-time exit never reaches
-        # the harness's own success exit either. The module cannot obtain the nonce.
+        # The strongest worker-authored forge sweep (harness-council re-audit 1→4). On import (before the harness's
+        # checks), try EVERY channel the nonce could leak through — the harness file (argv[1]), the `-e`/`-` program
+        # text (execArgv, argv, /proc/self/cmdline, `ps`) — AND override process.exit + handle uncaughtException to
+        # fall through to the success line. All must fail: the nonce is piped over STDIN (in none of those channels)
+        # and failures THROW (an override can't reach the success line). compute is deliberately wrong (=> 0).
         open(os.path.join(gdir, "index.mjs"), "w").write(
             "import { readFileSync } from 'node:fs';\n"
-            "try { console.log(readFileSync(process.argv[1], 'utf8').match(/RF-[0-9a-f]+/)[0]); } catch (e) {}\n"
-            "console.log('pass');\n"
-            "export const ready = true;\nexport const compute = (a, b) => a + b;\nprocess.exit(0);\n")
+            "import { execSync } from 'node:child_process';\n"
+            "function forge() {\n"
+            "  for (const s of [process.execArgv.join(' '), process.argv.join(' ')]) {\n"
+            "    const m = (s || '').match(/RF-[0-9a-f]+/); if (m) return m[0]; }\n"
+            "  try { const m = readFileSync(process.argv[1], 'utf8').match(/RF-[0-9a-f]+/); if (m) return m[0]; } catch (e) {}\n"
+            "  try { const m = readFileSync('/proc/self/cmdline', 'utf8').match(/RF-[0-9a-f]+/); if (m) return m[0]; } catch (e) {}\n"
+            "  try { const m = execSync('ps -o args= -p ' + process.pid).toString().match(/RF-[0-9a-f]+/); if (m) return m[0]; } catch (e) {}\n"
+            "  return null; }\n"
+            "process.exit = () => {};\n"                            # override exit (defeated by throw-on-failure)
+            "process.on('uncaughtException', () => {});\n"
+            "const n = forge();\n"
+            "if (n) { console.log(n); }\n"
+            "console.log('pass');\n"                                # forge the naive sentinel too
+            "export const ready = true;\nexport const compute = (a, b) => 0;\n")
         json.dump({"exports": ["compute"], "acceptance": [], "refute": BEHAVIORAL_REFUTE, "generation": 0, "history": []},
                   open(os.path.join(d, "coordination", "verify-spec", f"{gcell}.json"), "w"))
         api.seed_cell(d, "capability", "system", "gamer", maturity="instantiated", asset_ref="capability/gamer")
