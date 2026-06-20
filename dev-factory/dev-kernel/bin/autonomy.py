@@ -130,14 +130,19 @@ def tier_allows(d, ticket=None, family=None, now=None):
     return tier_for(d, family=family, now=now) >= 1
 
 
-def record_refuter_check(d, cell, agreed, family=None, now=None, rationale=None):
-    """An INDEPENDENT refuter re-validated `cell`. Agreement makes the false-pass rate measurable; a
-    disagreement is a caught false pass → an incident (mechanical demotion)."""
+def record_refuter_check(d, cell, agreed, family=None, now=None, rationale=None, measuring=False):
+    """An INDEPENDENT refuter re-validated `cell`. Agreement makes the false-pass rate measurable IFF `measuring`
+    is True — i.e. a real behavioral oracle actually ran and could have disagreed. `measuring` DEFAULTS to False:
+    this API records an ASSERTED check (an operator note via the CLI, or a test simulation) that ran no oracle, and
+    such an assertion must never mint a measured false-pass rate (harness-council re-audit 2 — the counting-default
+    hole). The live oracle path (`dispatch.run_refuter`) appends its own signal with `measuring` set from the
+    behavioral/liveness sidecar; it does NOT route through here. A disagreement is still a caught false pass →
+    an incident (mechanical demotion) regardless of `measuring` (a crash/disagreement is real either way)."""
     now = now or _now()
     _led.append(d, "signal", {"kind": "agent", "id": "refuter"}, {"cell": cell},
                 rationale or f"independent refuter re-check of {cell}: {'agreed' if agreed else 'DISAGREED'}",
                 to="pass" if agreed else "fail", ts=now.isoformat(timespec="seconds"),
-                metrics={"refuter": True, "agreed": bool(agreed), "family": family})
+                metrics={"refuter": True, "agreed": bool(agreed), "family": family, "measuring": bool(measuring)})
     if not agreed:
         return record_incident(d, cell, f"refuter disagreed with the critic on {cell} — a false pass", family, now)
     return tier_for(d, family, now)
@@ -198,9 +203,21 @@ def selftest():
         # arm a budget + an independent refuter that AGREES → false-pass measured low → Tier 2
         os.makedirs(os.path.join(d, "run"), exist_ok=True)
         json.dump({"start_ts": n0.isoformat(timespec="seconds")}, open(os.path.join(d, "run", "heartbeat.json"), "w"))
-        record_refuter_check(d, "spec.task.s", agreed=True, now=n0)
-        expect(false_pass(d) == 0.0, f"one agreeing refuter check → 0.0 false-pass; got {false_pass(d)}")
+        # measuring=True SIMULATES what dispatch.run_refuter records from a real behavioral oracle (a node refuter is
+        # not run in this unit test) — it tests the COMPUTATION machinery. An asserted check (measuring default False)
+        # would correctly NOT count, leaving the family unmeasured at Tier 1 (proven just below).
+        record_refuter_check(d, "spec.task.s", agreed=True, now=n0, measuring=True)
+        expect(false_pass(d) == 0.0, f"one agreeing MEASURING refuter check → 0.0 false-pass; got {false_pass(d)}")
         expect(tier_for(d, now=n0) == 2, f"measured-clean family + budget should reach Tier 2; got {tier_for(d, now=n0)}")
+        # an ASSERTED check (measuring default False — an operator note / no oracle) does NOT make a family measurable
+        with tempfile.TemporaryDirectory() as r3:
+            d3 = os.path.join(r3, ".factory"); _lat.scaffold(d3)
+            _lat.save(d3, {"cells": [{"layer": "rubric", "scope": "task", "slug": "r", "maturity": "validated", "depends_on": [], "signal_refs": ["x"]}]})
+            os.makedirs(os.path.join(d3, "run"), exist_ok=True)
+            json.dump({"start_ts": n0.isoformat(timespec="seconds")}, open(os.path.join(d3, "run", "heartbeat.json"), "w"))
+            record_refuter_check(d3, "spec.task.s", agreed=True, now=n0)   # measuring defaults False — an assertion
+            expect(false_pass(d3) == "unmeasured" and tier_for(d3, now=n0) == 1,
+                   "an ASSERTED (non-measuring) refuter check must NOT mint a measured false-pass / Tier 2 (counting-default hole closed)")
 
         # an UNMEASURED family with a budget still cannot reach Tier 2 (honest scope)
         with tempfile.TemporaryDirectory() as r2:

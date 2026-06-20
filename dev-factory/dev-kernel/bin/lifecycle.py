@@ -133,16 +133,29 @@ def gate_dispatch(d, ticket, lat, slots_free=1, tier=3, done_tickets=frozenset()
     if tier < 1:
         return False, "autonomy tier 0 (attended): no unattended dispatch permitted for this family"
     cell = _lat.find(lat, ticket.get("target_cell"))
-    # On a VALIDATING transition, enforce the CELL's structural `depends_on` — not just the ticket's declared
-    # `cells_ready`, which a planner may UNDER-declare. gate_dispatch, the cycle detector (compass.detect_cycle),
-    # and the kernel's ready() now traverse the SAME graph, so a cell can never validate atop an unvalidated or
-    # cyclic dependency the ticket forgot to list (harness-council re-audit H1).
-    if cell is not None and (ticket.get("target_transition") or {}).get("to") in SIGNAL_BEARING:
+    # On a trust transition (→ validated, or the → operating promotion), enforce the cell's structural preconditions
+    # AT DISPATCH — not just the ticket's declared `cells_ready` (which a planner may UNDER-declare, re-audit 1):
+    #   (a) every `cell.depends_on` is SETTLED, and
+    #   (b) the RUBRIC the cell validates against — its `verifier` field AND the ticket's `acceptance.rubric_cell` —
+    #       is itself `validated`. gate-ticket-ready checks (b) at ACTIVATION, but an incident can stale a verifier
+    #       between activation and dispatch; validating against a staled rubric is "verified against air" (re-audit 2:
+    #       gate_dispatch was a strict subset of ready() on exactly this check). (The full LAYER_DEPS-foothold half of
+    #       ready() is the frontier scan's job over a complete lattice; enforcing it at the per-ticket dispatch gate
+    #       wrongly blocks legitimate single-cell advances.)
+    to_mat = (ticket.get("target_transition") or {}).get("to") if cell is not None else None
+    if cell is not None and to_mat in (SIGNAL_BEARING | {"operating"}):
         for dep in cell.get("depends_on", []):
             dc = _lat.find(lat, dep)
             if dc is None or dc.get("maturity") not in _lat.SETTLED:
                 return False, (f"target cell's dependency {dep} is {'absent' if dc is None else dc.get('maturity')}, "
-                               f"not validated — the ticket under-declared the partial order (cell.depends_on)")
+                               f"not settled — partial order not satisfied (cell.depends_on; ticket may have under-declared)")
+        if to_mat in SIGNAL_BEARING:
+            for rub in (cell.get("verifier"), (ticket.get("acceptance") or {}).get("rubric_cell")):
+                if rub:
+                    rc2 = _lat.find(lat, rub)
+                    if rc2 is None or rc2.get("maturity") != "validated":
+                        return False, (f"verifier rubric {rub} is {'absent' if rc2 is None else rc2.get('maturity')}, "
+                                       f"not validated — the cell would be verified against air")
     if cell is not None and cell.get("blocked"):
         return False, f"target_cell {ticket['target_cell']} is blocked (stop-gate) — dropped from dispatch"
     return True, "dispatchable"
@@ -388,6 +401,24 @@ def selftest():
         _lat.save(d, vl)
         oka, _w = gate_dispatch(d, undt, _lat.load(d))
         expect(oka, f"gate_dispatch must ALLOW once the depends_on cell is validated: {_w}")
+
+        # re-audit 2 — VERIFIED-AGAINST-AIR: if the rubric the cell validates against staled since ticket-ready (an
+        # incident), gate_dispatch must REFUSE at dispatch (not just at activation), then ALLOW once it re-validates.
+        sl = _lat.load(d)
+        for c in sl["cells"]:
+            if _lat.cid(c) == "rubric.task.first-slice":
+                c["maturity"] = "stale"
+        _lat.save(d, sl)
+        oka2, why2 = gate_dispatch(d, undt, _lat.load(d))
+        expect(not oka2 and "against air" in why2,
+               f"gate_dispatch must REFUSE validating against a STALED rubric (verified-against-air): {why2}")
+        sl2 = _lat.load(d)
+        for c in sl2["cells"]:
+            if _lat.cid(c) == "rubric.task.first-slice":
+                c["maturity"] = "validated"
+        _lat.save(d, sl2)
+        oka3, _w3 = gate_dispatch(d, undt, _lat.load(d))
+        expect(oka3, f"gate_dispatch must ALLOW once the verifier rubric re-validates: {_w3}")
 
         # 6. DF-7: an AUTHOR ticket (defined->instantiated) whose cell a verifier already overshot straight to
         # `validated` (validate.py auto-steps defined->instantiated->validated) must CLOSE as a satisfied no-op —

@@ -50,7 +50,7 @@ Decompose **depth-first along one thin vertical slice** to `validated`; widen �
 
 ## Staleness is a graph fact, not a vibe
 
-A cell records `validated_against: {upstream-cell-id → content-hash}`. When an upstream cell's content hash changes, `propagate-staleness` flips every dependent to `stale` — deterministically, transitively. This is why staleness is in `lattice.py` and is listed in §10.4 as NOT an agent: it is a graph traversal. The `lattice-health` rubric checks the grid for *un-propagated* staleness (a cell whose `validated_against` hash no longer matches its upstream) as a structural defect.
+A cell records `validated_against: {upstream-cell-id → content-hash}`. When an upstream cell's content hash changes, `propagate-staleness` flips every DIRECT dependent to `stale` — deterministically, ONE hop per call. A caller cascading a change drives it to a FIXPOINT for transitive un-ship (e.g. `dispatch.self_heal_cell`, so a grandchild integrator `core ← ui ← shell` is un-shipped by a self-heal on `core`); and the `lattice-health` rubric checks the grid for any *un-propagated* staleness (a cell whose `validated_against` hash no longer matches its upstream) as the structural backstop. This is why staleness is in `lattice.py` and is listed in §10.4 as NOT an agent: it is a graph traversal, not a judgment.
 
 ## §SelfAudit
 

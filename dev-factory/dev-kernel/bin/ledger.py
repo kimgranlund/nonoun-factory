@@ -194,13 +194,15 @@ def _family_match(e, family):
 
 
 def refuter_checks(d, family=None):
-    """Independent re-validations recorded (the denominator of the false-pass rate). Counts only MEASURING checks:
-    a refuter explicitly marked `measuring: false` (the generic liveness floor — tautological invariants that cannot
-    DISAGREE with a module that passed its gate) does NOT count, so a vacuous oracle can never mint a measured 0.0
-    false-pass and auto-grant Tier 2 (harness-council re-audit). A check WITHOUT the flag is a real behavioral oracle
-    (hand-seeded / self-heal-folded / `record_refuter_check`) → it counts."""
+    """Independent re-validations recorded (the denominator of the false-pass rate). Counts ONLY checks EXPLICITLY
+    marked `measuring is True` — a real behavioral oracle that ran and could have DISAGREED. Anything else does not
+    count: the generic liveness floor (`measuring: false`), AND — critically — a check with NO `measuring` field.
+    Absence must mean NON-counting (harness-council re-audit 2: the old `is not False` default let
+    `record_refuter_check(agreed=True)` — which runs no oracle — mint a measured 0.0 false-pass and auto-grant Tier 2,
+    the exact fake, reachable from the `autonomy refuter` CLI). Fail-CLOSED: a check earns the denominator only by
+    proving it measured, never by omission."""
     return [e for e in read(d, event="signal")
-            if (e.get("metrics") or {}).get("refuter") and (e.get("metrics") or {}).get("measuring") is not False
+            if (e.get("metrics") or {}).get("refuter") and (e.get("metrics") or {}).get("measuring") is True
             and _family_match(e, family)]
 
 

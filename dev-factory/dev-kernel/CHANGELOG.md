@@ -2,6 +2,16 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.20] — 2026-06-20
+
+### Fixed (harness-council re-audit, round 2 — the measurement was forgeable three more ways)
+
+- **`ledger.refuter_checks` counts ONLY `measuring is True` (fail-closed).** The previous `is not False` default let a check with NO `measuring` field count — so `record_refuter_check(agreed=True)` (which runs no oracle, and is reachable from the `autonomy refuter` CLI) minted a measured 0.0 false-pass and auto-granted Tier 2: the exact fake, alive. Absence now means NON-counting; a check earns the denominator only by proving it measured.
+- **`autonomy.record_refuter_check` defaults `measuring=False`.** It records an ASSERTED check (operator note / test simulation) that ran no oracle; only the live oracle path (`dispatch.run_refuter`) stamps `measuring=True` from a behavioral sidecar. Callers simulating a real measurement opt in explicitly.
+- **`lifecycle.gate_dispatch` enforces the verifier RUBRIC at dispatch, not just `depends_on`.** It was a strict subset of `ready()`, so a cell could be dispatched to validate against a non-validated (incident-staled) rubric — "verified against air." It now re-checks the cell's `verifier` and the ticket's `acceptance.rubric_cell` are `validated` on a validating transition, and enforces `depends_on` on `validated → operating`. (The LAYER_DEPS-foothold half of `ready()` stays the frontier scan's job — enforcing it per-ticket wrongly blocks single-cell advances.)
+
+plugin.json 0.2.19 → 0.2.20.
+
 ## [0.2.19] — 2026-06-20
 
 ### Fixed

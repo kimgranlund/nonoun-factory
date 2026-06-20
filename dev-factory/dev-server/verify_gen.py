@@ -89,23 +89,42 @@ def fresh_refute(exports, folded, generation):
     return out
 
 
+def _invokes_export(a, names):
+    """True if assertion `a` calls a declared export as a function (`compute(`) at a word boundary (not `xcompute(`)."""
+    for e in names:
+        i = a.find(e + "(")
+        while i >= 0:
+            before = a[i - 1] if i > 0 else " "
+            if not (before.isalnum() or before == "_"):
+                return True
+            i = a.find(e + "(", i + 1)
+    return False
+
+
 def is_behavioral(assertions, exports):
-    """True iff some assertion INVOKES a declared export as a function (`compute(7, 8) === 15`, `deal()[0] !== deal()[1]`,
-    `m.deal(3).length === 52`) — exercising the module's BEHAVIOR, not merely probing presence (`typeof x`,
-    `x !== undefined`, `JSON.stringify(x) === JSON.stringify(x)`). A refuter built only from non-behavioral invariants
-    CANNOT disagree with any module that already passed its gate, so it must NOT count as a false-pass MEASUREMENT
-    (harness-council: the tautological refuter that auto-granted Tier 2). Drives the measuring/non-measuring split."""
+    """True iff some assertion both INVOKES a declared export AND can actually DISAGREE — it asserts a VALUE, not a
+    tautology. Invocation alone is insufficient (harness-council re-audit 2): `compute(1)===compute(1)` (a determinism
+    check any deterministic overfit passes) and `typeof compute(0)==='number'` (a shape check, not a value check) both
+    invoke `compute` yet cannot disagree with a gate-passing module. So an invoking assertion is rejected when it is a
+    trivial tautology — identical operands across `===`/`!==`, or a `typeof` probe. A refute set with no behavioral
+    assertion does NOT count as a false-pass measurement (the cell stays honestly `unmeasured` → Tier 1). Over-rejection
+    is fail-SAFE: a wrongly-rejected refuter just doesn't earn Tier 2, it never falsely grants it."""
     names = [e for e in (exports or []) if isinstance(e, str) and e.strip()]
     for a in (assertions or []):
-        if not isinstance(a, str):
+        if not isinstance(a, str) or not _invokes_export(a, names):
             continue
-        for e in names:
-            i = a.find(e + "(")
-            while i >= 0:
-                before = a[i - 1] if i > 0 else " "
-                if not (before.isalnum() or before == "_"):   # a real `e(` call at a word boundary, not `xe(`
-                    return True
-                i = a.find(e + "(", i + 1)
+        norm = a.strip()
+        if "typeof" in norm:                                   # a shape probe, not a value assertion
+            continue
+        tautology = False
+        for op in ("===", "!==", "==", "!="):                  # identical operands → can't disagree (e.g. determinism)
+            if op in norm:
+                lhs, _, rhs = norm.partition(op)
+                if lhs.strip() and lhs.strip() == rhs.strip():
+                    tautology = True
+                break
+        if not tautology:
+            return True
     return False
 
 
@@ -176,6 +195,14 @@ def selftest():
         fails.append("is_behavioral wrongly flagged a presence probe as behavioral")
     if is_behavioral(["xcompute(1) === 1"], ["compute"]):
         fails.append("is_behavioral matched a non-word-boundary substring (xcompute vs compute)")
+    # value-free invocations must be REJECTED (re-audit 2): a determinism check (identical operands) and a typeof
+    # shape probe both INVOKE the export yet cannot disagree with a gate-passing module
+    if is_behavioral(["compute(1, 1) === compute(1, 1)"], ["compute"]):
+        fails.append("is_behavioral wrongly accepted a determinism tautology (compute(1,1)===compute(1,1))")
+    if is_behavioral(["typeof compute(0) === 'number'"], ["compute"]):
+        fails.append("is_behavioral wrongly accepted a typeof shape-probe invocation")
+    if not is_behavioral(["compute(7, 8) === compute(8, 7)"], ["compute"]):
+        fails.append("is_behavioral rejected a real metamorphic check (commutativity — distinct operands, both invoke)")
     if fails:
         import sys
         sys.stderr.write("verify_gen selftest: FAIL\n")

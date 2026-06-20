@@ -3,6 +3,26 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-20 — harness-council RE-AUDIT round 2 (round 11): the measurement was forgeable three more ways
+
+A SECOND council verification caught the first re-audit short — the producer path was honest but the measurement
+was still forgeable. All fixed (see `docs/2026-06-20-harness-council-reaudit.md` § Round 2; kernel side in dev-kernel
+0.2.20):
+
+- **`run_refuter` agree now requires an unforgeable per-run NONCE**, not a `pass:` substring. A module that prints
+  `pass` and `process.exit(0)`s on import forged the old sentinel; the nonce is printed only at the harness's own
+  success exit, which an import-time short-circuit never reaches, and the module cannot know it. `earned-autonomy` H4
+  uses the exact `print('pass')+exit` forge.
+- **`verify_gen.is_behavioral` rejects value-free invocations** (`compute(1)===compute(1)` determinism tautologies,
+  `typeof compute(0)` shape-probes) — invoking an export is necessary but not sufficient to MEASURE; the assertion
+  must be able to disagree. Over-rejection is fail-safe (toward `unmeasured`).
+- **`heartbeat.arm()` guards on FALSY, not `is None`** — `arm(deadline_s=0)` (a zero ceiling) no longer mints an
+  unbounded window; it gets the safety deadline.
+- **`dispatch.self_heal_cell` un-ships TRANSITIVELY** — it drives the kernel's one-hop `propagate_staleness` to a
+  fixpoint, so a grandchild integrator (`core ← ui ← shell`) can't survive stale-but-trusted. `self-heal` H4b proves it.
+- The simulation callers of `record_refuter_check` (tests/demo/evals) opt into `measuring=True` explicitly; the
+  heartbeat tier-2 dispatch test uses an explicit `tier=2` override instead of minting a check (counting-default hole).
+
 ## 2026-06-20 — harness-council RE-AUDIT (round 10): the refuter is isolated from the module it grades (H3)
 
 - **`run_refuter` no longer runs in the worker's own dir, and exit 0 alone is no longer agreement.** It used to write

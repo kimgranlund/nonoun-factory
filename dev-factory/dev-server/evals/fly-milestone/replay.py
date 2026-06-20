@@ -65,7 +65,7 @@ def run():
 
         # a SUSTAINED clean record: SUSTAINED_REFUTERS agreeing independent re-checks
         for i in range(_auto.SUSTAINED_REFUTERS):
-            _auto.record_refuter_check(d, f"spec.system.c{i}", agreed=True, now=now)
+            _auto.record_refuter_check(d, f"spec.system.c{i}", agreed=True, now=now, measuring=True)
 
         # tamper_evident is DERIVED from the ledger hash-chain (a real mechanism, not a flag); intact here
         check(_led.verify_chain(d)[0], "F2-pre: the ledger hash-chain verifies (the tamper-evident audit trail)")
@@ -90,7 +90,7 @@ def run():
         now2 = datetime.datetime(2026, 6, 14, tzinfo=datetime.timezone.utc)
         _json.dump({"start_ts": now2.isoformat()}, open(os.path.join(d, "run", "heartbeat.json"), "w"))
         for i in range(_auto.SUSTAINED_REFUTERS):
-            _auto.record_refuter_check(d, f"spec.system.c{i}", agreed=True, now=now2)
+            _auto.record_refuter_check(d, f"spec.system.c{i}", agreed=True, now=now2, measuring=True)
         check(_auto.tier_for(d, now=now2, hermetic=True) == 3, "F2d-pre: a clean instance earns Tier 3")
         p = os.path.join(d, "ledger", "events.jsonl")
         lines = open(p).readlines()

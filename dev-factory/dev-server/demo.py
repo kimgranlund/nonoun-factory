@@ -54,10 +54,11 @@ def main():
                 f"# {slug}\n\n```json\n" + json.dumps(_structured(slug, f"spec.system.{slug}"), indent=2) + "\n```\n")
 
         # earn Tier 2 (validated verifier + a clean refuter check + an armed budget), then create the work.
-        # This is a DOC-domain dry run (no node, no code cells), so the refuter check is simulated here; the live
-        # code path earns it for real via produce_refuters + run_refuter (proven in evals/earned-autonomy).
+        # DOC-domain dry run (no node, no code cells): measuring=True SIMULATES what run_refuter records from a real
+        # behavioral oracle; the live code path earns it for real (proven in evals/earned-autonomy). An asserted check
+        # (measuring default False) would correctly NOT earn Tier 2.
         heartbeat.arm(d, max_dispatches=9, deadline_s=3600)
-        autonomy.record_refuter_check(d, "rubric.system.spec-quality", agreed=True)
+        autonomy.record_refuter_check(d, "rubric.system.spec-quality", agreed=True, measuring=True)
         A = api.create_ticket(d, "feature", "advance alpha", target_cell="spec.system.alpha",
                               target_transition={"from": "instantiated", "to": "validated"},
                               acceptance={"rubric_cell": "rubric.system.spec-quality"}, budget={"iterations": 3, "tokens": 60000},

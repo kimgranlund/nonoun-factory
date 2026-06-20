@@ -45,3 +45,21 @@ The system is honest and safe without it; this is the path to lights-out, not a 
 - True in-process refuter isolation (a module can still monkey-patch globals) would need a `vm`/sandbox — a heavier
   dependency, deliberately not taken; the temp-dir + `file://` + sentinel closes the realistic (worker-authored)
   surface.
+
+## Round 2 — a SECOND council verification caught the first round short (and it was right)
+
+The fixes above were sent back through the council a second time rather than self-attested. It found the keystone
+**still not closed** — the producer path was honest, but the *measurement* was forgeable three more ways. All fixed:
+
+| # | Finding (council, round 2) | Fix |
+| --- | --- | --- |
+| **CRITICAL** | the **counting-default hole**: `ledger.refuter_checks` counted `measuring is not False`, so a check with NO `measuring` key (`record_refuter_check`, reachable from the `autonomy refuter` CLI) minted a measured 0.0 with no oracle — the exact `agreed=True` fake, alive. I had *blessed* this in a comment. | `refuter_checks` counts ONLY `measuring is True` (fail-closed; absence = non-counting). `record_refuter_check` defaults `measuring=False` (it ran no oracle). The autonomy selftest now PROVES an asserted check stays unmeasured/Tier 1; the simulation callers (tests/demo) opt into `measuring=True` explicitly; the heartbeat dispatch test uses an explicit `tier=2` override, not a minted check. |
+| **CRITICAL** | the **forgeable `pass:` sentinel**: a module that prints `pass` + `process.exit(0)` on import forges agreement. | `run_refuter` injects a per-run **NONCE** printed only at the harness's own success exit; AGREE requires the nonce, which the module cannot know. `earned-autonomy` H4 now uses the exact `print('pass')+exit` forge. |
+| **CRITICAL** | **`gate_dispatch ⊊ ready()`**: it checked `depends_on` but not the verifier RUBRIC, so a cell could validate against a non-validated (incident-staled) rubric — "verified against air." | `gate_dispatch` re-checks, at dispatch, that the rubric the cell validates against (its `verifier` field AND the ticket's `acceptance.rubric_cell`) is `validated`, and enforces `depends_on` on `validated → operating` too. (The full LAYER_DEPS half of `ready()` is the frontier scan's job over a complete lattice — enforcing it per-ticket wrongly blocks single-cell advances.) Selftest covers verified-against-air. |
+| **MAJOR** | `is_behavioral` accepted **value-free invocations** (`compute(1)===compute(1)`, `typeof compute(0)`) as measuring. | It now rejects identical-operand tautologies and `typeof` shape-probes; over-rejection is fail-safe (toward unmeasured). |
+| **MAJOR** | `arm()` guarded on `is None`, so `arm(deadline_s=0)` minted an unbounded window. | Guards on FALSY; `arm(deadline_s=0)` gets the safety deadline. |
+| **MAJOR** | `propagate_staleness` was **one-hop**, not transitive — a grandchild integrator survived stale-but-trusted; the SKILL.md "transitive" claim was false. | `self_heal_cell` drives `propagate_staleness` to a FIXPOINT (transitive un-ship); the SKILL.md claim is corrected (one-hop per call, caller-driven to a fixpoint, lattice-health backstops). `self-heal` H4b proves the grandchild is un-shipped. |
+
+dev-kernel 0.2.20. The deferred item is unchanged: a headless refuter-author for autonomous Tier 2. The self-heal
+**declaw** the council noted (a self-healed cell re-arms only the generic floor, so its measurement capacity is spent
+until a behavioral oracle is re-authored) is honest (reads `unmeasured`) and is closed by that same refuter-author.

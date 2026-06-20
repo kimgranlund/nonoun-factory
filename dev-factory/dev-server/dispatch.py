@@ -1086,9 +1086,20 @@ def self_heal_cell(d, cell_id):
                 + (f"re-armed a fresh independent refuter (gen {gen})" if refuter_harness else "oracle EXHAUSTED — retired the refuter, escalate"),
                 frm=frm, to="regenerating",
                 metrics={"folded": n_folded, "generation": gen, "rearmed": bool(refuter_harness)})
-    # 4. UN-SHIP — propagate staleness to every dependent validated against this cell
+    # 4. UN-SHIP — propagate staleness TRANSITIVELY to every dependent validated (directly OR via a chain) against
+    # this cell. The kernel's propagate_staleness is one-hop; loop it to a FIXPOINT so a grandchild integrator
+    # (core ← ui ← shell: a self-heal on `core` must un-ship `ui` AND `shell`) cannot survive stale-but-trusted
+    # (harness-council re-audit 2: propagate_staleness was one-hop, the "transitive" claim was false).
     lat = _lat.load(d)
-    flipped = _lat.propagate_staleness(lat, cell_id, f"self-heal-{gen}")
+    marker = f"self-heal-{gen}"
+    flipped, frontier, seen = [], [cell_id], {cell_id}
+    while frontier:
+        nxt = []
+        for cid in frontier:
+            for f in _lat.propagate_staleness(lat, cid, marker):
+                if f not in seen:
+                    seen.add(f); flipped.append(f); nxt.append(f)
+        frontier = nxt
     if flipped:
         _lat.save(d, lat)
         _led.append(d, "stale-propagated", {"kind": "server", "id": "self-heal"}, {"cell": cell_id},
@@ -1133,20 +1144,25 @@ def run_refuter(d, cell_id):
     cell_dir = os.path.normpath(os.path.join(d, cell.get("asset_ref")
                                 or _asset_rel(cell["layer"], cell["slug"], _authoring_for(cell))))
     abs_index = pathlib.Path(os.path.abspath(os.path.join(cell_dir, "index.mjs"))).as_uri()
+    # AGREE requires proof the harness ran its checks to COMPLETION — exit 0 alone is forgeable by a module that
+    # `process.exit(0)`s on import, and a `pass:` substring is forgeable by a module that prints `pass` on import
+    # (harness-council re-audit 2). So inject a per-run NONCE the module cannot know: it is printed ONLY at the
+    # harness's success exit (every `process.exit(0)` becomes `console.log(NONCE);process.exit(0)`), and AGREE
+    # requires the nonce in stdout. An import-time short-circuit never reaches the success exit → no nonce → not agreed.
+    nonce = "RF-" + os.urandom(12).hex()
+    rewritten = (harness.replace("'./index.mjs'", f"'{abs_index}'")
+                        .replace("process.exit(0)", f"console.log('{nonce}');process.exit(0)"))
     iso = tempfile.mkdtemp(prefix="df-refute-")
     rp = os.path.join(iso, "refute.mjs")
     try:
-        open(rp, "w", encoding="utf-8").write(harness.replace("'./index.mjs'", f"'{abs_index}'"))
+        open(rp, "w", encoding="utf-8").write(rewritten)
         proc = subprocess.run(["node", rp], cwd=iso, capture_output=True, text=True, timeout=60)
         rc, out = proc.returncode, (proc.stdout or "")
     except (OSError, subprocess.SubprocessError):
         return None
     finally:
         shutil.rmtree(iso, ignore_errors=True)
-    # AGREE requires the harness to have actually RUN its checks to completion — exit 0 ALONE is forgeable by a module
-    # that `process.exit(0)`s on import (the checks never run). The gen_cap_verify harness prints a `pass:` sentinel
-    # only after every assertion holds; require it, so an import-time short-circuit reads as a non-agreement, not a pass.
-    agreed = (rc == 0 and "pass" in out)
+    agreed = (rc == 0 and nonce in out)
     _led.append(d, "signal", {"kind": "server", "id": "refuter"}, {"cell": cell_id},
                 f"independent refuter {'AGREED' if agreed else 'DISAGREED — FALSE PASS caught'} on {cell_id}"
                 + ("" if measuring else " (liveness-only — NOT a false-pass measurement)"),

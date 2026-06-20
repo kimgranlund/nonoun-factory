@@ -58,7 +58,7 @@ def run():
 
         # earn Tier 2: validated verifier + a clean refuter check + an armed budget
         _hb.arm(d, max_dispatches=9, deadline_s=3600)
-        _auto.record_refuter_check(d, "rubric.task.r", agreed=True)
+        _auto.record_refuter_check(d, "rubric.task.r", agreed=True, measuring=True)   # SIMULATES a real oracle run
         check(_auto.tier_for(d) == 2, f"family earned Tier 2; got {_auto.tier_for(d)}")
 
         print("· D1 — at Tier 2 the heartbeat drives A to done UNATTENDED")
@@ -68,7 +68,7 @@ def run():
         check(_lat.find(_lat.load(d), "spec.task.a")["maturity"] == "validated", "A's cell validated")
 
         print("· D2 — a refuter catches a false pass on A's cell → MECHANICAL demotion (no human)")
-        tier_after = _auto.record_refuter_check(d, "spec.task.a", agreed=False)   # the refuter DISAGREES
+        tier_after = _auto.record_refuter_check(d, "spec.task.a", agreed=False, measuring=True)   # the refuter DISAGREES
         check(tier_after <= 1 and _auto.tier_for(d) <= 1, f"family not demoted after a caught false pass: tier {tier_after}")
         rub = next(c for c in _lat.load(d)["cells"] if c["layer"] == "rubric")
         check(rub["maturity"] == "stale", "the implicated verifier was not flagged stale")
