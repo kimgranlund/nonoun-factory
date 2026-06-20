@@ -17,6 +17,7 @@ Stdlib only; Python 3.8+. (Part of dev-server; not a plugin.)
 import datetime
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -925,6 +926,80 @@ def refute_frontier(d):
     return out
 
 
+def _exports_from_verify(src):
+    """Recover a cell's exported API from its `verify.mjs` — the `required = [ ... ]` array a generated gate embeds,
+    plus any `m.<name>` the harness exercises (a hand-authored real harness). `ready`/`m.ready` (the seed-stub
+    presence flag) is excluded. Best-effort, stable-deduped; drives the refuter producer. Returns [] for a presence
+    stub (no real contract → no refuter armed, which is the honest outcome — a mock-validated cell stays unmeasured)."""
+    exports = []
+    arr = re.search(r"required\s*=\s*\[([^\]]*)\]", src)
+    if arr:
+        exports += re.findall(r'"([^"\\]+)"', arr.group(1))
+    for mm in re.finditer(r"\bm\.([A-Za-z_]\w*)", src):
+        if mm.group(1) != "ready":
+            exports.append(mm.group(1))
+    seen, out = set(), []
+    for e in exports:
+        if e and e != "ready" and e not in seen:
+            seen.add(e); out.append(e)
+    return out
+
+
+def produce_refuter(d, cell_id):
+    """The LIVE refuter PRODUCER (harness-council H6). When a cell first reaches `validated`, materialize its
+    verify-spec + an INDEPENDENT refuter sidecar, so the false-pass oracle (`refute_frontier` → `run_refuter`) has a
+    real work-item the very next tick. Without this nothing in the dev-server validation path produced the sidecars
+    `run_refuter` consumes — so `false_pass` stayed `unmeasured` forever and the app family could NEVER legitimately
+    reach Tier 2 (`autonomy.tier_for`). The refuter is `fresh_refute`'s generic invariants (export stability +
+    determinism) over the cell's declared exports — deterministic, NO model in the loop, and genuinely independent of
+    the `verify.mjs` gate the worker coded to (different generator path, properties the behavioral acceptance does not
+    assert). The headless planner later overrides with domain edge cases via `self_heal_cell`. Returns the cell_id if
+    it armed an oracle, else None.
+
+    Idempotent + NON-clobbering: an existing sidecar (a self-heal-re-armed fresh oracle, or a planner-authored one)
+    is never overwritten. Only multi-file CODE cells graded by a `verify.mjs` get a refuter; a presence-stub-validated
+    cell yields no exports → no refuter → it stays honestly unmeasured (it has no real contract to re-check)."""
+    side = os.path.join(d, "coordination", "refuters", f"{cell_id}.json")
+    if os.path.isfile(side):
+        return None
+    cell = _lat.find(_lat.load(d), cell_id)
+    if not cell:
+        return None
+    authoring = _authoring_for(cell)
+    if not authoring or authoring.get("mode") != "multi-file":
+        return None
+    vpath = os.path.normpath(os.path.join(d, cell.get("asset_ref")
+                             or _asset_rel(cell["layer"], cell["slug"], authoring), "verify.mjs"))
+    try:
+        exports = _exports_from_verify(open(vpath, encoding="utf-8").read())
+    except OSError:
+        return None
+    refute = _vg.fresh_refute(exports, [], 0)
+    if not refute:
+        return None
+    spec = _vg.new_spec(exports, [], refute)
+    for sub in ("verify-spec", "refuters"):
+        os.makedirs(os.path.join(d, "coordination", sub), exist_ok=True)
+    json.dump(spec, open(os.path.join(d, "coordination", "verify-spec", f"{cell_id}.json"), "w", encoding="utf-8"), indent=2)
+    json.dump({"harness": _vg.gen_cap_verify(exports, refute)}, open(side, "w", encoding="utf-8"), indent=2)
+    _led.append(d, "signal", {"kind": "server", "id": "refuter-producer"}, {"cell": cell_id},
+                f"armed an independent refuter for {cell_id} ({len(exports)} export(s), {len(refute)} invariant(s)) — "
+                "the cell is now MEASURABLE by the false-pass oracle (was: unmeasured → Tier 2 unreachable)",
+                metrics={"refuter_armed": True, "exports": len(exports)})
+    return cell_id
+
+
+def produce_refuters(d):
+    """Sweep: arm an independent refuter for every validated CODE cell that lacks one. The heartbeat runs this each
+    tick BEFORE the refuter frontier, so a cell that reached `validated` this epoch — at Tier 1 (human-accepted) or
+    Tier 2 (auto) — becomes MEASURABLE the next tick. Idempotent (the per-cell producer skips non-code cells,
+    presence-stub-validated cells, and any already armed). This is the live producer half of H6; `run_refuter` is the
+    consumer half. Returns the cell ids newly armed."""
+    return [r for c in _lat.load(d).get("cells", [])
+            if c.get("maturity") in ("validated", "operating")
+            for r in [produce_refuter(d, _lat.cid(c))] if r]
+
+
 def self_heal_cell(d, cell_id):
     """The 'full self-heal + new oracle' remediation for a caught false pass (decision #123). A cell that passed its
     own gate but FAILED the independent refuter is repaired in code, no human in the path:
@@ -1282,6 +1357,17 @@ def selftest():
             expect(not _is_mock_verifier(vfd, corecell), "_is_mock_verifier must NOT flag a real harness that exercises a module export")
             expect(not _is_mock_verifier(vfd, {"layer": "spec", "scope": "system", "slug": "app"}),
                    "_is_mock_verifier must skip non-multi-file cells (doc/spec, or the render-gated shell)")
+            # H6 producer: _exports_from_verify recovers the API; produce_refuter arms an INDEPENDENT oracle for a
+            # validated code cell so the false-pass oracle can MEASURE it (without it Tier 2 is unreachable).
+            expect(_exports_from_verify('const required = ["a", "b"];\nm.foo(1);\nm.ready;') == ["a", "b", "foo"],
+                   "_exports_from_verify must recover the required[] array + m.<call> exports, excluding ready")
+            _api.seed_cell(vfd, "capability", "system", "core", maturity="validated", asset_ref="core")
+            open(vp, "w").write("import * as m from './index.mjs';\nif (m.deal(3).length !== 3) process.exit(1);\nconsole.log('ok');\n")
+            side = os.path.join(vfd, "coordination", "refuters", "capability.system.core.json")
+            expect(produce_refuter(vfd, "capability.system.core") == "capability.system.core" and os.path.isfile(side),
+                   "produce_refuter must arm an independent refuter sidecar for a validated code cell (H6 producer)")
+            expect(produce_refuter(vfd, "capability.system.core") is None,
+                   "produce_refuter must be idempotent — never clobber an existing/self-heal-re-armed oracle")
         finally:
             del os.environ["DEV_FACTORY_KIT"]
 

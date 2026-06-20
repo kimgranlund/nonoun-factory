@@ -154,9 +154,13 @@ def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None, strict_acce
         ok, _t, _msg = _disp.dispatch_unit(d, _api.get_ticket(d, t["id"]), adapter,
                                            {"kind": "server", "id": "heartbeat"}, tier=tier, auto_validate=auto)
         dispatched.append({"ticket": t["id"], "ok": ok, "to": "done" if auto else "in-review"})
-    # INDEPENDENT REFUTER (false-pass measurement → earned autonomy): re-check one validated-but-unrefuted cell
-    # against its HIDDEN refuter harness. The check is the false-pass denominator; a DISAGREEMENT records an
-    # incident (autonomy demotes — the NEXT tick reads the lower tier_for). One per tick keeps ticks cheap.
+    # PRODUCE → MEASURE the false-pass oracle (earned autonomy):
+    #  1. ARM — a freshly-validated CODE cell (Tier 1 human-accepted OR Tier 2 auto) gets an independent refuter, so
+    #     it becomes MEASURABLE. Without this live producer false_pass stays 'unmeasured' and Tier 2 is unreachable.
+    #  2. RE-CHECK — re-validate one armed-but-unrefuted cell against its HIDDEN refuter. The check is the false-pass
+    #     denominator; a DISAGREEMENT records an incident (autonomy demotes — the NEXT tick reads the lower tier_for).
+    # One re-check per tick keeps ticks cheap.
+    produced = _disp.produce_refuters(d)
     refuted = None
     frontier = _disp.refute_frontier(d)
     if frontier:
@@ -169,7 +173,7 @@ def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None, strict_acce
         b["ticks"] = b.get("ticks", 0) + 1
         json.dump(b, open(_budget_path(d), "w"), indent=2)
     return {"halted": False, "reason": None, "tier": tier, "dispatched": dispatched,
-            "reconciled": reconciled, "refuted": refuted, "distilled": distilled}
+            "reconciled": reconciled, "produced": produced, "refuted": refuted, "distilled": distilled}
 
 
 def run(d, adapter=None, tier=1, max_concurrency=2, period_s=30):
@@ -209,6 +213,9 @@ def selftest():
         # armed + the family has EARNED Tier 2 (a validated verifier + an agreeing refuter check + a budget)
         # → the tick drives the ready ticket to done, UNATTENDED (Tier 1 would stop at in-review)
         arm(d, max_dispatches=5, deadline_s=3600)
+        # SIMULATE the earned refuter check so this UNIT test can exercise the heartbeat's Tier-2 DISPATCH path on a
+        # node-free spec cell. NOT a production shortcut: on a real CODE build the live producer (produce_refuters)
+        # + run_refuter earn this measurement for real — proven end-to-end, node-gated, in evals/earned-autonomy.
         _auto.record_refuter_check(d, "spec.task.s", agreed=True)    # measured-clean false-pass → Tier 2
         s1 = on_tick(d, max_concurrency=2)                            # no tier override → the EARNED tier
         expect(s1.get("tier") == 2, f"family should have earned Tier 2; got tier {s1.get('tier')}")

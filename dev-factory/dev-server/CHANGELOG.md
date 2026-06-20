@@ -3,6 +3,28 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-20 — harness-council audit fixes (round 3): the LIVE refuter producer (H6 — earned autonomy)
+
+The H6 cap's root: nothing in the dev-server validation path PRODUCED the refuter sidecars the false-pass oracle
+(`refute_frontier` → `run_refuter`) consumes — only `self_heal_cell` re-armed one post-incident, and eval fixtures
+hand-seeded them. So `false_pass` stayed `unmeasured` forever, the app family could never legitimately reach Tier 2
+(`autonomy.tier_for`), and the only in-tree paths to Tier 2 asserted `record_refuter_check(agreed=True)`.
+
+- **`dispatch.produce_refuter` / `produce_refuters` — the live producer.** When a CODE cell reaches `validated`, the
+  server recovers its exports from its `verify.mjs` (`_exports_from_verify`) and arms an INDEPENDENT refuter — a
+  `verify_gen.fresh_refute` oracle (generic invariants: export stability + determinism) distinct from the gate the
+  worker coded to — plus the verify-spec. The heartbeat runs `produce_refuters` each tick (a sweep) BEFORE the
+  refuter frontier, so a cell validated this epoch (Tier 1 human-accepted OR Tier 2 auto) is measurable next tick.
+  Idempotent + non-clobbering (a self-heal-re-armed or planner oracle is never overwritten); only multi-file code
+  cells with a real `verify.mjs` get one — a presence-stub-validated cell stays honestly unmeasured. **This makes
+  the verify-spec genuinely persist in `dev-server` (not just `debug/` ralph) — the prior CHANGELOG claim is now
+  backed by code.**
+- **`evals/earned-autonomy` — the affirmative proof.** A validated code cell is UNMEASURED (Tier 1 even with a
+  budget); the producer arms a real oracle; `run_refuter` MEASURES it → `false_pass` 0.0 → **Tier 2 EARNED**, with no
+  `record_refuter_check` fake; a disagreeing oracle mechanically REVOKES it. Wired into `dev-factory.yml`.
+- The remaining `record_refuter_check(agreed=True)` calls (heartbeat selftest, `demo.py`) are now clearly labeled
+  as **node-free unit/doc-domain simulations** of what the live code path earns for real — not production shortcuts.
+
 ## 2026-06-19 — harness-council audit fixes (round 2): the integrity floor on the LIVE path
 
 Round 1 fixed the two unambiguous bugs; round 2 hardens the verification floor the audit found "mock-deep" on the
