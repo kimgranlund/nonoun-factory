@@ -2,6 +2,14 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.18] — 2026-06-20
+
+### Fixed
+
+- **`ledger.no_progress` normalizes incidental signature variance (harness-council re-audit H5).** The signature-based early-block compared raw failure rationales, so the SAME root failure with a different temp path / return code / clock timestamp read as distinct signatures and bypassed the `n=2` early block (burning the full attempt budget). It now strips file paths, `exited N` return codes, and clock timestamps before comparing — while keeping bare semantic content, so genuinely-distinct errors still retry to the attempt cap rather than early-blocking. Selftest covers both directions.
+
+plugin.json 0.2.17 → 0.2.18.
+
 ## [0.2.17] — 2026-06-20
 
 ### Fixed

@@ -48,11 +48,21 @@ def _budget_path(d):
     return os.path.join(d, "run", "heartbeat.json")
 
 
+# the SAFETY deadline a window with no operator-set ceiling falls back to — so an armed run is NEVER unbounded
+# (harness-council re-audit H5: app.py defaulted all four ceilings to None, leaving only the per-dispatch $ cap ×
+# an unbounded number of cells/retries). 2h is generous for a real build; an operator sets explicit bounds to override.
+DEFAULT_WINDOW_DEADLINE_S = 7200
+
+
 def arm(d, now=None, deadline_s=None, max_dispatches=None, token_ceiling=None, dollar_ceiling=None):
     """Arm the loop's window. MUST be called before the loop runs (the arming discipline): an unarmed loop
     does not dispatch (fail-closed). The window is bounded by ANY of: a wall-clock deadline, a max-dispatch
-    count, a token ceiling, or a DOLLAR ceiling — whichever is hit first halts dispatch."""
+    count, a token ceiling, or a DOLLAR ceiling — whichever is hit first halts dispatch. If the operator sets
+    NONE of them, a safety wall-clock deadline (DEFAULT_WINDOW_DEADLINE_S) is stamped so the window can never be
+    fully unbounded — an armed-but-uncapped run is a misconfiguration, not a license to spend without limit."""
     now = now or _now()
+    if deadline_s is None and max_dispatches is None and token_ceiling is None and dollar_ceiling is None:
+        deadline_s = DEFAULT_WINDOW_DEADLINE_S
     b = {"start_ts": now.isoformat(timespec="seconds"), "ticks": 0,
          "deadline_ts": (now + datetime.timedelta(seconds=deadline_s)).isoformat(timespec="seconds") if deadline_s else None,
          "max_dispatches": max_dispatches, "token_ceiling": token_ceiling, "dollar_ceiling": dollar_ceiling}
@@ -268,6 +278,15 @@ def selftest():
         expect(_cost_since(d, bts) >= 1.5, "_cost_since must sum FAILURE-path cost_usd (H5-C1: the ceiling must see failed-run spend)")
         ex, why = budget_exhausted(d)
         expect(ex and "dollar ceiling" in (why or ""), f"dollar ceiling did not halt on failure-path spend: {why}")
+
+        # an armed window is NEVER unbounded (H5): arming with NO operator ceiling stamps a safety deadline, so the
+        # only-the-per-dispatch-$-cap hazard can't exist; an explicit ceiling is left as the sole bound.
+        b_default = arm(d)
+        expect(b_default["deadline_ts"] is not None and b_default["max_dispatches"] is None,
+               "arm() with no ceilings must stamp a safety deadline (never a fully unbounded window)")
+        b_explicit = arm(d, max_dispatches=3)
+        expect(b_explicit["deadline_ts"] is None and b_explicit["max_dispatches"] == 3,
+               "arm() with an explicit ceiling must NOT force a safety deadline")
 
         # H1 — when a depends_on CYCLE starves the frontier, on_tick NAMES it (never a silent idle tick)
         with tempfile.TemporaryDirectory() as croot:

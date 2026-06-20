@@ -3,6 +3,15 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-20 — harness-council RE-AUDIT (round 9): an armed window is never unbounded (H5)
+
+- **`arm()` stamps a safety wall-clock deadline (`DEFAULT_WINDOW_DEADLINE_S`, 2h) when the operator sets NONE of the
+  four ceilings.** The re-audit found `app.py` defaulted all of deadline / max-dispatches / token / dollar to `None`,
+  so an armed run was bounded only by the per-dispatch `$10` cap × an unbounded number of cells and retries. Now an
+  armed-but-uncapped window can't exist — an explicit ceiling overrides the safety deadline. (Paired with the kernel's
+  `ledger.no_progress` signature normalization, dev-kernel 0.2.18, so a stuck cell can't burn retries on path/exit
+  variance either.)
+
 ## 2026-06-20 — harness-council RE-AUDIT (round 8): the Tier-2 measurement was hollow — now it isn't (keystone)
 
 A verification re-audit caught the round-3 H6 "fix" as hollow, and it was right. The live producer armed

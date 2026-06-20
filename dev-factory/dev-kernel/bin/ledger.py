@@ -166,13 +166,24 @@ def no_progress(d, cell, n=3):
     fail signal, or a `block`/`→blocked` — so the retry transitions that interleave them (a failed dispatch returns
     the ticket to `active`) cannot mask a genuine repeated failure (which the old all-events tail did). Returns
     (bool, reason)."""
+    import re
     def _is_fail(e):
         ev = e.get("event")
         return (ev in ("activity-fail", "block")
                 or (ev == "signal" and (e.get("to") == "fail" or (e.get("metrics") or {}).get("result") == "fail"))
                 or (ev == "transition" and e.get("to") == "blocked"))
-    # signature = the rationale tail of the FAILURE events; N identical = a stuck loop retrying won't break
-    rats = [e.get("rationale", "") for e in read(d, cell=cell) if _is_fail(e)][-n:]
+    def _sig(r):
+        # normalize INCIDENTAL variance so the same root failure with a different temp path / return code / clock
+        # reads as one signature (harness-council H5: error-string variance must not bypass the early block). Strips
+        # paths, `exited N`, and clock timestamps ONLY — bare semantic content (e.g. a distinct error name) is kept,
+        # so genuinely-different failures still look different and retry to the attempt cap instead of early-blocking.
+        r = r or ""
+        r = re.sub(r"/[\w.+/-]+", " PATH ", r)          # absolute/relative file paths (temp dirs vary run-to-run)
+        r = re.sub(r"\bexited \d+", "exited N", r)       # process return codes
+        r = re.sub(r"\b\d{1,2}:\d{2}(:\d{2})?\b", "TS", r)  # clock-ish timestamps
+        return " ".join(r.split()).lower()
+    # signature = the normalized rationale tail of the FAILURE events; N identical = a stuck loop retrying won't break
+    rats = [_sig(e.get("rationale", "")) for e in read(d, cell=cell) if _is_fail(e)][-n:]
     if len(rats) >= n and len(set(rats)) == 1 and rats[0]:
         return True, f"no-progress: last {n} failures on {cell} share one signature"
     return False, "progressing"
@@ -246,6 +257,16 @@ def selftest():
         expect(np, "no-progress loop not detected on 3 identical failure signatures")
         np2, _ = no_progress(d, "spec.task.x", n=3)
         expect(not np2, "no-progress false-positive on a progressing cell")
+        # signature normalization (H5): the SAME root failure with a varying temp path / return code reads as one
+        # signature (caught), but genuinely DISTINCT errors do not (they retry to the attempt cap, not early-block)
+        for p in ("/tmp/run-a/x", "/tmp/run-b/y"):
+            append(d, "activity-fail", {"kind": "agent", "id": "w"}, {"cell": "spec.task.norm"},
+                   f"worker failed: no artifact (claude exited 1, asset {p} absent)")
+        expect(no_progress(d, "spec.task.norm", n=2)[0], "no-progress must NORMALIZE path/exit variance to one signature")
+        for i in (1, 2):
+            append(d, "activity-fail", {"kind": "agent", "id": "w"}, {"cell": "spec.task.distinct"}, f"distinct failure {i}")
+        expect(not no_progress(d, "spec.task.distinct", n=2)[0],
+               "no-progress must NOT conflate genuinely distinct errors (they retry to the attempt cap)")
         # false-pass is unmeasured until a refuter incident exists
         expect(false_pass_rate(d) == "unmeasured", "false-pass not 'unmeasured' without a refuter")
         # tamper-evident chain: intact after honest appends; a single edit is detected
