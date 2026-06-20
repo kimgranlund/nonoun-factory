@@ -183,9 +183,14 @@ def _family_match(e, family):
 
 
 def refuter_checks(d, family=None):
-    """Independent re-validations recorded (the denominator of the false-pass rate)."""
+    """Independent re-validations recorded (the denominator of the false-pass rate). Counts only MEASURING checks:
+    a refuter explicitly marked `measuring: false` (the generic liveness floor — tautological invariants that cannot
+    DISAGREE with a module that passed its gate) does NOT count, so a vacuous oracle can never mint a measured 0.0
+    false-pass and auto-grant Tier 2 (harness-council re-audit). A check WITHOUT the flag is a real behavioral oracle
+    (hand-seeded / self-heal-folded / `record_refuter_check`) → it counts."""
     return [e for e in read(d, event="signal")
-            if (e.get("metrics") or {}).get("refuter") and _family_match(e, family)]
+            if (e.get("metrics") or {}).get("refuter") and (e.get("metrics") or {}).get("measuring") is not False
+            and _family_match(e, family)]
 
 
 def false_pass_rate(d, family=None):

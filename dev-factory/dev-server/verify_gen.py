@@ -65,27 +65,48 @@ def new_spec(exports, acceptance, refute):
 
 
 def fresh_refute(exports, folded, generation):
-    """Generate a FRESH independent refuter set after the prior one was folded into the gate — the "new oracle".
+    """Generate a generic LIVENESS floor over the exports — NOT a false-pass measurement (harness-council).
 
-    Deterministic, generic INVARIANTS over the exports that are independent of the (now-folded) specific
-    acceptance: function-export stability, determinism (same call twice agrees), and no-arg non-throwing for nullary
-    functions. Generic but genuinely independent — they probe properties the behavioral acceptance does not assert.
-    The LIVE path overrides this with planner-authored, domain-specific edge cases (see dispatch.self_heal_cell);
-    this is the deterministic floor that keeps the cell measurable with NO model in the loop. Returns [] when there
-    is nothing left to probe (a signal to escalate rather than churn)."""
+    HONEST SCOPE (corrected): these invariants are export-PRESENCE / self-stability probes (`typeof e === 'function'`,
+    `JSON.stringify(e) === JSON.stringify(e)`). They do NOT invoke the export, so they are TAUTOLOGICAL for any module
+    that already passed its gate (the gate already exits on an undefined export) — they cannot DISAGREE, so a refuter
+    built only from them must NOT mint a measured false-pass rate (`is_behavioral` returns False → the dev-server arms
+    it as a non-measuring liveness check that still catches a module that throws on load). A real MEASURING refuter
+    needs behavioral assertions on inputs the gate did not use — planner/operator-authored, see dispatch.produce_refuter
+    + the verify-spec `refute` set. Returns [] when there is nothing left to probe (escalate rather than churn)."""
     fns = [e for e in (exports or []) if isinstance(e, str) and e.strip()]
     if not fns:
         return []
     folded = set(folded or [])
-    # a rotating menu of independent invariants, so successive re-arms differ generation-to-generation
+    # a rotating menu of liveness probes, so successive re-arms differ generation-to-generation
     menu = []
     for e in fns:
-        menu.append(f"typeof {e} === 'function' || {e} !== undefined")                 # export is real
-        menu.append(f"(() => {{ try {{ return JSON.stringify({e}) === JSON.stringify({e}); }} catch (_) {{ return true; }} }})()")  # stable/serializable
-    # rotate the menu by generation so each fresh oracle is a different (still independent) slice
+        menu.append(f"typeof {e} === 'function' || {e} !== undefined")                 # export is real (loads)
+        menu.append(f"(() => {{ try {{ return JSON.stringify({e}) === JSON.stringify({e}); }} catch (_) {{ return true; }} }})()")  # serializable w/o throwing
+    # rotate the menu by generation so each fresh floor is a different slice
     rotated = menu[generation % len(menu):] + menu[:generation % len(menu)]
     out = [c for c in rotated if c not in folded][:3]
     return out
+
+
+def is_behavioral(assertions, exports):
+    """True iff some assertion INVOKES a declared export as a function (`compute(7, 8) === 15`, `deal()[0] !== deal()[1]`,
+    `m.deal(3).length === 52`) — exercising the module's BEHAVIOR, not merely probing presence (`typeof x`,
+    `x !== undefined`, `JSON.stringify(x) === JSON.stringify(x)`). A refuter built only from non-behavioral invariants
+    CANNOT disagree with any module that already passed its gate, so it must NOT count as a false-pass MEASUREMENT
+    (harness-council: the tautological refuter that auto-granted Tier 2). Drives the measuring/non-measuring split."""
+    names = [e for e in (exports or []) if isinstance(e, str) and e.strip()]
+    for a in (assertions or []):
+        if not isinstance(a, str):
+            continue
+        for e in names:
+            i = a.find(e + "(")
+            while i >= 0:
+                before = a[i - 1] if i > 0 else " "
+                if not (before.isalnum() or before == "_"):   # a real `e(` call at a word boundary, not `xe(`
+                    return True
+                i = a.find(e + "(", i + 1)
+    return False
 
 
 def fold(spec):
@@ -143,6 +164,18 @@ def selftest():
     vE, hE, _, _ = fold(new_spec([], [], ["1===1"]))
     if hE is not None:
         fails.append("fold with no exports should EXHAUST the oracle (None harness → escalate)")
+    # is_behavioral: the measuring/non-measuring split — an assertion that INVOKES an export is behavioral; the
+    # generic fresh_refute floor (typeof / JSON.stringify, no call) is NOT (it cannot disagree → must not measure)
+    if not is_behavioral(["compute(7, 8) === 15"], ["compute"]):
+        fails.append("is_behavioral missed an export INVOCATION (compute(7,8))")
+    if not is_behavioral(["deal()[0] !== deal()[1]"], ["deal"]):
+        fails.append("is_behavioral missed a no-arg export invocation (deal())")
+    if is_behavioral(fresh_refute(["compute"], [], 0), ["compute"]):
+        fails.append("is_behavioral wrongly flagged the generic fresh_refute floor as behavioral (it must be non-measuring)")
+    if is_behavioral(["typeof compute === 'function'", "compute !== undefined"], ["compute"]):
+        fails.append("is_behavioral wrongly flagged a presence probe as behavioral")
+    if is_behavioral(["xcompute(1) === 1"], ["compute"]):
+        fails.append("is_behavioral matched a non-word-boundary substring (xcompute vs compute)")
     if fails:
         import sys
         sys.stderr.write("verify_gen selftest: FAIL\n")

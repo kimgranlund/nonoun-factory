@@ -2,6 +2,14 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.17] — 2026-06-20
+
+### Fixed
+
+- **`ledger.refuter_checks` (the false-pass denominator) now counts only MEASURING refuter checks (harness-council re-audit — the keystone).** A re-audit of the H6 remediation found the "fix" was hollow: the live producer armed `verify_gen.fresh_refute`'s generic invariants (`typeof e === 'function'`, `JSON.stringify(e) === JSON.stringify(e)`) as the refuter, but those are TAUTOLOGIES — no module that passed its gate can fail them — so `false_pass` was structurally pinned at `0.0` and Tier 2 auto-granted (the prior `agreed=True` fake wearing a `node` subprocess). Now a refuter check counts toward `false_pass` only if it is marked `measuring` (its harness EXERCISES an export on an input the gate did not use — `verify_gen.is_behavioral`); a check explicitly `measuring: false` (the generic liveness floor) cannot mint a measured rate, so a vacuous oracle can never auto-grant Tier 2. A check without the flag (hand-seeded / self-heal-folded / `record_refuter_check`) is a real behavioral oracle and still counts.
+
+plugin.json 0.2.16 → 0.2.17.
+
 ## [0.2.16] — 2026-06-20
 
 ### Added

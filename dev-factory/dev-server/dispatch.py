@@ -957,19 +957,19 @@ def _exports_from_verify(src):
 
 
 def produce_refuter(d, cell_id):
-    """The LIVE refuter PRODUCER (harness-council H6). When a cell first reaches `validated`, materialize its
-    verify-spec + an INDEPENDENT refuter sidecar, so the false-pass oracle (`refute_frontier` → `run_refuter`) has a
-    real work-item the very next tick. Without this nothing in the dev-server validation path produced the sidecars
-    `run_refuter` consumes — so `false_pass` stayed `unmeasured` forever and the app family could NEVER legitimately
-    reach Tier 2 (`autonomy.tier_for`). The refuter is `fresh_refute`'s generic invariants (export stability +
-    determinism) over the cell's declared exports — deterministic, NO model in the loop, and genuinely independent of
-    the `verify.mjs` gate the worker coded to (different generator path, properties the behavioral acceptance does not
-    assert). The headless planner later overrides with domain edge cases via `self_heal_cell`. Returns the cell_id if
-    it armed an oracle, else None.
+    """The LIVE refuter PRODUCER (harness-council H6). When a cell first reaches `validated`, arm an independent
+    refuter sidecar so the false-pass oracle (`refute_frontier` → `run_refuter`) has a work-item the next tick.
 
-    Idempotent + NON-clobbering: an existing sidecar (a self-heal-re-armed fresh oracle, or a planner-authored one)
-    is never overwritten. Only multi-file CODE cells graded by a `verify.mjs` get a refuter; a presence-stub-validated
-    cell yields no exports → no refuter → it stays honestly unmeasured (it has no real contract to re-check)."""
+    MEASURING vs LIVENESS (the keystone correction — harness-council re-audit). A refuter counts toward `false_pass`
+    (and thus toward Tier 2) ONLY if it can actually DISAGREE with a module that passed its gate — i.e. it EXERCISES
+    behavior on inputs the gate did not use (`verify_gen.is_behavioral`). So:
+      - if the cell's verify-spec carries a BEHAVIORAL `refute` set (planner/operator-authored domain edge cases,
+        independent of the gate), arm a MEASURING refuter from it (`measuring: true`);
+      - otherwise arm only `fresh_refute`'s generic floor as a NON-measuring LIVENESS check (`measuring: false`): it
+        catches a module that throws on load, but it is TAUTOLOGICAL against any loading module, so it must NOT mint a
+        measured 0.0 false-pass (the prior bug auto-granted Tier 2 from exactly this vacuous oracle). A cell with no
+        behavioral refute set therefore stays HONESTLY `unmeasured` (Tier 1) until a real oracle is authored.
+    Returns the cell_id if it armed any oracle, else None. Idempotent + non-clobbering; multi-file CODE cells only."""
     side = os.path.join(d, "coordination", "refuters", f"{cell_id}.json")
     if os.path.isfile(side):
         return None
@@ -985,18 +985,33 @@ def produce_refuter(d, cell_id):
         exports = _exports_from_verify(open(vpath, encoding="utf-8").read())
     except OSError:
         return None
-    refute = _vg.fresh_refute(exports, [], 0)
-    if not refute:
-        return None
-    spec = _vg.new_spec(exports, [], refute)
-    for sub in ("verify-spec", "refuters"):
-        os.makedirs(os.path.join(d, "coordination", sub), exist_ok=True)
-    json.dump(spec, open(os.path.join(d, "coordination", "verify-spec", f"{cell_id}.json"), "w", encoding="utf-8"), indent=2)
-    json.dump({"harness": _vg.gen_cap_verify(exports, refute)}, open(side, "w", encoding="utf-8"), indent=2)
+    # PREFER a real behavioral refute set authored into the verify-spec; fall back to the generic liveness floor.
+    # `measuring` records which — it is the only thing `false_pass` is allowed to count.
+    spec_path = os.path.join(d, "coordination", "verify-spec", f"{cell_id}.json")
+    refute, measuring = None, False
+    if os.path.isfile(spec_path):
+        try:
+            cand = (json.load(open(spec_path, encoding="utf-8")) or {}).get("refute") or []
+            if _vg.is_behavioral(cand, exports):
+                refute, measuring = cand, True
+        except (OSError, ValueError):
+            pass
+    if refute is None:
+        refute = _vg.fresh_refute(exports, [], 0)   # generic liveness floor (cannot disagree → non-measuring)
+        if not refute:
+            return None
+        for sub in ("verify-spec", "refuters"):
+            os.makedirs(os.path.join(d, "coordination", sub), exist_ok=True)
+        json.dump(_vg.new_spec(exports, [], refute), open(spec_path, "w", encoding="utf-8"), indent=2)
+    os.makedirs(os.path.join(d, "coordination", "refuters"), exist_ok=True)
+    json.dump({"harness": _vg.gen_cap_verify(exports, refute), "refute": refute, "measuring": measuring},
+              open(side, "w", encoding="utf-8"), indent=2)
     _led.append(d, "signal", {"kind": "server", "id": "refuter-producer"}, {"cell": cell_id},
-                f"armed an independent refuter for {cell_id} ({len(exports)} export(s), {len(refute)} invariant(s)) — "
-                "the cell is now MEASURABLE by the false-pass oracle (was: unmeasured → Tier 2 unreachable)",
-                metrics={"refuter_armed": True, "exports": len(exports)})
+                f"armed a {'MEASURING' if measuring else 'liveness-only (NON-measuring)'} refuter for {cell_id} "
+                f"({len(exports)} export(s), {len(refute)} check(s))"
+                + ("" if measuring else " — the generic floor cannot disagree, so the cell stays UNMEASURED until a "
+                   "behavioral refute set is authored (it will NOT earn Tier 2 on this)"),
+                metrics={"refuter_armed": True, "exports": len(exports), "measuring": measuring})
     return cell_id
 
 
@@ -1047,10 +1062,15 @@ def self_heal_cell(d, cell_id):
     os.makedirs(cell_dir, exist_ok=True)
     open(os.path.join(cell_dir, "verify.mjs"), "w", encoding="utf-8").write(verify_js)
     json.dump(new_spec, open(spec_path, "w", encoding="utf-8"), indent=2)
-    # 2. RE-ARM the fresh oracle, or retire it on exhaustion
+    # 2. RE-ARM the fresh oracle, or retire it on exhaustion. The re-arm is MEASURING only if `fold` produced a
+    # BEHAVIORAL fresh refute (planner edge cases); the deterministic floor's generic invariants re-arm a
+    # liveness-only oracle (keystone: a folded-then-generically-re-armed cell stays unmeasured until a real refute set
+    # is authored — it does NOT silently re-earn Tier 2 on a tautology).
     sidecar = os.path.join(d, "coordination", "refuters", f"{cell_id}.json")
     if refuter_harness:
-        json.dump({"harness": refuter_harness}, open(sidecar, "w", encoding="utf-8"), indent=2)
+        rearm_measuring = _vg.is_behavioral(new_spec.get("refute") or [], new_spec.get("exports") or [])
+        json.dump({"harness": refuter_harness, "refute": new_spec.get("refute") or [], "measuring": rearm_measuring},
+                  open(sidecar, "w", encoding="utf-8"), indent=2)
     elif os.path.isfile(sidecar):
         os.remove(sidecar)
     # 3. STALE the cell → regenerating (the loop re-authors against the strengthened gate)
@@ -1092,9 +1112,15 @@ def run_refuter(d, cell_id):
     if not cell or cell.get("maturity") not in ("validated", "operating"):
         return None
     try:
-        harness = (json.load(open(sidecar, encoding="utf-8")) or {}).get("harness")
+        sdata = json.load(open(sidecar, encoding="utf-8")) or {}
     except (json.JSONDecodeError, OSError):
         return None
+    harness = sdata.get("harness")
+    # MEASURING vs liveness (keystone): a sidecar marked measuring=False is the generic floor — it can catch a module
+    # that throws on load (records an incident, demotes) but it is tautological against a loading module, so its check
+    # does NOT count toward false_pass (refuter_checks filters on metrics.measuring). A sidecar without the flag is a
+    # real behavioral oracle (hand-seeded / self-heal-folded) → measuring.
+    measuring = sdata.get("measuring", True)
     if not harness or shutil.which("node") is None:
         return None
     # the refuter must run BESIDE the product source (the cell's asset_ref) — a kit's output_root may have
@@ -1114,8 +1140,9 @@ def run_refuter(d, cell_id):
             os.remove(rp)
     agreed = (rc == 0)
     _led.append(d, "signal", {"kind": "server", "id": "refuter"}, {"cell": cell_id},
-                f"independent refuter {'AGREED' if agreed else 'DISAGREED — FALSE PASS caught'} on {cell_id}",
-                metrics={"refuter": True, "agreed": agreed})
+                f"independent refuter {'AGREED' if agreed else 'DISAGREED — FALSE PASS caught'} on {cell_id}"
+                + ("" if measuring else " (liveness-only — NOT a false-pass measurement)"),
+                metrics={"refuter": True, "agreed": agreed, "measuring": measuring})
     if not agreed:
         _auto.record_incident(d, cell_id, f"refuter caught a false pass: {cell_id} validated against its gate but "
                               "fails an independent re-check (overfit / gamed)")
@@ -1391,8 +1418,23 @@ def selftest():
             side = os.path.join(vfd, "coordination", "refuters", "capability.system.core.json")
             expect(produce_refuter(vfd, "capability.system.core") == "capability.system.core" and os.path.isfile(side),
                    "produce_refuter must arm an independent refuter sidecar for a validated code cell (H6 producer)")
+            # KEYSTONE: with no behavioral refute set, the armed oracle is the generic floor → measuring=False, so
+            # it can NEVER mint a measured false-pass / auto-grant Tier 2 (the tautological-refuter bug).
+            expect(json.load(open(side)).get("measuring") is False,
+                   "produce_refuter must arm a NON-measuring liveness floor when no behavioral refute set exists")
             expect(produce_refuter(vfd, "capability.system.core") is None,
                    "produce_refuter must be idempotent — never clobber an existing/self-heal-re-armed oracle")
+            # a pre-authored BEHAVIORAL refute set → a MEASURING refuter
+            _api.seed_cell(vfd, "capability", "system", "store", maturity="validated", asset_ref="store")
+            os.makedirs(os.path.join(vfd, "store"), exist_ok=True)
+            open(os.path.join(vfd, "store", "verify.mjs"), "w").write("import * as m from './index.mjs';\nif (!m.save) process.exit(1);\n")
+            os.makedirs(os.path.join(vfd, "coordination", "verify-spec"), exist_ok=True)
+            json.dump({"exports": ["save"], "acceptance": [], "refute": ["save(1) === 1"], "generation": 0, "history": []},
+                      open(os.path.join(vfd, "coordination", "verify-spec", "capability.system.store.json"), "w"))
+            produce_refuter(vfd, "capability.system.store")
+            sside = os.path.join(vfd, "coordination", "refuters", "capability.system.store.json")
+            expect(json.load(open(sside)).get("measuring") is True,
+                   "produce_refuter must arm a MEASURING refuter from a behavioral refute set (save(1) invokes the export)")
         finally:
             del os.environ["DEV_FACTORY_KIT"]
 

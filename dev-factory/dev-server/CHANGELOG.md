@@ -3,6 +3,28 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-20 — harness-council RE-AUDIT (round 8): the Tier-2 measurement was hollow — now it isn't (keystone)
+
+A verification re-audit caught the round-3 H6 "fix" as hollow, and it was right. The live producer armed
+`verify_gen.fresh_refute`'s generic invariants as the refuter — but they are TAUTOLOGIES (`typeof e === 'function'`,
+`x === x`), so no gate-passing module can fail them: `false_pass` was pinned at `0.0` and Tier 2 auto-granted again,
+the `agreed=True` fake wearing a `node` subprocess. The `earned-autonomy` eval only "proved" the catch by
+hand-overwriting the sidecar. Corrected:
+
+- **A refuter only MEASURES if it exercises behavior.** `verify_gen.is_behavioral` distinguishes an assertion that
+  INVOKES an export (`compute(7,8)===15`) from a presence/self-stability probe. `produce_refuter` now arms a
+  MEASURING refuter only from a BEHAVIORAL refute set (planner/operator-authored, in the verify-spec); absent one it
+  arms `fresh_refute`'s generic floor as a NON-measuring **liveness** check (it still catches a module that throws on
+  load, but it cannot disagree, so it must not mint a measurement). `run_refuter` records `metrics.measuring`;
+  `ledger.refuter_checks` counts only measuring checks (dev-kernel 0.2.17); `self_heal_cell`'s generic re-arm is
+  marked non-measuring too.
+- **The honest consequence:** a cell with no behavioral refute set stays `unmeasured` → Tier 1. Tier 2 now requires a
+  real independent oracle (a behavioral refute set), not a tautology. Auto-producing that oracle on a headless build
+  (a refuter-author) is the tracked next step; until then Tier 2 is earnable only with an operator-authored refute set.
+- **`evals/earned-autonomy` rewritten** to prove it the honest way: the generic floor stays unmeasured (Tier 1); a
+  behavioral refuter earns Tier 2 on a conformant module; and the SAME producer-armed refuter CATCHES an overfit that
+  genuinely passes its gate (`run_validation` advances it) — disagreeing with NO hand-overwrite.
+
 ## 2026-06-20 — harness-council audit fixes (round 7): the signal-forge floor is now absolute (H3-C1 residual)
 
 - **NO headless worker carries `Bash` anymore.** Round 2 dropped it from the module worker but kept it for the
