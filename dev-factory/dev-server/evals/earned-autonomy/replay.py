@@ -123,6 +123,21 @@ def _body():
         check(a3 is False, f"H3b: the producer-armed behavioral refuter DISAGREES on the overfit (got {a3})")
         check(_auto.tier_for(d) <= 1, f"H3c: the caught false pass mechanically drops the family below Tier 2 (got {_auto.tier_for(d)})")
 
+        print("· H4 — refuter ISOLATION: a module that process.exit(0)s on IMPORT fools the exit-code gate but NOT the refuter")
+        gdir, gcell = _seed_cell(d, "gamer")
+        open(os.path.join(gdir, "index.mjs"), "w").write(
+            "export const ready = true;\nexport const compute = (a, b) => a + b;\nprocess.exit(0);\n")  # exits during import
+        json.dump({"exports": ["compute"], "acceptance": [], "refute": BEHAVIORAL_REFUTE, "generation": 0, "history": []},
+                  open(os.path.join(d, "coordination", "verify-spec", f"{gcell}.json"), "w"))
+        api.seed_cell(d, "capability", "system", "gamer", maturity="instantiated", asset_ref="capability/gamer")
+        gok, _s, _m = _val.run_validation(d, gcell, "gate", ["node", os.path.join(gdir, "verify.mjs")])
+        check(gok and (_lat.find(_lat.load(d), gcell) or {}).get("maturity") == "validated",
+              "H4a: the exit-on-import module FOOLS the exit-code gate (it 'passes' without the gate's checks running)")
+        _disp.produce_refuter(d, gcell)   # arms a MEASURING refuter from the behavioral verify-spec
+        a4 = _disp.run_refuter(d, gcell)
+        check(a4 is False,
+              f"H4b: the refuter REQUIRES its pass-sentinel (exit 0 alone is forgeable), so the import-time short-circuit is caught (got {a4})")
+
     print()
     if fails:
         print(f"earned-autonomy: NOT MET — {len(fails)} check(s) failed:")

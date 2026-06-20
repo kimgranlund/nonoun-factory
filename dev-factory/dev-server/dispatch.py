@@ -17,10 +17,12 @@ Stdlib only; Python 3.8+. (Part of dev-server; not a plugin.)
 import datetime
 import json
 import os
+import pathlib
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _HERE)
@@ -1123,22 +1125,28 @@ def run_refuter(d, cell_id):
     measuring = sdata.get("measuring", True)
     if not harness or shutil.which("node") is None:
         return None
-    # the refuter must run BESIDE the product source (the cell's asset_ref) — a kit's output_root may have
-    # rooted it OUT of .factory/ into the product tree (src/{project}/{slug}/), where index.mjs actually lives.
-    # Mirrors self_heal_cell; the naive .factory/{layer}/{slug}/ silently no-ops the false-pass oracle for any
-    # app-kit cell (harness-council H2/H6/H7 convergence — the oracle the autonomy trajectory consumes).
+    # The refuter must IMPORT the product source (the cell's asset_ref) — a kit's output_root may have rooted it OUT
+    # of .factory/ into the product tree (src/{project}/{slug}/), where index.mjs actually lives — but it must RUN in
+    # a dir the worker does NOT control (harness-council re-audit H3: the old path wrote .refute.mjs INTO cell_dir and
+    # ran node there, so the graded module could shadow the refuter's node environment). It now runs in a temp dir and
+    # imports index.mjs by an absolute file:// URL; the module's own relative deps still resolve from cell_dir.
     cell_dir = os.path.normpath(os.path.join(d, cell.get("asset_ref")
                                 or _asset_rel(cell["layer"], cell["slug"], _authoring_for(cell))))
-    rp = os.path.join(cell_dir, ".refute.mjs")
+    abs_index = pathlib.Path(os.path.abspath(os.path.join(cell_dir, "index.mjs"))).as_uri()
+    iso = tempfile.mkdtemp(prefix="df-refute-")
+    rp = os.path.join(iso, "refute.mjs")
     try:
-        open(rp, "w", encoding="utf-8").write(harness)
-        rc = subprocess.run(["node", rp], cwd=cell_dir, capture_output=True, text=True, timeout=60).returncode
+        open(rp, "w", encoding="utf-8").write(harness.replace("'./index.mjs'", f"'{abs_index}'"))
+        proc = subprocess.run(["node", rp], cwd=iso, capture_output=True, text=True, timeout=60)
+        rc, out = proc.returncode, (proc.stdout or "")
     except (OSError, subprocess.SubprocessError):
         return None
     finally:
-        if os.path.isfile(rp):
-            os.remove(rp)
-    agreed = (rc == 0)
+        shutil.rmtree(iso, ignore_errors=True)
+    # AGREE requires the harness to have actually RUN its checks to completion — exit 0 ALONE is forgeable by a module
+    # that `process.exit(0)`s on import (the checks never run). The gen_cap_verify harness prints a `pass:` sentinel
+    # only after every assertion holds; require it, so an import-time short-circuit reads as a non-agreement, not a pass.
+    agreed = (rc == 0 and "pass" in out)
     _led.append(d, "signal", {"kind": "server", "id": "refuter"}, {"cell": cell_id},
                 f"independent refuter {'AGREED' if agreed else 'DISAGREED — FALSE PASS caught'} on {cell_id}"
                 + ("" if measuring else " (liveness-only — NOT a false-pass measurement)"),

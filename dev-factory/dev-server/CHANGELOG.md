@@ -3,6 +3,18 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-20 — harness-council RE-AUDIT (round 10): the refuter is isolated from the module it grades (H3)
+
+- **`run_refuter` no longer runs in the worker's own dir, and exit 0 alone is no longer agreement.** It used to write
+  `.refute.mjs` INTO the cell's product dir and `node`-run it there — so the graded module could shadow the refuter's
+  node environment, and a module that `process.exit(0)`s on import would make the refuter exit 0 (the checks never
+  run) and "agree." Now the refuter runs in a TEMP dir the worker can't control, imports the module by an absolute
+  `file://` URL (the module's own relative deps still resolve from its real dir), and AGREE requires the
+  `gen_cap_verify` harness's `pass:` sentinel in stdout — so an import-time short-circuit reads as a non-agreement.
+  `evals/earned-autonomy` H4 proves a `process.exit(0)`-on-import module fools the exit-code gate but is caught by the
+  refuter. (Residual: the gate itself — run by the vendored `validate.py` — still trusts exit status; the refuter is
+  now the backstop that catches a gate-gaming import-time exit.)
+
 ## 2026-06-20 — harness-council RE-AUDIT (round 9): an armed window is never unbounded (H5)
 
 - **`arm()` stamps a safety wall-clock deadline (`DEFAULT_WINDOW_DEADLINE_S`, 2h) when the operator sets NONE of the
