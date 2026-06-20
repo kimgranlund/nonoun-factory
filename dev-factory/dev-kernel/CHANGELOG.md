@@ -2,6 +2,14 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.14] — 2026-06-19
+
+### Changed
+
+- **`_gates.VERIFIER_AUTHOR` now also protects the product barrel (`*/index.mjs`) — closing a verifier-author reward-hack a harness-council audit surfaced (H3-C2).** The rubric-architect's `--allow-verify` boundary let it write a cell's `verify.mjs` (it is authoring the gate) but left `index.mjs` writable — so one verifier-author dispatch could, in principle, author BOTH the gate and a module that trivially passes it (barred only by the prompt, not the gate). `VERIFIER_AUTHOR` is now `VERIFIER − */verify.mjs + */index.mjs`: the verifier-author may write the harness but is denied the barrel the critic imports, so it cannot stage the product it grades. The separate module worker (the plain `VERIFIER` scope) still writes `index.mjs`. Gate selftests + `gate-verifier selftest` stay green; `_gates.py` is dev-factory-native (not vendored — `sync-dev-kernel --check` unaffected).
+
+plugin.json 0.2.13 → 0.2.14.
+
 ## [0.2.13] — 2026-06-18
 
 ### Added

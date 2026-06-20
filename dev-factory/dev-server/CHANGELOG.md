@@ -3,6 +3,31 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-19 — harness-council audit fixes (round 2): the integrity floor on the LIVE path
+
+Round 1 fixed the two unambiguous bugs; round 2 hardens the verification floor the audit found "mock-deep" on the
+headless path (the caps fired on H2 verifier-integrity · H3 reward-hacking).
+
+- **The live module worker no longer carries `Bash` (H3-C1, the highest-severity finding).** The headless adapter
+  granted `Read,Edit,Write,Bash,Glob,Grep` to EVERY role — but the gate's signal-forge floor explicitly rests on
+  the forging worker having no Bash (`_gates._BASH_WRITE_VERBS` deliberately ignores inline interpreters like
+  `python3 -c open(…,'w')` to avoid false-denying the validator's reads). So the live worker could forge a signal
+  past the gate the gate's own comment assumed it couldn't. `_allowed_tools` is now ROLE-AWARE: the product-authoring
+  worker (cell-advancer) gets NO Bash (matching the canonical actor); Bash is granted back ONLY to the verifier-author
+  (rubric-architect, which must calibrate the harness it writes, authors the GATE not the product, and runs before the
+  module exists). A `team` plan still adds Task.
+- **`_is_mock_verifier` discriminates by BEHAVIOR, not line count (H2-M2).** The old `import { ready }` + `<6 lines`
+  heuristic missed the MockAdapter's own `import * as m` smoke stub (so a mock build's gate posed as 'real' on the next
+  headless run) and waved through any long-but-vacuous harness. Now: an explicit `dev-factory:mock-verifier` sentinel
+  (stamped on every seed/mock-authored stub) OR a behavioral test — a real harness CALLS a module export
+  (`m.compute(…)`); a presence stub only READS `m.ready`, so it never matches. Length-independent.
+- **A CI eval that runs a REAL verifier (H2-M1) — `evals/real-verifier-teeth`.** CI's adapter is always the
+  MockAdapter, so green only ever proved the mock loop closes on itself. The new eval drives a real spec-conformance
+  `verify.mjs` through the kernel's actual validation path and proves it REFUSES a deviating module, PASSES a
+  conformant one, and that the presence stub it replaces is blind to the same deviation. Green now means "a gate with
+  teeth caught a real deviation," not "the mock loop closed." (Wired into `dev-factory.yml`.)
+- See `dev-kernel` 0.2.14 for the paired permit-barrel fix (`VERIFIER_AUTHOR` now also denies `*/index.mjs`, H3-C2).
+
 ## 2026-06-19 — harness-council audit fixes (round 1): the false-pass oracle path + verifier-author spend
 
 An independent harness-council review of the app-build campaign's changes surfaced these (top of a larger backlog):

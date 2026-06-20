@@ -225,7 +225,7 @@ class MockAdapter(DispatchAdapter):
             vpath = os.path.join(dir_abs, "verify.mjs")
             open(vpath, "w", encoding="utf-8").write(
                 "// critic harness authored by the (mock) rubric-architect — a smoke check; a headless\n"
-                "// rubric-architect authors a real spec-conformance test against the module's contract.\n"
+                f"// rubric-architect authors a real spec-conformance test against the module's contract. {_MOCK_VERIFIER_MARK}\n"
                 "import * as m from './index.mjs';\n"
                 "if (m.ready !== true) { console.error('FAIL: index.mjs must export ready=true'); process.exit(1); }\n"
                 "console.log('pass'); process.exit(0);\n")
@@ -327,16 +327,26 @@ class HeadlessClaudeAdapter(DispatchAdapter):
     """
     name = "headless-claude"
 
-    def __init__(self, model=None, allowed_tools="Read,Edit,Write,Bash,Glob,Grep"):
+    def __init__(self, model=None, allowed_tools="Read,Edit,Write,Glob,Grep"):
         self.model = model
         self.allowed_tools = allowed_tools
 
     def _allowed_tools(self, unit):
-        """The worker's tool scope. A `team` delegation plan adds Task so the orchestrator can SPAWN the planned
-        sub-agent team (orchestrator-workers, to max_depth); a non-delegating plan keeps the single-worker scope."""
+        """The worker's tool scope, ROLE-AWARE. The product-authoring worker (cell-advancer) carries NO Bash by
+        default — it authors via Write/Edit, and the gate's signal-forge floor RESTS on that tool-scope: the redirect
+        heuristic (_gates._BASH_WRITE_VERBS) deliberately ignores inline interpreters (`python3 -c open(…,'w')`) to
+        avoid false-denying the validator's legitimate reads, so the only real defense against an inline-interpreter
+        forge is that the *forging* worker has no Bash at all (harness-council H3-C1: the old default leaked Bash to
+        the live module worker, contradicting the gate's own stated floor). Bash is granted back ONLY to the
+        verifier-author (rubric-architect) — a different actor that authors the GATE and must calibrate it, runs
+        BEFORE the module exists, and is denied the product barrel (_gates.VERIFIER_AUTHOR) so it can't author the
+        module it grades. A `team` delegation plan adds Task to spawn the planned sub-agent team."""
+        tools = self.allowed_tools
+        if unit.get("kind") == "verifier" and "Bash" not in tools.split(","):
+            tools = tools + ",Bash"
         if ((unit.get("plan") or {}).get("delegation") or {}).get("mode") == "team":
-            return self.allowed_tools + ",Task"
-        return self.allowed_tools
+            tools = tools + ",Task"
+        return tools
 
     def _prompt(self, d, unit, project_root):
         tt = unit.get("transition") or {}
@@ -629,10 +639,33 @@ def author_app_verifiers(d, slugs, adapter, repo_root=None, scope="system"):
     return results
 
 
+_MOCK_VERIFIER_MARK = "dev-factory:mock-verifier"  # sentinel every seed/mock-authored stub stamps; a real harness omits it
+
+
+def _exercises_export(src):
+    """True if a verify.mjs CALLS a module export other than `ready` (`m.saveForge(…)`, `m.createGallery()`) —
+    the behavioral signature of a real spec-conformance harness. A presence stub only READS `m.ready`/`ready`,
+    so it never matches. The rubric-architect prompt mandates the `import * as m` namespace form, so a real
+    harness's exercises always surface as `m.<name>(`."""
+    for seg in src.split("m.")[1:]:
+        name = ""
+        for ch in seg:
+            if ch.isalnum() or ch == "_":
+                name += ch
+            else:
+                break
+        if name and name != "ready" and seg[len(name):].lstrip().startswith("("):
+            return True
+    return False
+
+
 def _is_mock_verifier(d, cell):
-    """True iff a multi-file capability cell's per-cell verify.mjs is still the seeded MOCK stub (a short
-    `ready === true` presence check), or is missing — i.e. not yet a real, spec-derived harness. The shell
-    (single-file, render-gated) and doc cells return False. Drives the verifier-author DEFAULT below."""
+    """True iff a multi-file capability cell's per-cell verify.mjs is still a SEED/mock stub (a presence check),
+    or is missing — i.e. not yet a real, spec-derived harness. Detection is the explicit `_MOCK_VERIFIER_MARK`
+    sentinel OR a behavioral test (imports the product but never CALLS an export) — NOT the old `import { ready }`
+    + `<6 lines` heuristic, which missed the MockAdapter's `import * as m` smoke stub (so a mock build's gate
+    posed as 'real' on the next headless run) and waved through any long-but-vacuous harness (harness-council
+    H2-M2). The shell (single-file, render-gated) and doc cells return False. Drives the verifier-author DEFAULT."""
     authoring = _authoring_for(cell)
     if not authoring or authoring.get("mode") != "multi-file":
         return False
@@ -641,7 +674,11 @@ def _is_mock_verifier(d, cell):
         src = open(vpath, encoding="utf-8").read()
     except OSError:
         return True
-    return "import { ready }" in src and src.count("\n") < 6
+    if _MOCK_VERIFIER_MARK in src:
+        return True
+    if "index.mjs" not in src and "./" not in src:   # doesn't even import the product — not a recognizable harness
+        return True
+    return not _exercises_export(src)
 
 
 # ─────────────────────────────────── the dispatch loop ───────────────────────────────────
@@ -1229,12 +1266,20 @@ def selftest():
         vfd = os.path.join(d, "vf")
         os.environ["DEV_FACTORY_KIT"] = vfd
         try:
-            open(os.path.join(vfd, "core", "verify.mjs"), "w").write("import { ready } from './index.mjs';\nif(!ready)process.exit(1);\n")
-            expect(_is_mock_verifier(vfd, {"layer": "capability", "scope": "system", "slug": "core"}),
-                   "_is_mock_verifier must flag a seeded ready-stub harness")
-            open(os.path.join(vfd, "core", "verify.mjs"), "w").write("import * as m from './index.mjs';\n" + "// real\n" * 20 + "console.log('pass');\n")
-            expect(not _is_mock_verifier(vfd, {"layer": "capability", "scope": "system", "slug": "core"}),
-                   "_is_mock_verifier must NOT flag a real (long, spec-testing) harness")
+            corecell = {"layer": "capability", "scope": "system", "slug": "core"}
+            vp = os.path.join(vfd, "core", "verify.mjs")
+            open(vp, "w").write("import { ready } from './index.mjs';\nif(!ready)process.exit(1);\n")
+            expect(_is_mock_verifier(vfd, corecell), "_is_mock_verifier must flag a seeded ready-stub (named-import form)")
+            # the MockAdapter SMOKE stub (`import * as m`, only READS m.ready) — the old `import { ready }` heuristic
+            # MISSED this, so a mock build's gate posed as 'real' on the next headless run (H2-M2 regression guard):
+            open(vp, "w").write("import * as m from './index.mjs';\nif (m.ready !== true) process.exit(1);\nconsole.log('pass');\n")
+            expect(_is_mock_verifier(vfd, corecell), "_is_mock_verifier must flag the import-* smoke stub (reads m.ready only)")
+            # length-independence: a long but vacuous harness carrying the mock sentinel is still a stub:
+            open(vp, "w").write(f"// {_MOCK_VERIFIER_MARK}\nimport * as m from './index.mjs';\n" + "// pad\n" * 20 + "console.log('pass');\n")
+            expect(_is_mock_verifier(vfd, corecell), "_is_mock_verifier must flag any harness carrying the mock sentinel, regardless of length")
+            # a REAL harness EXERCISES an export (calls it) — that is the behavioral discriminator, not line count:
+            open(vp, "w").write("import * as m from './index.mjs';\nconst r = m.compute(2, 3);\nif (r !== 5) { console.error('FAIL'); process.exit(1); }\nconsole.log('pass');\n")
+            expect(not _is_mock_verifier(vfd, corecell), "_is_mock_verifier must NOT flag a real harness that exercises a module export")
             expect(not _is_mock_verifier(vfd, {"layer": "spec", "scope": "system", "slug": "app"}),
                    "_is_mock_verifier must skip non-multi-file cells (doc/spec, or the render-gated shell)")
         finally:
