@@ -3,6 +3,17 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-20 — harness-council audit fixes (round 7): the signal-forge floor is now absolute (H3-C1 residual)
+
+- **NO headless worker carries `Bash` anymore.** Round 2 dropped it from the module worker but kept it for the
+  verifier-author (rubric-architect) to self-calibrate the harness it writes. That was the last inline-interpreter
+  forge surface (`python3 -c open('…/signals/…','w')` past the gate's redirect heuristic). It is now gone: the
+  verifier-author authors `verify.mjs` Write-only and its calibration is the downstream loop — the module is built
+  against the gate and a broken gate fails validation → re-author (`_verifier_prompt` already authored blind, "the
+  module may not exist yet"). Every headless worker is now Write-only over a deny-list that blocks signals, the
+  ledger, the lattice, and the product barrel — zero forge surface. A `team` plan still adds `Task` (the one
+  capability that can't forge state). Selftest asserts the no-Bash invariant across module · verifier · team units.
+
 ## 2026-06-20 — harness-council audit fixes (round 5): the frontier never silently starves (H1)
 
 - **The heartbeat now NAMES a dependency cycle (H1).** A `depends_on` cycle leaves its cells un-advanceable forever

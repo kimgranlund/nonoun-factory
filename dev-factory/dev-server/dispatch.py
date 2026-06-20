@@ -333,18 +333,17 @@ class HeadlessClaudeAdapter(DispatchAdapter):
         self.allowed_tools = allowed_tools
 
     def _allowed_tools(self, unit):
-        """The worker's tool scope, ROLE-AWARE. The product-authoring worker (cell-advancer) carries NO Bash by
-        default — it authors via Write/Edit, and the gate's signal-forge floor RESTS on that tool-scope: the redirect
-        heuristic (_gates._BASH_WRITE_VERBS) deliberately ignores inline interpreters (`python3 -c open(…,'w')`) to
-        avoid false-denying the validator's legitimate reads, so the only real defense against an inline-interpreter
-        forge is that the *forging* worker has no Bash at all (harness-council H3-C1: the old default leaked Bash to
-        the live module worker, contradicting the gate's own stated floor). Bash is granted back ONLY to the
-        verifier-author (rubric-architect) — a different actor that authors the GATE and must calibrate it, runs
-        BEFORE the module exists, and is denied the product barrel (_gates.VERIFIER_AUTHOR) so it can't author the
-        module it grades. A `team` delegation plan adds Task to spawn the planned sub-agent team."""
+        """The worker's tool scope. NO headless worker — neither the product-authoring cell-advancer NOR the
+        verifier-author (rubric-architect) — carries Bash: workers author via Write/Edit, and the gate's signal-forge
+        floor RESTS on that tool-scope. The redirect heuristic (_gates._BASH_WRITE_VERBS) deliberately ignores inline
+        interpreters (`python3 -c open(…,'w')`) to avoid false-denying a reader's legitimate reads, so the only real
+        defense against an inline-interpreter forge is that no forging worker has Bash at all (harness-council H3-C1).
+        The verifier-author was the last residual surface — it kept Bash to self-calibrate the harness it writes, but
+        its calibration is the downstream loop: the module is built against the verify.mjs and a broken gate fails
+        validation → re-author. So it too authors blind (Write-only, denied signals/ledger/lattice AND the product
+        barrel `index.mjs` via _gates.VERIFIER_AUTHOR) — zero forge surface. A `team` delegation plan adds Task to
+        spawn the planned sub-agent team (the one capability a worker can't forge state through)."""
         tools = self.allowed_tools
-        if unit.get("kind") == "verifier" and "Bash" not in tools.split(","):
-            tools = tools + ",Bash"
         if ((unit.get("plan") or {}).get("delegation") or {}).get("mode") == "team":
             tools = tools + ",Task"
         return tools
@@ -1411,6 +1410,11 @@ def selftest():
                "a team-delegation plan must produce an orchestrator prompt that delegates to the planned depth")
         expect("Task" in hca._allowed_tools(team_unit), "delegation=team must add the Task tool to the worker scope")
         expect("Task" not in hca._allowed_tools(capunit), "a non-delegating plan must NOT add the Task tool")
+        # the signal-forge floor (H3-C1): NO headless worker carries Bash — not the module worker, not the
+        # verifier-author — so no worker can shell an inline-interpreter write past the gate's redirect heuristic.
+        for u in (capunit, dict(capunit, kind="verifier"), team_unit):
+            expect("Bash" not in hca._allowed_tools(u).split(","),
+                   f"a headless worker must NEVER carry Bash (the inline-interpreter forge floor); unit kind={u.get('kind')}")
 
         # adapter selection: DEV_FACTORY_ADAPTER=headless picks the LIVE worker; default is the free mock loop
         expect(isinstance(resolve_adapter("mock"), MockAdapter) and isinstance(resolve_adapter("headless"), HeadlessClaudeAdapter),
