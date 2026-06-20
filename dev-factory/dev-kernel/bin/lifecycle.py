@@ -156,6 +156,17 @@ def gate_dispatch(d, ticket, lat, slots_free=1, tier=3, done_tickets=frozenset()
                     if rc2 is None or rc2.get("maturity") != "validated":
                         return False, (f"verifier rubric {rub} is {'absent' if rc2 is None else rc2.get('maturity')}, "
                                        f"not validated — the cell would be verified against air")
+            # the LAYER_DEPS foothold (re-audit 3 N1), SCOPE-KEYED so it does not false-block a single-cell advance
+            # in a minimal/partial lattice: if an upstream layer HAS cells at this scope (it is part of THIS build),
+            # at least one must be SETTLED — a cell must not validate above an unsettled upstream LAYER it requires.
+            # If the upstream layer is absent entirely, that is the lattice-architect's seeding concern + the
+            # lattice-health rubric, not this per-ticket gate. (`_lat.ready()`'s foothold check is otherwise on no
+            # live path — only the read-only MCP query consults it.)
+            for up in getattr(_lat, "LAYER_DEPS", {}).get(cell.get("layer"), []):
+                ups = [c for c in lat.get("cells", []) if c.get("layer") == up and c.get("scope") == cell.get("scope")]
+                if ups and not any(c.get("maturity") in _lat.SETTLED for c in ups):
+                    return False, (f"no validated {up} cell at scope {cell.get('scope')} — partial order: "
+                                   f"{cell.get('layer')} requires a settled {up} foothold upstream")
     if cell is not None and cell.get("blocked"):
         return False, f"target_cell {ticket['target_cell']} is blocked (stop-gate) — dropped from dispatch"
     return True, "dispatchable"

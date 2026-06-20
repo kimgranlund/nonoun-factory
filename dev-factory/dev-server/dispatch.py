@@ -958,6 +958,33 @@ def _exports_from_verify(src):
     return out
 
 
+def _refuter_discriminates(refute, exports):
+    """A positive CAN-DISAGREE proof (harness-council re-audit 3): run the refute set's harness against a stub whose
+    exports return a deterministic POISON sentinel; if the harness AGREES (exit 0) with that deliberately-wrong
+    module, the refute set is a tautology that cannot disagree (e.g. `compute(1)===compute(1)`, `[compute(1)].length
+    ===1`, `compute(1),true`) and must NOT count as measuring. Only a refute set that DISAGREES with the poison
+    (exit ≠ 0) earns `measuring`. This is the semantic check the syntactic `verify_gen.is_behavioral` can only
+    approximate — a denylist of forms always leaks. Fail-CLOSED: no node / any error → not discriminating."""
+    names = [e for e in (exports or []) if isinstance(e, str) and e.strip()]
+    if not refute or not names or shutil.which("node") is None:
+        return False
+    poison = "'__df_poison_" + os.urandom(6).hex() + "__'"   # random, deterministic, unguessable by the refute author
+    stub = "".join(f"export const {e} = (...a) => ({poison});\n" for e in names)
+    sdir = tempfile.mkdtemp(prefix="df-calib-")
+    try:
+        spath = os.path.join(sdir, "index.mjs")
+        open(spath, "w", encoding="utf-8").write(stub)
+        abs_stub = pathlib.Path(os.path.abspath(spath)).as_uri()
+        harness = _vg.gen_cap_verify(names, refute).replace("'./index.mjs'", f"'{abs_stub}'")
+        rc = subprocess.run(["node", "--input-type=module", "-e", harness],
+                            cwd=sdir, capture_output=True, text=True, timeout=30).returncode
+        return rc != 0   # the refute set DISAGREED with the poison stub → it can disagree → measuring
+    except (OSError, subprocess.SubprocessError):
+        return False
+    finally:
+        shutil.rmtree(sdir, ignore_errors=True)
+
+
 def produce_refuter(d, cell_id):
     """The LIVE refuter PRODUCER (harness-council H6). When a cell first reaches `validated`, arm an independent
     refuter sidecar so the false-pass oracle (`refute_frontier` → `run_refuter`) has a work-item the next tick.
@@ -994,7 +1021,10 @@ def produce_refuter(d, cell_id):
     if os.path.isfile(spec_path):
         try:
             cand = (json.load(open(spec_path, encoding="utf-8")) or {}).get("refute") or []
-            if _vg.is_behavioral(cand, exports):
+            # MEASURING requires BOTH the cheap syntactic pre-filter (is_behavioral — invokes an export, no obvious
+            # tautology) AND the semantic positive proof (_refuter_discriminates — actually disagrees with a poison
+            # stub). A behavioral-LOOKING but vacuous refute set (`compute(1)===compute(1)`) fails the calibration.
+            if _vg.is_behavioral(cand, exports) and _refuter_discriminates(cand, exports):
                 refute, measuring = cand, True
         except (OSError, ValueError):
             pass
@@ -1144,19 +1174,21 @@ def run_refuter(d, cell_id):
     cell_dir = os.path.normpath(os.path.join(d, cell.get("asset_ref")
                                 or _asset_rel(cell["layer"], cell["slug"], _authoring_for(cell))))
     abs_index = pathlib.Path(os.path.abspath(os.path.join(cell_dir, "index.mjs"))).as_uri()
-    # AGREE requires proof the harness ran its checks to COMPLETION — exit 0 alone is forgeable by a module that
-    # `process.exit(0)`s on import, and a `pass:` substring is forgeable by a module that prints `pass` on import
-    # (harness-council re-audit 2). So inject a per-run NONCE the module cannot know: it is printed ONLY at the
-    # harness's success exit (every `process.exit(0)` becomes `console.log(NONCE);process.exit(0)`), and AGREE
-    # requires the nonce in stdout. An import-time short-circuit never reaches the success exit → no nonce → not agreed.
+    # AGREE requires proof the harness ran its checks to COMPLETION. Exit 0 alone is forgeable (a module that
+    # `process.exit(0)`s on import), and a `pass:` substring is forgeable (a module that prints `pass` on import). So
+    # inject a per-run NONCE printed ONLY at the harness's success exit, and require it. CRUCIALLY the harness is run
+    # via `node -e` (NOT a temp FILE): with no harness file, the graded module — which executes in this process at
+    # import, BEFORE the harness's checks — cannot read the cleartext nonce. `process.argv[1]` is undefined under
+    # `-e` (so `readFileSync(process.argv[1])` throws), the harness source is not on disk, and the nonce is not in
+    # env (harness-council re-audit 3: a file harness let the module grep the nonce off its own importer). cwd is an
+    # empty temp dir, isolating the harness's node env from cell_dir.
     nonce = "RF-" + os.urandom(12).hex()
     rewritten = (harness.replace("'./index.mjs'", f"'{abs_index}'")
                         .replace("process.exit(0)", f"console.log('{nonce}');process.exit(0)"))
     iso = tempfile.mkdtemp(prefix="df-refute-")
-    rp = os.path.join(iso, "refute.mjs")
     try:
-        open(rp, "w", encoding="utf-8").write(rewritten)
-        proc = subprocess.run(["node", rp], cwd=iso, capture_output=True, text=True, timeout=60)
+        proc = subprocess.run(["node", "--input-type=module", "-e", rewritten],
+                              cwd=iso, capture_output=True, text=True, timeout=60)
         rc, out = proc.returncode, (proc.stdout or "")
     except (OSError, subprocess.SubprocessError):
         return None

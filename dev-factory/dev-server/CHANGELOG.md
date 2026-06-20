@@ -3,6 +3,25 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-20 — harness-council RE-AUDIT round 3 (round 12): the nonce was readable off disk; is_behavioral leaked
+
+A THIRD council verification caught two more measurement forges (and three structural majors). The keystone fixes:
+
+- **`run_refuter` runs the harness via `node -e`, not a temp FILE.** The round-2 nonce was injected into a harness
+  FILE, so the graded module (which runs in-process at import, before the checks) could `readFileSync(process.argv[1])`
+  and grep the cleartext nonce. With `-e` there is no harness file: `process.argv[1]` is undefined, the source is not
+  on disk, and the nonce is not in env — the module cannot obtain it. `earned-autonomy` H4 now uses the exact
+  read-off-disk forge.
+- **`produce_refuter` CALIBRATES a refute set (a positive can-disagree proof), not just `is_behavioral`.** A 2-form
+  syntactic denylist leaked 5/5 vacuous-but-invoking refuters (`compute(1)===compute(1)`, `[compute(1)].length===1`,
+  `compute(1),true`, …). `dispatch._refuter_discriminates` runs the refute harness against a deterministic POISON
+  stub; only a refute set that DISAGREES with the deliberately-wrong module earns `measuring`. Fail-safe (a vacuous
+  set, or any error, → non-measuring → the cell stays `unmeasured`/Tier 1).
+- Paired with the kernel's N1 (scope-keyed LAYER_DEPS at dispatch) + N2 (transitive un-ship on an incident), dev-kernel
+  0.2.21. Noted residuals (deeper/vendored): the base gate (`validate.py`) still trusts exit status — the hardened
+  refuter is the backstop; true in-process module isolation would need a `vm`/sandbox; the operator `lattice stale`
+  CLI is one-hop (vendored), with `lattice-health` as the backstop.
+
 ## 2026-06-20 — harness-council RE-AUDIT round 2 (round 11): the measurement was forgeable three more ways
 
 A SECOND council verification caught the first re-audit short — the producer path was honest but the measurement

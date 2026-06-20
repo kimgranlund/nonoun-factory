@@ -123,13 +123,18 @@ def _body():
         check(a3 is False, f"H3b: the producer-armed behavioral refuter DISAGREES on the overfit (got {a3})")
         check(_auto.tier_for(d) <= 1, f"H3c: the caught false pass mechanically drops the family below Tier 2 (got {_auto.tier_for(d)})")
 
-        print("· H4 — refuter ISOLATION: a module that forges the sentinel on IMPORT fools the gate but NOT the refuter")
+        print("· H4 — refuter ISOLATION: the STRONGEST forge (read the nonce off disk on import) is caught")
         gdir, gcell = _seed_cell(d, "gamer")
-        # the strongest forge: print `pass` AND exit 0 during import — defeats both the exit-code gate AND a naive
-        # `'pass' in stdout` sentinel. The refuter's per-run NONCE (printed only at the harness's own success exit,
-        # which this import-time exit never reaches) is unforgeable: the module cannot know it.
+        # the strongest worker-authored forge (harness-council re-audit 3): on import, read the harness source off
+        # `process.argv[1]` and grep the cleartext nonce, print it, exit 0 — defeating the exit-code gate AND a naive
+        # `'pass'` sentinel AND a file-harness nonce. Running the harness via `node -e` (no file) defeats it:
+        # process.argv[1] is undefined → readFileSync throws → no nonce printed → the import-time exit never reaches
+        # the harness's own success exit either. The module cannot obtain the nonce.
         open(os.path.join(gdir, "index.mjs"), "w").write(
-            "export const ready = true;\nexport const compute = (a, b) => a + b;\nconsole.log('pass');\nprocess.exit(0);\n")
+            "import { readFileSync } from 'node:fs';\n"
+            "try { console.log(readFileSync(process.argv[1], 'utf8').match(/RF-[0-9a-f]+/)[0]); } catch (e) {}\n"
+            "console.log('pass');\n"
+            "export const ready = true;\nexport const compute = (a, b) => a + b;\nprocess.exit(0);\n")
         json.dump({"exports": ["compute"], "acceptance": [], "refute": BEHAVIORAL_REFUTE, "generation": 0, "history": []},
                   open(os.path.join(d, "coordination", "verify-spec", f"{gcell}.json"), "w"))
         api.seed_cell(d, "capability", "system", "gamer", maturity="instantiated", asset_ref="capability/gamer")

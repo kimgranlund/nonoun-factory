@@ -2,6 +2,15 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.21] — 2026-06-20
+
+### Fixed (harness-council re-audit, round 3)
+
+- **`lifecycle.gate_dispatch` now enforces the LAYER_DEPS foothold (N1), scope-keyed.** `ready()`'s layer-foothold check was on no live path (only the read-only MCP query consulted it), so a rubric/methodology/pattern cell with empty `depends_on` could validate above an unsettled upstream layer. The gate now refuses a validating transition if an upstream layer that HAS cells at the target's scope (i.e. is part of this build) has none settled — scope-keyed so a minimal/partial lattice (no upstream cells) is not false-blocked.
+- **`autonomy.record_incident` now UN-SHIPS transitively (N2).** It staled the implicated verifier rubrics but left the cells validated against them stale-but-trusted. It now drives `propagate_staleness` to a fixpoint from each demoted rubric, so nothing stays trusted atop a demoted verifier.
+
+plugin.json 0.2.20 → 0.2.21.
+
 ## [0.2.20] — 2026-06-20
 
 ### Fixed (harness-council re-audit, round 2 — the measurement was forgeable three more ways)

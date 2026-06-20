@@ -63,3 +63,21 @@ The fixes above were sent back through the council a second time rather than sel
 dev-kernel 0.2.20. The deferred item is unchanged: a headless refuter-author for autonomous Tier 2. The self-heal
 **declaw** the council noted (a self-healed cell re-arms only the generic floor, so its measurement capacity is spent
 until a behavioral oracle is re-authored) is honest (reads `unmeasured`) and is closed by that same refuter-author.
+
+## Round 3 — the council caught the nonce readable off disk, and `is_behavioral` still leaking
+
+A THIRD verification found the round-2 measurement still forgeable two ways, plus three structural majors. Fixed:
+
+| # | Finding (council, round 3) | Fix |
+| --- | --- | --- |
+| **CRITICAL** | the nonce was injected into a harness **FILE**, so a module could `readFileSync(process.argv[1])` and grep the cleartext nonce on import — a strictly stronger forge than the round-2 `print('pass')` it tested. | `run_refuter` runs the harness via `node -e` (no file): `process.argv[1]` is undefined, the source is not on disk, the nonce is not in env. The module cannot obtain it. `earned-autonomy` H4 now uses the read-off-disk forge. |
+| **MAJOR** | `is_behavioral`'s 2-form denylist admitted **5/5** vacuous-but-invoking refute sets (`compute(1)===compute(1)`, `[compute(1)].length===1`, `compute(1),true`, `compute(1)>=compute(1)`, a ternary of those). | `produce_refuter` now also CALIBRATES: `_refuter_discriminates` runs the refute harness against a deterministic POISON stub; only a set that DISAGREES with the deliberately-wrong module earns `measuring`. Fail-safe toward `unmeasured`. |
+| **MAJOR (N1)** | the LAYER_DEPS foothold (`ready()`) was on no live path — a rubric/methodology cell with empty `depends_on` could validate above an unsettled upstream layer. | `gate_dispatch` enforces it, **scope-keyed** (only when the upstream layer has cells at the scope — so a minimal lattice isn't false-blocked). |
+| **MAJOR (N2)** | `record_incident` staled rubrics but left cells validated against them stale-but-trusted. | It now un-ships TRANSITIVELY from each demoted rubric (fixpoint). |
+
+dev-kernel 0.2.21. **Residuals (deeper / vendored, accepted):** the base gate (`validate.py`, vendored) still trusts
+exit status — a `process.exit(0)`-on-import module passes its gate, and the hardened refuter is the backstop; true
+in-process module isolation (monkey-patching globals) would need a `vm`/sandbox, deliberately not taken; the operator
+`lattice stale` CLI is one-hop (vendored) with the `lattice-health` rubric as the structural backstop. The keystone
+**measurement** — the false-pass signal the autonomy ladder consumes — is now unforgeable by a worker-authored module
+(no harness file to read; the refute set must prove it can disagree) and counts fail-closed.

@@ -167,6 +167,25 @@ def record_incident(d, cell, reason, family=None, now=None):
         _led.append(d, "demote", {"kind": "server", "id": "autonomy"}, {"cell": cell},
                     f"mechanical demotion: verifier(s) {staled} flagged stale after the incident",
                     ts=now.isoformat(timespec="seconds"), metrics={"family": family})
+        # UN-SHIP (re-audit 3 N2): a cell validated AGAINST a now-demoted verifier is itself suspect — propagate
+        # staleness TRANSITIVELY from each staled rubric (fixpoint over the kernel's one-hop propagate_staleness) so
+        # nothing stays stale-but-trusted atop a demoted verifier. (No-op where cells do not record the rubric in
+        # `validated_against`; correct where they do.)
+        lat2 = _lat.load(d)
+        marker = f"incident-{now.isoformat(timespec='seconds')}"
+        flipped, frontier, seen = [], list(staled), set(staled)
+        while frontier:
+            nxt = []
+            for cid in frontier:
+                for f in _lat.propagate_staleness(lat2, cid, marker):
+                    if f not in seen:
+                        seen.add(f); flipped.append(f); nxt.append(f)
+            frontier = nxt
+        if flipped:
+            _lat.save(d, lat2)
+            _led.append(d, "stale-propagated", {"kind": "server", "id": "autonomy"}, {"cell": cell},
+                        f"un-shipped cell(s) validated against the demoted verifier(s): {flipped}",
+                        ts=now.isoformat(timespec="seconds"), metrics={"family": family, "flipped": flipped})
     return tier_for(d, family, now)
 
 
