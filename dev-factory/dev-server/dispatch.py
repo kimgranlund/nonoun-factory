@@ -1169,11 +1169,14 @@ def run_refuter(d, cell_id):
     except (json.JSONDecodeError, OSError):
         return None
     harness = sdata.get("harness")
-    # MEASURING vs liveness (keystone): a sidecar marked measuring=False is the generic floor — it can catch a module
-    # that throws on load (records an incident, demotes) but it is tautological against a loading module, so its check
-    # does NOT count toward false_pass (refuter_checks filters on metrics.measuring). A sidecar without the flag is a
-    # real behavioral oracle (hand-seeded / self-heal-folded) → measuring.
-    measuring = sdata.get("measuring", True)
+    # MEASURING vs liveness (keystone): a check counts toward false_pass / Tier 2 ONLY if its sidecar EXPLICITLY
+    # declares `measuring: true` — which the production writers (`produce_refuter`, `self_heal_cell`) do only after the
+    # `_refuter_discriminates` poison calibration passes. The default is FAIL-SAFE False (harness-council re-audit 5):
+    # a keyless sidecar (a hand-seeded fixture, or — on an UNWIRED instance where `coordination/refuters/` is not yet
+    # gate-protected — anything a non-server writer drops) is LIVENESS-ONLY and can never mint a measured 0.0 →
+    # auto-Tier-2. It still records its agree/disagree (a disagreement demotes via the incident path either way); it
+    # just does not earn the denominator. Fail-safe by construction, independent of whether the wiring is installed.
+    measuring = sdata.get("measuring", False)
     if not harness or shutil.which("node") is None:
         return None
     # The refuter must IMPORT the product source (the cell's asset_ref) — a kit's output_root may have rooted it OUT

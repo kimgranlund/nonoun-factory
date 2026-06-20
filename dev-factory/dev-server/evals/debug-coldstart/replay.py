@@ -190,7 +190,9 @@ def run():
             api.seed_cell(rd, "rubric", "system", "test-suite", maturity="validated", signal_refs=["s/x"])
             api.seed_cell(rd, "capability", "system", "c", maturity="validated", asset_ref="capability/c")
             os.makedirs(os.path.join(rd, "coordination", "refuters"), exist_ok=True)
-            _json2.dump({"harness": _cs._gen_cap_verify(["createDeck"], ["createDeck().length === 52"])},
+            # a real behavioral refute (value check) — stamp measuring=True explicitly (the default is now fail-safe
+            # False: a keyless sidecar is liveness-only and cannot mint a measured false-pass — re-audit 5).
+            _json2.dump({"harness": _cs._gen_cap_verify(["createDeck"], ["createDeck().length === 52"]), "measuring": True},
                         open(os.path.join(rd, "coordination", "refuters", "capability.system.c.json"), "w"))
             verdict = _disp2.run_refuter(rd, "capability.system.c")
             rate = _led2.false_pass_rate(rd)

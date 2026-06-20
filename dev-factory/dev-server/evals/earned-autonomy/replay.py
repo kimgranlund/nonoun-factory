@@ -38,6 +38,7 @@ import validate as _val   # noqa: E402
 import autonomy as _auto  # noqa: E402
 import lattice as _lat    # noqa: E402
 import heartbeat as _hb   # noqa: E402
+import ledger as _led     # noqa: E402
 
 GATE = ("import * as m from './index.mjs';\n"
         "for (const [a,b,w] of [[2,3,5],[10,0,10]]) { if (m.compute(a,b)!==w){console.error('FAIL');process.exit(1);} }\n"
@@ -142,9 +143,12 @@ def _body():
             "  try { const m = readFileSync('/proc/self/fd/0', 'utf8').match(/RF-[0-9a-f]+/); if (m) return m[0]; } catch (e) {}\n"
             "  try { const m = (import.meta.url || '').match(/RF-[0-9a-f]+/); if (m) return m[0]; } catch (e) {}\n"
             "  try { const m = execSync('ps -o args= -p ' + process.pid).toString().match(/RF-[0-9a-f]+/); if (m) return m[0]; } catch (e) {}\n"
+            "  try { const m = (new Error().stack || '').match(/RF-[0-9a-f]+/); if (m) return m[0]; } catch (e) {}\n"   # stack scrape
             "  return null; }\n"
             "process.exit = () => {};\n"                            # override exit (defeated by throw-on-failure)
             "process.on('uncaughtException', () => {});\n"
+            "process.on('exit', () => { try { console.log('pass'); } catch(e){} });\n"   # re-emit at exit
+            "try { Array.prototype.filter = function(){ return []; }; } catch(e){}\n"    # pollute the acceptance loop (dies on strict ===)
             "const n = forge();\n"
             "if (n) { console.log(n); }\n"
             "console.log('pass');\n"                                # forge the naive sentinel too
@@ -159,6 +163,21 @@ def _body():
         a4 = _disp.run_refuter(d, gcell)
         check(a4 is False,
               f"H4b: the refuter requires its unforgeable per-run NONCE, so the import-time 'pass'+exit forge is caught (got {a4})")
+
+        print("· H5 — a KEYLESS sidecar (the unwired-instance forge) is liveness-only: it cannot mint a measurement")
+        kdir, kcell = _seed_cell(d, "keyless")
+        open(os.path.join(kdir, "index.mjs"), "w").write("export const ready = true;\nexport const compute = (a, b) => 0;\n")
+        api.seed_cell(d, "capability", "system", "keyless", maturity="validated", asset_ref="capability/keyless", signal_refs=["k"])
+        # hand-drop a KEYLESS sidecar (NO `measuring` key) whose harness TRIVIALLY passes the product — the round-5
+        # forge on an unwired instance where coordination/refuters/ is not yet gate-protected. measuring defaults to
+        # False, so this AGREES but is liveness-only: it can never mint a measured 0.0 → auto-Tier-2.
+        os.makedirs(os.path.join(d, "coordination", "refuters"), exist_ok=True)
+        json.dump({"harness": "import * as m from './index.mjs';\nif (typeof m.compute !== 'function') process.exit(1);\nprocess.exit(0);\n"},
+                  open(os.path.join(d, "coordination", "refuters", f"{kcell}.json"), "w"))
+        a5 = _disp.run_refuter(d, kcell)
+        ksig = [e for e in _led.read(d, cell=kcell) if (e.get("metrics") or {}).get("refuter")]
+        check(a5 is True and ksig and ksig[-1]["metrics"].get("measuring") is False,
+              "H5: a keyless sidecar AGREES yet is recorded measuring=False (fail-safe default) — it cannot mint a measured false-pass / Tier 2, even on an unwired instance")
 
     print()
     if fails:

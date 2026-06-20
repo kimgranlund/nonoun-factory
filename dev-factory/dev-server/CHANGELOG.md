@@ -3,6 +3,28 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-20 — harness-council RE-AUDIT round 5 (round 14): the in-process forge is CLOSED; fix the fail-open default
+
+The fifth verification CONFIRMED the keystone goal: a worker who authors `index.mjs` cannot forge the measurement —
+every in-process nonce channel (fd0, /proc/self/fd/0, import.meta, Error().stack, execArgv, ps) and every emission
+trick (exit-override, uncaughtException, process.on('exit'), prototype-pollution) is closed, and the two-poison
+discriminator is un-tautology-able over strict `===`. The four prior rounds of module-facing hardening are complete.
+
+The one remaining hole was OUTSIDE the module: `run_refuter` read `sdata.get("measuring", True)` — a keyless sidecar
+defaulted to MEASURING, so a trivially-passing sidecar minted a measured 0.0 → auto-Tier-2, guarded only by the
+worker-deny glob *when the gate is wired*. Fixed:
+
+- **The `measuring` default is now `False` (fail-safe, wiring-independent).** A check earns the false-pass denominator
+  ONLY if its sidecar EXPLICITLY declares `measuring: true` — which the server's `produce_refuter`/`self_heal_cell`
+  set ONLY after the two-poison calibration passes. A keyless sidecar is liveness-only by construction.
+  `evals/earned-autonomy` H5 proves a keyless trivially-passing sidecar agrees yet is recorded `measuring=False`.
+- `evals/debug-coldstart` stamps its (real, behavioral) hand-seeded refute `measuring: true` explicitly; the H4 forge
+  sweep gained the four un-executed classes (stack-scrape, exit-handler, prototype-pollution vs. the acceptance loop).
+
+After five independent council verifications the keystone false-pass measurement is unforgeable by a worker-authored
+module AND fail-safe by default. (Residual, accepted: on a fully-unwired instance with no per-dispatch gating an
+explicit `measuring: true` sidecar could be dropped — the per-dispatch worktree gate is the protection.)
+
 ## 2026-06-20 — harness-council RE-AUDIT round 4 (round 13): the nonce leaves the process entirely
 
 The round-3 `node -e` nonce was readable in-process via `process.execArgv[2]` / `/proc/self/cmdline` / `ps` — the

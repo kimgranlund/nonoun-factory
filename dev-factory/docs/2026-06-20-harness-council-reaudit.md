@@ -101,3 +101,28 @@ stdin, in no argv/env/disk channel) and cannot make the harness EMIT it without 
 failure never reaches the success line); and a vacuous refute set fails the typed calibration. The remaining residuals
 (the vendored `validate.py` exit-trust gate with the refuter as backstop; a `vm`-level sandbox for in-process global
 monkey-patching; the one-hop operator `lattice stale` CLI) are accepted and documented.
+
+## Round 5 — the in-process forge is CONFIRMED closed; the last hole was a fail-open default
+
+The fifth verification reached the convergence: **a worker who authors `index.mjs` CANNOT forge the measurement** —
+every in-process channel (nonce read via fd0 / `/proc/self/fd/0` / `import.meta` / `Error().stack` / execArgv / ps;
+emission via exit-override / `uncaughtException` / `process.on('exit')` / prototype-pollution) is closed, and the
+two-poison discriminator is un-tautology-able over strict `===`. The four rounds of module-facing hardening are done.
+The council found ONE remaining hole, outside the module: **`run_refuter` read `sdata.get("measuring", True)` — a
+keyless sidecar defaulted to MEASURING**, so a trivially-passing sidecar minted a measured `0.0` → auto-Tier-2,
+guarded only by `coordination/refuters/` being worker-denied *when the gate is wired*.
+
+- **The fix (the council's preferred, smaller, wiring-independent move): the `measuring` default is now `False`.** A
+  check counts toward `false_pass`/Tier 2 ONLY if its sidecar EXPLICITLY declares `measuring: true` — which the
+  server's `produce_refuter`/`self_heal_cell` do only after the poison calibration passes. A keyless sidecar (a
+  hand-seeded fixture, or anything dropped on an unwired instance) is liveness-only by construction. `earned-autonomy`
+  H5 proves a keyless trivially-passing sidecar agrees yet is recorded `measuring=False` — fail-safe regardless of
+  wiring state. The H4 sweep gained the four un-executed classes (stack-scrape, exit-handler, prototype-pollution).
+
+**Bottom line after five rounds:** the keystone false-pass measurement is **unforgeable by a worker-authored module**
+(confirmed by the council) and **fail-safe by default** (a non-calibrated/keyless sidecar can never mint a measured
+rate). A `measuring: true` signal is minted ONLY by the server after the two-poison calibration, and the
+sidecar dir is worker-denied per-dispatch. Residual (accepted): on a fully-unwired instance with no per-dispatch
+gating, a writer could drop an EXPLICIT `measuring: true` sidecar — the per-dispatch worktree gate is the protection,
+and the operator could additionally gate the tier ceiling on the wiring check (the council's option (a)). The earned
+tier on the unseeded source tree is honestly **Tier 0** (no validated verifier, UNMEASURED).
