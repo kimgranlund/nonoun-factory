@@ -2,6 +2,14 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.19] — 2026-06-20
+
+### Fixed
+
+- **`lifecycle.gate_dispatch` now enforces the target CELL's `depends_on` on a validating transition, not just the ticket's declared `cells_ready` (harness-council re-audit H1).** The dispatch gate read only the ticket's `dependencies.cells_ready` — a planner-declared list — while the cycle detector (`compass.detect_cycle`) and the kernel's `ready()` traverse the cell's structural `depends_on`. The two graphs could diverge: a ticket that UNDER-declared its dependencies could validate a cell atop an unvalidated (or cyclic) dependency it forgot to list. Now, on a transition into `validated`, every cell in the target's `depends_on` must be SETTLED — so dispatch, cycle detection, and readiness all traverse the SAME graph. Selftest covers the under-declared case (refused) and the validated-dep case (allowed).
+
+plugin.json 0.2.18 → 0.2.19.
+
 ## [0.2.18] — 2026-06-20
 
 ### Fixed

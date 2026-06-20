@@ -133,6 +133,16 @@ def gate_dispatch(d, ticket, lat, slots_free=1, tier=3, done_tickets=frozenset()
     if tier < 1:
         return False, "autonomy tier 0 (attended): no unattended dispatch permitted for this family"
     cell = _lat.find(lat, ticket.get("target_cell"))
+    # On a VALIDATING transition, enforce the CELL's structural `depends_on` — not just the ticket's declared
+    # `cells_ready`, which a planner may UNDER-declare. gate_dispatch, the cycle detector (compass.detect_cycle),
+    # and the kernel's ready() now traverse the SAME graph, so a cell can never validate atop an unvalidated or
+    # cyclic dependency the ticket forgot to list (harness-council re-audit H1).
+    if cell is not None and (ticket.get("target_transition") or {}).get("to") in SIGNAL_BEARING:
+        for dep in cell.get("depends_on", []):
+            dc = _lat.find(lat, dep)
+            if dc is None or dc.get("maturity") not in _lat.SETTLED:
+                return False, (f"target cell's dependency {dep} is {'absent' if dc is None else dc.get('maturity')}, "
+                               f"not validated — the ticket under-declared the partial order (cell.depends_on)")
     if cell is not None and cell.get("blocked"):
         return False, f"target_cell {ticket['target_cell']} is blocked (stop-gate) — dropped from dispatch"
     return True, "dispatchable"
@@ -353,6 +363,31 @@ def selftest():
         expect(ticket["state"] == "done", "ticket not closed after a passing validation")
         # the signal on the cell is the SAME one the ticket carries (one gate, both transitions)
         expect(ticket.get("signal_refs") == cell.get("signal_refs"), "ticket and cell signals diverged (board != lattice)")
+
+        # H1 — gate_dispatch enforces the CELL's depends_on on a VALIDATING transition, not just the ticket's declared
+        # cells_ready: a ticket that UNDER-declares (cells_ready=[]) must not validate a cell atop an unvalidated dep.
+        ul = _lat.load(d)
+        ul["cells"].append({"layer": "spec", "scope": "task", "slug": "dep", "maturity": "instantiated", "depends_on": [], "signal_refs": []})
+        ul["cells"].append({"layer": "spec", "scope": "task", "slug": "downstream", "maturity": "instantiated",
+                            "asset_ref": "spec/downstream.md", "depends_on": ["spec.task.dep"], "signal_refs": []})
+        _lat.save(d, ul)
+        undt = {"id": _led.ulid("tkt-"), "type": "feature", "title": "validate downstream", "body": "",
+                "state": "active", "target_cell": "spec.task.downstream",
+                "target_transition": {"from": "instantiated", "to": "validated"},
+                "acceptance": {"rubric_cell": "rubric.task.first-slice"}, "budget": {"iterations": 1, "tokens": 1000},
+                "dependencies": {},  # UNDER-declared — does NOT list spec.task.dep
+                "provenance": {"created_by": "h", "ledger_refs": []},
+                "timestamps": {"created": "2026-06-14T00:00:00+00:00", "updated": "2026-06-14T00:00:00+00:00"}}
+        okd, whyd = gate_dispatch(d, undt, _lat.load(d))
+        expect(not okd and "under-declared" in whyd,
+               f"gate_dispatch must REFUSE validating a cell whose depends_on is unvalidated even when the ticket under-declares: {whyd}")
+        vl = _lat.load(d)
+        for c in vl["cells"]:
+            if _lat.cid(c) == "spec.task.dep":
+                c["maturity"] = "validated"; c["signal_refs"] = ["signals/x"]
+        _lat.save(d, vl)
+        oka, _w = gate_dispatch(d, undt, _lat.load(d))
+        expect(oka, f"gate_dispatch must ALLOW once the depends_on cell is validated: {_w}")
 
         # 6. DF-7: an AUTHOR ticket (defined->instantiated) whose cell a verifier already overshot straight to
         # `validated` (validate.py auto-steps defined->instantiated->validated) must CLOSE as a satisfied no-op —
