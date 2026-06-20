@@ -455,8 +455,9 @@ def selftest():
         import autonomy as _auto  # noqa: E402
         expect(_auto.false_pass(d) == fp0["rate"], "false-pass report disagrees with autonomy (unmeasured)")
 
-        # one agreeing refuter -> measured 0.0; reconciles with autonomy.false_pass exactly
-        _auto.record_refuter_check(d, "spec.task.a", agreed=True)
+        # one agreeing MEASURING refuter -> measured 0.0; reconciles with autonomy.false_pass exactly. (measuring=True
+        # SIMULATES a real oracle run for this node-free report test; an asserted check would correctly stay unmeasured.)
+        _auto.record_refuter_check(d, "spec.task.a", agreed=True, measuring=True)
         fp1 = false_pass_report(d)
         expect(fp1["rate"] == 0.0, f"one agreeing refuter -> 0.0 rate; got {fp1['rate']}")
         expect(fp1["refuter_checks"] == 1, "false-pass refuter count wrong")
@@ -464,7 +465,7 @@ def selftest():
         expect(_auto.false_pass(d) == fp1["rate"], "false-pass report disagrees with autonomy (measured)")
 
         # a disagreeing refuter -> a caught false pass (incident) -> rate climbs; both numerators move
-        _auto.record_refuter_check(d, "spec.task.a", agreed=False)
+        _auto.record_refuter_check(d, "spec.task.a", agreed=False, measuring=True)
         fp2 = false_pass_report(d)
         expect(fp2["refuter_checks"] == 2, "false-pass refuter count wrong after disagreement")
         expect(fp2["disagreements"] == 1, "false-pass disagreement count wrong")

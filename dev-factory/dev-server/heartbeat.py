@@ -48,11 +48,24 @@ def _budget_path(d):
     return os.path.join(d, "run", "heartbeat.json")
 
 
+# the SAFETY deadline a window with no operator-set ceiling falls back to — so an armed run is NEVER unbounded
+# (harness-council re-audit H5: app.py defaulted all four ceilings to None, leaving only the per-dispatch $ cap ×
+# an unbounded number of cells/retries). 2h is generous for a real build; an operator sets explicit bounds to override.
+DEFAULT_WINDOW_DEADLINE_S = 7200
+
+
 def arm(d, now=None, deadline_s=None, max_dispatches=None, token_ceiling=None, dollar_ceiling=None):
     """Arm the loop's window. MUST be called before the loop runs (the arming discipline): an unarmed loop
     does not dispatch (fail-closed). The window is bounded by ANY of: a wall-clock deadline, a max-dispatch
-    count, a token ceiling, or a DOLLAR ceiling — whichever is hit first halts dispatch."""
+    count, a token ceiling, or a DOLLAR ceiling — whichever is hit first halts dispatch. If the operator sets
+    NONE of them, a safety wall-clock deadline (DEFAULT_WINDOW_DEADLINE_S) is stamped so the window can never be
+    fully unbounded — an armed-but-uncapped run is a misconfiguration, not a license to spend without limit."""
     now = now or _now()
+    # guard on FALSY, not `is None`: an explicit `arm(deadline_s=0)`/`max_dispatches=0` is a zero ceiling that the
+    # `... if deadline_s else None` below would turn into an UNbounded window (harness-council re-audit 2). If no
+    # ceiling is truthy, stamp the safety deadline so an armed window is never fully unbounded.
+    if not deadline_s and not max_dispatches and not token_ceiling and not dollar_ceiling:
+        deadline_s = DEFAULT_WINDOW_DEADLINE_S
     b = {"start_ts": now.isoformat(timespec="seconds"), "ticks": 0,
          "deadline_ts": (now + datetime.timedelta(seconds=deadline_s)).isoformat(timespec="seconds") if deadline_s else None,
          "max_dispatches": max_dispatches, "token_ceiling": token_ceiling, "dollar_ceiling": dollar_ceiling}
@@ -232,15 +245,13 @@ def selftest():
         expect(s0["halted"] and "not armed" in s0["reason"], f"unarmed loop did not fail closed: {s0}")
         expect(_api.get_ticket(d, t["id"])["state"] == "active", "unarmed loop dispatched anyway")
 
-        # armed + the family has EARNED Tier 2 (a validated verifier + an agreeing refuter check + a budget)
-        # → the tick drives the ready ticket to done, UNATTENDED (Tier 1 would stop at in-review)
+        # at Tier 2 the tick drives the ready ticket to done, UNATTENDED (Tier 1 would stop at in-review). This UNIT
+        # test exercises the DISPATCH path with an EXPLICIT tier=2 override — it does NOT mint a fake measurement to
+        # "earn" the tier (the honest earning is proven end-to-end, node-gated, in evals/earned-autonomy; minting a
+        # non-oracle measuring check to reach Tier 2 was the counting-default hole).
         arm(d, max_dispatches=5, deadline_s=3600)
-        # SIMULATE the earned refuter check so this UNIT test can exercise the heartbeat's Tier-2 DISPATCH path on a
-        # node-free spec cell. NOT a production shortcut: on a real CODE build the live producer (produce_refuters)
-        # + run_refuter earn this measurement for real — proven end-to-end, node-gated, in evals/earned-autonomy.
-        _auto.record_refuter_check(d, "spec.task.s", agreed=True)    # measured-clean false-pass → Tier 2
-        s1 = on_tick(d, max_concurrency=2)                            # no tier override → the EARNED tier
-        expect(s1.get("tier") == 2, f"family should have earned Tier 2; got tier {s1.get('tier')}")
+        s1 = on_tick(d, tier=2, max_concurrency=2)
+        expect(s1.get("tier") == 2, f"tier-2 dispatch path not exercised; got tier {s1.get('tier')}")
         expect(not s1["halted"] and any(x["ok"] for x in s1["dispatched"]), f"armed tick did not dispatch: {s1}")
         expect(_api.get_ticket(d, t["id"])["state"] == "done", "heartbeat did not drive the slice to done unattended")
         cell = next(c for c in _api.lattice_grid(d) if c["id"] == "spec.task.s")
@@ -268,6 +279,18 @@ def selftest():
         expect(_cost_since(d, bts) >= 1.5, "_cost_since must sum FAILURE-path cost_usd (H5-C1: the ceiling must see failed-run spend)")
         ex, why = budget_exhausted(d)
         expect(ex and "dollar ceiling" in (why or ""), f"dollar ceiling did not halt on failure-path spend: {why}")
+
+        # an armed window is NEVER unbounded (H5): arming with NO operator ceiling stamps a safety deadline, so the
+        # only-the-per-dispatch-$-cap hazard can't exist; an explicit ceiling is left as the sole bound.
+        b_default = arm(d)
+        expect(b_default["deadline_ts"] is not None and b_default["max_dispatches"] is None,
+               "arm() with no ceilings must stamp a safety deadline (never a fully unbounded window)")
+        b_explicit = arm(d, max_dispatches=3)
+        expect(b_explicit["deadline_ts"] is None and b_explicit["max_dispatches"] == 3,
+               "arm() with an explicit ceiling must NOT force a safety deadline")
+        # falsy-guard (re-audit 2): a ZERO ceiling is not a bound — arm(deadline_s=0) must still get the safety deadline
+        expect(arm(d, deadline_s=0)["deadline_ts"] is not None,
+               "arm(deadline_s=0) is a zero ceiling, NOT a bound — must still stamp the safety deadline (no unbounded window)")
 
         # H1 — when a depends_on CYCLE starves the frontier, on_tick NAMES it (never a silent idle tick)
         with tempfile.TemporaryDirectory() as croot:

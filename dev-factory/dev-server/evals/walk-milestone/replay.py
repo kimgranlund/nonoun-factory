@@ -68,7 +68,7 @@ def run():
 
         print("· the family has EARNED Tier 2 (validated verifier + a clean independent refuter check + a budget)")
         _hb.arm(d, max_dispatches=5, deadline_s=3600)
-        _auto.record_refuter_check(d, "rubric.task.r", agreed=True)   # the accrued clean track record
+        _auto.record_refuter_check(d, "rubric.task.r", agreed=True, measuring=True)   # SIMULATES a real oracle's clean track record
         check(_auto.tier_for(d) == 2, f"W0: family earned Tier 2 (unattended-in-budget); got tier {_auto.tier_for(d)}")
 
         print("· running heartbeat ticks at the EARNED tier (UNATTENDED to done)")

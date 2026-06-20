@@ -41,7 +41,7 @@ import lattice as _lat        # noqa: E402
 import ledger as _led         # noqa: E402
 import autonomy as _auto      # noqa: E402
 
-FOO, APP = "capability.system.foo", "capability.system.app"
+FOO, APP, SHIP = "capability.system.foo", "capability.system.app", "capability.system.ship"
 SRV = {"kind": "server", "id": "eval"}
 FAILS = []
 
@@ -60,8 +60,12 @@ def seed(d):
     _api.seed_cell(d, "capability", "system", "foo", maturity="validated", asset_ref="capability/foo", signal_refs=["signals/x"])
     _api.seed_cell(d, "capability", "system", "app", maturity="validated", asset_ref="capability/app",
                    signal_refs=["signals/y"], depends_on=[FOO])
+    # a GRANDCHILD integrator validated against APP (not FOO) — un-ship must reach it TRANSITIVELY (re-audit 2)
+    _api.seed_cell(d, "capability", "system", "ship", maturity="validated", asset_ref="capability/ship",
+                   signal_refs=["signals/z"], depends_on=[APP])
     lat = _lat.load(d)
     _lat.find(lat, APP)["validated_against"] = {FOO: "OLDHASH"}
+    _lat.find(lat, SHIP)["validated_against"] = {APP: "OLDHASH2"}
     _lat.save(d, lat)
     _api._store.rebuild(d)
     _led.append(d, "transition", SRV, {"cell": FOO}, "validated", frm="instantiated", to="validated")
@@ -100,6 +104,8 @@ def main():
           "H3 — a FRESH independent refuter is re-armed (different from the consumed checks; generation advances)")
     check(grid[FOO] == "regenerating" and grid[APP] == "stale",
           "H4 — cell → regenerating (re-author) AND dependent app → stale (UN-SHIPPED)")
+    check(grid.get(SHIP) == "stale",
+          "H4b — un-ship is TRANSITIVE: the grandchild integrator (validated against app, not foo) is also stale (re-audit 2)")
 
     # re-author + re-validate → the fresh oracle re-measures the new epoch
     lat = _lat.load(d)

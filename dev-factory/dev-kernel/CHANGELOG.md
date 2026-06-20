@@ -2,6 +2,57 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.22] — 2026-06-20
+
+### Fixed (harness-council re-audit, round 4)
+
+- **`autonomy.record_incident` un-ships cells bound to a staled rubric via their `verifier` field, not only `validated_against` (H7).** The incident fixpoint keyed on `validated_against` edges, but a cell validated by a rubric records it in `verifier`; such cells survived stale-but-trusted when an incident demoted their rubric. They are now staled directly and seed the transitive un-ship fixpoint.
+
+plugin.json 0.2.21 → 0.2.22.
+
+## [0.2.21] — 2026-06-20
+
+### Fixed (harness-council re-audit, round 3)
+
+- **`lifecycle.gate_dispatch` now enforces the LAYER_DEPS foothold (N1), scope-keyed.** `ready()`'s layer-foothold check was on no live path (only the read-only MCP query consulted it), so a rubric/methodology/pattern cell with empty `depends_on` could validate above an unsettled upstream layer. The gate now refuses a validating transition if an upstream layer that HAS cells at the target's scope (i.e. is part of this build) has none settled — scope-keyed so a minimal/partial lattice (no upstream cells) is not false-blocked.
+- **`autonomy.record_incident` now UN-SHIPS transitively (N2).** It staled the implicated verifier rubrics but left the cells validated against them stale-but-trusted. It now drives `propagate_staleness` to a fixpoint from each demoted rubric, so nothing stays trusted atop a demoted verifier.
+
+plugin.json 0.2.20 → 0.2.21.
+
+## [0.2.20] — 2026-06-20
+
+### Fixed (harness-council re-audit, round 2 — the measurement was forgeable three more ways)
+
+- **`ledger.refuter_checks` counts ONLY `measuring is True` (fail-closed).** The previous `is not False` default let a check with NO `measuring` field count — so `record_refuter_check(agreed=True)` (which runs no oracle, and is reachable from the `autonomy refuter` CLI) minted a measured 0.0 false-pass and auto-granted Tier 2: the exact fake, alive. Absence now means NON-counting; a check earns the denominator only by proving it measured.
+- **`autonomy.record_refuter_check` defaults `measuring=False`.** It records an ASSERTED check (operator note / test simulation) that ran no oracle; only the live oracle path (`dispatch.run_refuter`) stamps `measuring=True` from a behavioral sidecar. Callers simulating a real measurement opt in explicitly.
+- **`lifecycle.gate_dispatch` enforces the verifier RUBRIC at dispatch, not just `depends_on`.** It was a strict subset of `ready()`, so a cell could be dispatched to validate against a non-validated (incident-staled) rubric — "verified against air." It now re-checks the cell's `verifier` and the ticket's `acceptance.rubric_cell` are `validated` on a validating transition, and enforces `depends_on` on `validated → operating`. (The LAYER_DEPS-foothold half of `ready()` stays the frontier scan's job — enforcing it per-ticket wrongly blocks single-cell advances.)
+
+plugin.json 0.2.19 → 0.2.20.
+
+## [0.2.19] — 2026-06-20
+
+### Fixed
+
+- **`lifecycle.gate_dispatch` now enforces the target CELL's `depends_on` on a validating transition, not just the ticket's declared `cells_ready` (harness-council re-audit H1).** The dispatch gate read only the ticket's `dependencies.cells_ready` — a planner-declared list — while the cycle detector (`compass.detect_cycle`) and the kernel's `ready()` traverse the cell's structural `depends_on`. The two graphs could diverge: a ticket that UNDER-declared its dependencies could validate a cell atop an unvalidated (or cyclic) dependency it forgot to list. Now, on a transition into `validated`, every cell in the target's `depends_on` must be SETTLED — so dispatch, cycle detection, and readiness all traverse the SAME graph. Selftest covers the under-declared case (refused) and the validated-dep case (allowed).
+
+plugin.json 0.2.18 → 0.2.19.
+
+## [0.2.18] — 2026-06-20
+
+### Fixed
+
+- **`ledger.no_progress` normalizes incidental signature variance (harness-council re-audit H5).** The signature-based early-block compared raw failure rationales, so the SAME root failure with a different temp path / return code / clock timestamp read as distinct signatures and bypassed the `n=2` early block (burning the full attempt budget). It now strips file paths, `exited N` return codes, and clock timestamps before comparing — while keeping bare semantic content, so genuinely-distinct errors still retry to the attempt cap rather than early-blocking. Selftest covers both directions.
+
+plugin.json 0.2.17 → 0.2.18.
+
+## [0.2.17] — 2026-06-20
+
+### Fixed
+
+- **`ledger.refuter_checks` (the false-pass denominator) now counts only MEASURING refuter checks (harness-council re-audit — the keystone).** A re-audit of the H6 remediation found the "fix" was hollow: the live producer armed `verify_gen.fresh_refute`'s generic invariants (`typeof e === 'function'`, `JSON.stringify(e) === JSON.stringify(e)`) as the refuter, but those are TAUTOLOGIES — no module that passed its gate can fail them — so `false_pass` was structurally pinned at `0.0` and Tier 2 auto-granted (the prior `agreed=True` fake wearing a `node` subprocess). Now a refuter check counts toward `false_pass` only if it is marked `measuring` (its harness EXERCISES an export on an input the gate did not use — `verify_gen.is_behavioral`); a check explicitly `measuring: false` (the generic liveness floor) cannot mint a measured rate, so a vacuous oracle can never auto-grant Tier 2. A check without the flag (hand-seeded / self-heal-folded / `record_refuter_check`) is a real behavioral oracle and still counts.
+
+plugin.json 0.2.16 → 0.2.17.
+
 ## [0.2.16] — 2026-06-20
 
 ### Added

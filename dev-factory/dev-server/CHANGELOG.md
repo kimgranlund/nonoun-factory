@@ -3,6 +3,131 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-20 — harness-council RE-AUDIT round 5 (round 14): the in-process forge is CLOSED; fix the fail-open default
+
+The fifth verification CONFIRMED the keystone goal: a worker who authors `index.mjs` cannot forge the measurement —
+every in-process nonce channel (fd0, /proc/self/fd/0, import.meta, Error().stack, execArgv, ps) and every emission
+trick (exit-override, uncaughtException, process.on('exit'), prototype-pollution) is closed, and the two-poison
+discriminator is un-tautology-able over strict `===`. The four prior rounds of module-facing hardening are complete.
+
+The one remaining hole was OUTSIDE the module: `run_refuter` read `sdata.get("measuring", True)` — a keyless sidecar
+defaulted to MEASURING, so a trivially-passing sidecar minted a measured 0.0 → auto-Tier-2, guarded only by the
+worker-deny glob *when the gate is wired*. Fixed:
+
+- **The `measuring` default is now `False` (fail-safe, wiring-independent).** A check earns the false-pass denominator
+  ONLY if its sidecar EXPLICITLY declares `measuring: true` — which the server's `produce_refuter`/`self_heal_cell`
+  set ONLY after the two-poison calibration passes. A keyless sidecar is liveness-only by construction.
+  `evals/earned-autonomy` H5 proves a keyless trivially-passing sidecar agrees yet is recorded `measuring=False`.
+- `evals/debug-coldstart` stamps its (real, behavioral) hand-seeded refute `measuring: true` explicitly; the H4 forge
+  sweep gained the four un-executed classes (stack-scrape, exit-handler, prototype-pollution vs. the acceptance loop).
+
+After five independent council verifications the keystone false-pass measurement is unforgeable by a worker-authored
+module AND fail-safe by default. (Residual, accepted: on a fully-unwired instance with no per-dispatch gating an
+explicit `measuring: true` sidecar could be dropped — the per-dispatch worktree gate is the protection.)
+
+## 2026-06-20 — harness-council RE-AUDIT round 4 (round 13): the nonce leaves the process entirely
+
+The round-3 `node -e` nonce was readable in-process via `process.execArgv[2]` / `/proc/self/cmdline` / `ps` — the
+secret had only moved from a file to the command line. The structural close (the secret is never where the imported
+module can reach it):
+
+- **`run_refuter` pipes the harness over STDIN (`node -`), not argv/`-e`,** so the nonce-bearing program is in NONE of
+  `process.argv`, `process.execArgv`, `/proc/self/cmdline`, or `ps` — the worker-authored module cannot READ it.
+- **Failures THROW (not `process.exit(1)`),** so a module that overrides `process.exit` or handles
+  `uncaughtException` cannot fall through to the success line that emits the nonce — a thrown failure never reaches it.
+  `earned-autonomy` H4 now sweeps EVERY channel (execArgv · argv · /proc · ps · exit-override · uncaughtException ·
+  print-`pass`) and proves all are caught.
+- **`_refuter_discriminates` calibrates against TWO typed poisons (a number AND a string),** closing the type-coercion
+  annihilator class (`compute(1)*0===0` held over numbers but `NaN`s a string, so a single string poison leaked it).
+- The self-heal re-arm now AND-gates `_refuter_discriminates` (matching the live producer); `record_incident`
+  un-ships verifier-bound dependents too (dev-kernel 0.2.22).
+
+The keystone measurement — the `measuring: True` refuter agreement the autonomy ladder consumes — is now unforgeable
+by a worker-authored `index.mjs`: it can neither read the nonce (not in-process) nor make the harness emit it without
+the discriminating checks genuinely passing (throw-on-failure), and a vacuous refute set fails the typed calibration.
+
+## 2026-06-20 — harness-council RE-AUDIT round 3 (round 12): the nonce was readable off disk; is_behavioral leaked
+
+A THIRD council verification caught two more measurement forges (and three structural majors). The keystone fixes:
+
+- **`run_refuter` runs the harness via `node -e`, not a temp FILE.** The round-2 nonce was injected into a harness
+  FILE, so the graded module (which runs in-process at import, before the checks) could `readFileSync(process.argv[1])`
+  and grep the cleartext nonce. With `-e` there is no harness file: `process.argv[1]` is undefined, the source is not
+  on disk, and the nonce is not in env — the module cannot obtain it. `earned-autonomy` H4 now uses the exact
+  read-off-disk forge.
+- **`produce_refuter` CALIBRATES a refute set (a positive can-disagree proof), not just `is_behavioral`.** A 2-form
+  syntactic denylist leaked 5/5 vacuous-but-invoking refuters (`compute(1)===compute(1)`, `[compute(1)].length===1`,
+  `compute(1),true`, …). `dispatch._refuter_discriminates` runs the refute harness against a deterministic POISON
+  stub; only a refute set that DISAGREES with the deliberately-wrong module earns `measuring`. Fail-safe (a vacuous
+  set, or any error, → non-measuring → the cell stays `unmeasured`/Tier 1).
+- Paired with the kernel's N1 (scope-keyed LAYER_DEPS at dispatch) + N2 (transitive un-ship on an incident), dev-kernel
+  0.2.21. Noted residuals (deeper/vendored): the base gate (`validate.py`) still trusts exit status — the hardened
+  refuter is the backstop; true in-process module isolation would need a `vm`/sandbox; the operator `lattice stale`
+  CLI is one-hop (vendored), with `lattice-health` as the backstop.
+
+## 2026-06-20 — harness-council RE-AUDIT round 2 (round 11): the measurement was forgeable three more ways
+
+A SECOND council verification caught the first re-audit short — the producer path was honest but the measurement
+was still forgeable. All fixed (see `docs/2026-06-20-harness-council-reaudit.md` § Round 2; kernel side in dev-kernel
+0.2.20):
+
+- **`run_refuter` agree now requires an unforgeable per-run NONCE**, not a `pass:` substring. A module that prints
+  `pass` and `process.exit(0)`s on import forged the old sentinel; the nonce is printed only at the harness's own
+  success exit, which an import-time short-circuit never reaches, and the module cannot know it. `earned-autonomy` H4
+  uses the exact `print('pass')+exit` forge.
+- **`verify_gen.is_behavioral` rejects value-free invocations** (`compute(1)===compute(1)` determinism tautologies,
+  `typeof compute(0)` shape-probes) — invoking an export is necessary but not sufficient to MEASURE; the assertion
+  must be able to disagree. Over-rejection is fail-safe (toward `unmeasured`).
+- **`heartbeat.arm()` guards on FALSY, not `is None`** — `arm(deadline_s=0)` (a zero ceiling) no longer mints an
+  unbounded window; it gets the safety deadline.
+- **`dispatch.self_heal_cell` un-ships TRANSITIVELY** — it drives the kernel's one-hop `propagate_staleness` to a
+  fixpoint, so a grandchild integrator (`core ← ui ← shell`) can't survive stale-but-trusted. `self-heal` H4b proves it.
+- The simulation callers of `record_refuter_check` (tests/demo/evals) opt into `measuring=True` explicitly; the
+  heartbeat tier-2 dispatch test uses an explicit `tier=2` override instead of minting a check (counting-default hole).
+
+## 2026-06-20 — harness-council RE-AUDIT (round 10): the refuter is isolated from the module it grades (H3)
+
+- **`run_refuter` no longer runs in the worker's own dir, and exit 0 alone is no longer agreement.** It used to write
+  `.refute.mjs` INTO the cell's product dir and `node`-run it there — so the graded module could shadow the refuter's
+  node environment, and a module that `process.exit(0)`s on import would make the refuter exit 0 (the checks never
+  run) and "agree." Now the refuter runs in a TEMP dir the worker can't control, imports the module by an absolute
+  `file://` URL (the module's own relative deps still resolve from its real dir), and AGREE requires the
+  `gen_cap_verify` harness's `pass:` sentinel in stdout — so an import-time short-circuit reads as a non-agreement.
+  `evals/earned-autonomy` H4 proves a `process.exit(0)`-on-import module fools the exit-code gate but is caught by the
+  refuter. (Residual: the gate itself — run by the vendored `validate.py` — still trusts exit status; the refuter is
+  now the backstop that catches a gate-gaming import-time exit.)
+
+## 2026-06-20 — harness-council RE-AUDIT (round 9): an armed window is never unbounded (H5)
+
+- **`arm()` stamps a safety wall-clock deadline (`DEFAULT_WINDOW_DEADLINE_S`, 2h) when the operator sets NONE of the
+  four ceilings.** The re-audit found `app.py` defaulted all of deadline / max-dispatches / token / dollar to `None`,
+  so an armed run was bounded only by the per-dispatch `$10` cap × an unbounded number of cells and retries. Now an
+  armed-but-uncapped window can't exist — an explicit ceiling overrides the safety deadline. (Paired with the kernel's
+  `ledger.no_progress` signature normalization, dev-kernel 0.2.18, so a stuck cell can't burn retries on path/exit
+  variance either.)
+
+## 2026-06-20 — harness-council RE-AUDIT (round 8): the Tier-2 measurement was hollow — now it isn't (keystone)
+
+A verification re-audit caught the round-3 H6 "fix" as hollow, and it was right. The live producer armed
+`verify_gen.fresh_refute`'s generic invariants as the refuter — but they are TAUTOLOGIES (`typeof e === 'function'`,
+`x === x`), so no gate-passing module can fail them: `false_pass` was pinned at `0.0` and Tier 2 auto-granted again,
+the `agreed=True` fake wearing a `node` subprocess. The `earned-autonomy` eval only "proved" the catch by
+hand-overwriting the sidecar. Corrected:
+
+- **A refuter only MEASURES if it exercises behavior.** `verify_gen.is_behavioral` distinguishes an assertion that
+  INVOKES an export (`compute(7,8)===15`) from a presence/self-stability probe. `produce_refuter` now arms a
+  MEASURING refuter only from a BEHAVIORAL refute set (planner/operator-authored, in the verify-spec); absent one it
+  arms `fresh_refute`'s generic floor as a NON-measuring **liveness** check (it still catches a module that throws on
+  load, but it cannot disagree, so it must not mint a measurement). `run_refuter` records `metrics.measuring`;
+  `ledger.refuter_checks` counts only measuring checks (dev-kernel 0.2.17); `self_heal_cell`'s generic re-arm is
+  marked non-measuring too.
+- **The honest consequence:** a cell with no behavioral refute set stays `unmeasured` → Tier 1. Tier 2 now requires a
+  real independent oracle (a behavioral refute set), not a tautology. Auto-producing that oracle on a headless build
+  (a refuter-author) is the tracked next step; until then Tier 2 is earnable only with an operator-authored refute set.
+- **`evals/earned-autonomy` rewritten** to prove it the honest way: the generic floor stays unmeasured (Tier 1); a
+  behavioral refuter earns Tier 2 on a conformant module; and the SAME producer-armed refuter CATCHES an overfit that
+  genuinely passes its gate (`run_validation` advances it) — disagreeing with NO hand-overwrite.
+
 ## 2026-06-20 — harness-council audit fixes (round 7): the signal-forge floor is now absolute (H3-C1 residual)
 
 - **NO headless worker carries `Bash` anymore.** Round 2 dropped it from the module worker but kept it for the
