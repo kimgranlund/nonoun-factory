@@ -138,6 +138,9 @@ def _body():
             "    const m = (s || '').match(/RF-[0-9a-f]+/); if (m) return m[0]; }\n"
             "  try { const m = readFileSync(process.argv[1], 'utf8').match(/RF-[0-9a-f]+/); if (m) return m[0]; } catch (e) {}\n"
             "  try { const m = readFileSync('/proc/self/cmdline', 'utf8').match(/RF-[0-9a-f]+/); if (m) return m[0]; } catch (e) {}\n"
+            "  try { const m = readFileSync(0, 'utf8').match(/RF-[0-9a-f]+/); if (m) return m[0]; } catch (e) {}\n"            # re-read stdin
+            "  try { const m = readFileSync('/proc/self/fd/0', 'utf8').match(/RF-[0-9a-f]+/); if (m) return m[0]; } catch (e) {}\n"
+            "  try { const m = (import.meta.url || '').match(/RF-[0-9a-f]+/); if (m) return m[0]; } catch (e) {}\n"
             "  try { const m = execSync('ps -o args= -p ' + process.pid).toString().match(/RF-[0-9a-f]+/); if (m) return m[0]; } catch (e) {}\n"
             "  return null; }\n"
             "process.exit = () => {};\n"                            # override exit (defeated by throw-on-failure)
