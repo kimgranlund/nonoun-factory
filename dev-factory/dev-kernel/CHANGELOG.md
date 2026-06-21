@@ -2,6 +2,12 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.25] — 2026-06-21
+
+### Changed (the bootable-shell invariant — every app needs a runnable entry)
+
+- **`lattice-management` now MANDATES a `capability.system.shell` cell for a browser-app decomposition.** A build can silently omit the shell — seed the capability modules but never spec the bootable `index.html` that imports + mounts them — and the factory's "drained" then reads as "done" for an app that can't actually run. The skill makes the shell non-discretionary (a kit that declares a single-file shell authoring → the decomposition MUST include the shell, depending on every module, validated by the render-coherence gate), and the dev-server mechanizes it (`api.app_completeness` → `factory_state` reads **`incomplete`**, not drained, with `bootable: false`). Guidance change only — no kernel code, no `KERNEL_VERSION` change. plugin.json 0.2.24 → 0.2.25.
+
 ## [0.2.24] — 2026-06-21
 
 ### Changed (full autonomous Tier 2 — the gate-agnostic independence proof, harness-council round 7)

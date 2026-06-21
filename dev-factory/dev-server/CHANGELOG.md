@@ -3,6 +3,16 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-21 — the bootable-shell invariant: a drained app with no shell reads INCOMPLETE, not done
+
+Follow-on to the mock-shell fix, after the same demo showed a deeper gap: a decomposition can silently OMIT the
+bootable shell, and the factory still called the app "drained" (done) even though nothing boots. New
+`api.app_completeness(d, kit_dir)` mechanizes the invariant — KIT-AWARE (only an instance whose kit declares a
+single-file shell authoring needs one): a shell-declaring instance that built capability modules but has no validated
+`capability.system.shell` (and no `index.html` at the product root) is `bootable: false`, and `factory_state` reads
+**`incomplete`** instead of `drained`. So the missing entry is a tracked, surfaced gap, not a buried Preview-tab note.
+Paired with the `lattice-management` skill mandate (dev-kernel 0.2.25). Selftested in `api.selftest`.
+
 ## 2026-06-21 — fix: the mock shell imports a REAL built sibling, not a hardcoded `./core/`
 
 Surfaced building a demo app whose modules weren't named `core`: the MockAdapter's single-file (shell) author
