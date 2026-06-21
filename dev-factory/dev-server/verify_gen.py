@@ -128,6 +128,47 @@ def is_behavioral(assertions, exports):
     return False
 
 
+def _norm(s):
+    """Whitespace-stripped form for a textual independence test — `add(7, 8) === 15` and `add(7,8)===15` compare
+    equal, so a copy can't slip past on reformatting alone."""
+    return "".join((s or "").split())
+
+
+def independent_of_gate(refute, acceptance, exports, gate_src=None):
+    """The MEASURING calibration the poison test (`dispatch._refuter_discriminates`) CANNOT supply, and the hole the
+    autonomous refute-author opens: a refute set that merely RE-RUNS the gate's own checks still disagrees with a
+    random-scalar poison (so it passes discrimination) — yet it can never catch a module that PASSED the gate, because
+    it IS the gate. A gate-passing module trivially 'agrees', so `false_pass` is pinned at 0.0 on a measurement that
+    measures NOTHING → a false Tier 2. True iff the set carries at least one BEHAVIORAL assertion the gate does NOT
+    already enforce — absent from BOTH the gate's structured `acceptance` AND (when supplied) the literal gate SOURCE
+    (`gate_src`, whitespace-normalized substring test). That novel check is what lets the refuter catch an overfit the
+    gate waved through (H2/H3 — the gate uses (2,3),(10,0); the refute uses (7,8), an input the gate never saw).
+
+    The `gate_src` arm moves part of the independence check SERVER-SIDE, not blindness-dependent: even a refute-author
+    that READ verify.mjs (its blindness is only prompt-level — it runs in the project root) cannot mint a measuring
+    oracle by copying a gate assertion VERBATIM, because the trusted server rejects any refute string that textually
+    appears in the gate — including an opaque gate with no structured `acceptance`. This arm is PARTIAL by nature: it
+    catches a positive-form literal copy (`compute(2,3)===5`), not a semantic copy of a negative-form (`if (compute
+    (2,3)!==5) exit`) or data-driven (`for ([a,b,w] of [[2,3,5]])`) gate — for those, independence still rests on the
+    structured-`acceptance` arm (populated for the gen_cap_verify gates dev-kit-app emits), the author's prompt-level
+    blindness, and the OPERATIONAL catch (`run_refuter` → incident → demote a weak oracle that lets an overfit through).
+    Over-rejection is fail-SAFE throughout (a wrongly-rejected refuter just doesn't earn Tier 2; it never falsely
+    grants it). The remaining residual — a systematically weak oracle for an opaque negative-form gate — is the
+    documented limit on fully unattended Tier 2 (see docs; the council adjudicates whether it blocks lights-out)."""
+    acc = {_norm(a) for a in (acceptance or []) if isinstance(a, str)}
+    gate = _norm(gate_src) if isinstance(gate_src, str) else ""
+    for r in (refute or []):
+        if not isinstance(r, str) or not is_behavioral([r], exports):
+            continue
+        nr = _norm(r)
+        if nr in acc:
+            continue                       # a structured-acceptance copy — the gate already enforces it
+        if gate and nr and nr in gate:
+            continue                       # a literal gate-SOURCE copy (closes the opaque-gate hole, server-side)
+        return True                        # a genuinely novel behavioral check the gate does not contain
+    return False
+
+
 def fold(spec):
     """The self-heal transform: fold the refuter into the gate + re-arm a fresh refuter. PURE — returns
     (verify_js, refuter_harness, new_spec, folded_count). The caller writes verify.mjs, the refuter sidecar, and
@@ -203,13 +244,31 @@ def selftest():
         fails.append("is_behavioral wrongly accepted a typeof shape-probe invocation")
     if not is_behavioral(["compute(7, 8) === compute(8, 7)"], ["compute"]):
         fails.append("is_behavioral rejected a real metamorphic check (commutativity — distinct operands, both invoke)")
+    # independent_of_gate: the gate-COPY hole — a refute set that only re-runs the gate's checks must NOT measure
+    if independent_of_gate(["compute(2, 3) === 5"], ["compute(2, 3) === 5"], ["compute"]):
+        fails.append("independent_of_gate accepted a pure gate-COPY (refute ⊆ acceptance) — it would measure nothing")
+    if not independent_of_gate(["compute(2, 3) === 5", "compute(7, 8) === 15"], ["compute(2, 3) === 5"], ["compute"]):
+        fails.append("independent_of_gate rejected a set with a NOVEL behavioral check beyond the gate")
+    if not independent_of_gate(["compute(7, 8) === 15"], [], ["compute"]):
+        fails.append("independent_of_gate must pass when acceptance is empty (opaque gate — partial guard reduces to is_behavioral)")
+    # a NOVEL but non-behavioral check does not count — the independence must be a real value assertion, not a probe
+    if independent_of_gate(["compute(2, 3) === 5", "typeof compute === 'function'"], ["compute(2, 3) === 5"], ["compute"]):
+        fails.append("independent_of_gate counted a novel-but-NON-behavioral probe as independence")
+    # the gate-SOURCE arm: acceptance EMPTY but the refute copies a positive-form gate assertion VERBATIM → still
+    # rejected (server-enforced, whitespace-normalized), so a refute-author that read the gate can't mint that copy
+    POS_GATE = "import * as m from './index.mjs';\nconst ok = (m.compute(2, 3) === 5);\nif (!ok) process.exit(1);\n"
+    if independent_of_gate(["compute(2,3) === 5"], [], ["compute"], gate_src=POS_GATE):
+        fails.append("independent_of_gate accepted a refute that copies a positive-form gate assertion (acceptance empty)")
+    if not independent_of_gate(["compute(7, 8) === 15"], [], ["compute"], gate_src=POS_GATE):
+        fails.append("independent_of_gate rejected a genuinely novel check absent from the gate source")
     if fails:
         import sys
         sys.stderr.write("verify_gen selftest: FAIL\n")
         for f in fails:
             sys.stderr.write(f"  - {f}\n")
         return 1
-    print("verify_gen selftest: OK (gate generation; fold strengthens the gate + re-arms an independent fresh refuter; exhaustion escalates)")
+    print("verify_gen selftest: OK (gate generation; fold strengthens the gate + re-arms an independent fresh refuter; "
+          "exhaustion escalates; independent_of_gate rejects a gate-copy refute set)")
     return 0
 
 

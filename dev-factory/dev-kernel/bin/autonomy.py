@@ -111,7 +111,13 @@ def tier_for(d, family=None, now=None, hermetic=False, tamper_evident=None):
     if _has_validated_verifier(d, family):
         tier = 1
     fp = false_pass(d, family)
-    if tier >= 1 and fp != "unmeasured" and fp < FALSE_PASS_CEILING and _budget_armed(d):
+    # UNATTENDED Tier 2 requires a measured-clean rate that rests on at least one TRUSTED (non-autonomous) oracle.
+    # An AUTONOMOUSLY-authored refuter still measures (it builds `fp`), but it cannot SELF-PROMOTE the loop to
+    # lights-out: the independence calibration is partial for opaque gates, so a self-authored oracle's clean rate
+    # is not, by itself, an earned precondition (harness-council round 6 — the human-glance gate, now in code not
+    # prose). A human-vetted / server-folded oracle lifts the family to Tier 2; until one exists it stays at Tier 1.
+    if tier >= 1 and fp != "unmeasured" and fp < FALSE_PASS_CEILING and _budget_armed(d) \
+            and _led.trusted_refuter_checks(d, family):
         tier = 2
     if tier >= 2 and hermetic and tamper_evident and len(refuter_checks(d, family)) >= SUSTAINED_REFUTERS:
         tier = 3

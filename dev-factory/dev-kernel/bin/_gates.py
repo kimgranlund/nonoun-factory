@@ -54,6 +54,17 @@ LEDGER = [f"{NS}/ledger/*", f"{NS}/coordination/index.jsonl"]
 # barred only by the prompt, not the gate). The separate module worker (VERIFIER scope) still writes index.mjs.
 VERIFIER_AUTHOR = [g for g in VERIFIER if g != "*/verify.mjs"] + ["*/index.mjs"]
 
+# The REFUTE-AUTHOR's boundary: everything VERIFIER protects EXCEPT the verify-spec (`coordination/verify-spec/*`),
+# PLUS the product barrel (`*/index.mjs`). The autonomous refute-author (the path to autonomously-earned Tier 2)
+# writes ONE thing — the verify-spec's `refute` set (the behavioral oracle the server's produce_refuter calibrates) —
+# and must NOT: forge signals, rewrite the lattice/ledger/rubric, unwire its hooks, write the GATE it is meant to be
+# independent of (`*/verify.mjs` stays denied — authoring the gate would let it tune the gate to its refute), drop a
+# refuter sidecar directly (`coordination/refuters/*` stays denied — the server PRODUCES that, post-calibration), OR
+# author the product barrel the refuter imports (`*/index.mjs` — so one dispatch can't author both an oracle and a
+# module that trivially passes it). The asymmetry with VERIFIER_AUTHOR: the verifier-author may write verify.mjs and
+# is denied verify-spec; the refute-author is the inverse — may write verify-spec and is denied verify.mjs.
+REFUTE_AUTHOR = [g for g in VERIFIER if g != f"{NS}/coordination/verify-spec/*"] + ["*/index.mjs"]
+
 
 def is_protected(path, globs):
     """True if `path` matches a protected glob at a path-segment boundary (root-relative or after any
@@ -171,6 +182,23 @@ def _selftest_path_gate(name, globs, what):
         fails.append(f"false-deny on a Bash READ of a protected path ({base0}x)")
     if base0 and not path_gate_verdict("Bash", None, f"grep -e validated {base0}x", globs, what)[0]:
         fails.append("false-deny on a `grep -e` read of a protected path")
+    # boundary ASYMMETRY — verify.mjs (the gate) vs the verify-spec (the oracle source). The verifier-author and the
+    # refute-author are inverses: each may write exactly ONE of the two and is denied the other; a plain worker is
+    # denied both. (Identity compares against the module-level glob lists, which are passed by reference.)
+    vmjs, vspec, barrel = "src/p/x/verify.mjs", f"{NS}/coordination/verify-spec/cap.json", "src/p/x/index.mjs"
+    refsc, sig = f"{NS}/coordination/refuters/cap.json", f"{NS}/signals/x.json"
+    if globs is VERIFIER and not (is_protected(vmjs, globs) and is_protected(vspec, globs)):
+        fails.append("VERIFIER must deny BOTH verify.mjs and the verify-spec to a plain worker")
+    if globs is VERIFIER_AUTHOR:
+        if is_protected(vmjs, globs) or not is_protected(vspec, globs):
+            fails.append("VERIFIER_AUTHOR must ALLOW verify.mjs and DENY the verify-spec (it writes the gate, not the oracle source)")
+        if not is_protected(barrel, globs):
+            fails.append("VERIFIER_AUTHOR must deny the product barrel index.mjs (no authoring both the gate and a passing module)")
+    if globs is REFUTE_AUTHOR:
+        if not is_protected(vmjs, globs) or is_protected(vspec, globs):
+            fails.append("REFUTE_AUTHOR must ALLOW the verify-spec and DENY verify.mjs (it writes the oracle source, never the gate)")
+        if not (is_protected(barrel, globs) and is_protected(refsc, globs) and is_protected(sig, globs)):
+            fails.append("REFUTE_AUTHOR must still deny the barrel, the refuter sidecars, and signals")
     if fails:
         sys.stderr.write(f"{name} selftest: FAIL\n")
         for f in fails:

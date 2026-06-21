@@ -206,6 +206,18 @@ def refuter_checks(d, family=None):
             and _family_match(e, family)]
 
 
+def trusted_refuter_checks(d, family=None):
+    """Measuring checks from a TRUSTED (non-autonomous) oracle — the denominator that may earn UNATTENDED Tier 2.
+    A check whose oracle was AUTONOMOUSLY authored by the refute-author is recorded `autonomous: true`; it still
+    MEASURES (it's in `refuter_checks`, so it builds the visible false-pass rate) but it does NOT count here,
+    because the current independence calibration is partial for opaque gates — a self-authored oracle must not
+    self-promote the loop to lights-out (harness-council round 6, the human-glance gate). A human-vetted or
+    server-folded oracle (autonomous absent/false) is trusted. Autonomous provenance is SERVER-stamped into a
+    worker-protected sidecar, never a worker claim, so this cannot be dodged by a verify-spec edit."""
+    return [e for e in refuter_checks(d, family)
+            if (e.get("metrics") or {}).get("autonomous") is not True]
+
+
 def false_pass_rate(d, family=None):
     """THE canonical false-pass computation — `autonomy.false_pass` delegates here, so the formula the
     autonomy policy docs cite and the formula `tier_for` consumes can never fork again (one source of
