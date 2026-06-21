@@ -36,11 +36,19 @@ overfit with NO hand-overwritten result:
       --allow-refute gate permits any verify-spec path). `author_refuters` diffs the verify-spec dir and registers
       provenance for what was WRITTEN (Y), not the nominal target — so the laundered, machine-authored oracle is
       stamped autonomous and cannot mislabel itself trusted to earn Tier 2.
+  H9  AUTONOMY, INDEPENDENCE-PROVEN. `_mutation_independent` is the gate-AGNOSTIC trust upgrade: an autonomous oracle
+      that catches a gate-PASSING defect the gate misses (a witness text-mutant where G passes but R fails) is
+      `mutation_verified` → TRUSTED → earns Tier 2 with no human, at the same bar the human path uses (stronger — it
+      PROVES not-a-gate-copy). A negative-form gate-copy the static `independent_of_gate` arm MISSES yields no witness
+      → not verified. Forge-resistant: G + R run stdin-piped, so the module can't tell them apart to fake a witness.
+  H10 THE DECOY-export forge, CLOSED. A worker plants a NON-spec export `_k` the gate ignores + a refute riding it; a
+      `7`→`8` mutant would fake a witness. `_gate_scoped_refute` confines the proof to the gate's CONTRACT surface,
+      dropping the off-contract assertion → no witness → not verified → no Tier 2.
 
 Exit 0 = a generic floor cannot earn Tier 2, a behavioral oracle can, it catches an overfit, a gate-COPY measures
-nothing, an AUTONOMOUS oracle measures but cannot self-promote to lights-out (only a trusted oracle earns Tier 2),
-and a cross-cell laundered oracle is still caught as autonomous — measured, not faked, and the producer cannot grade
-its own promotion. Needs `node`; skips with exit 0 if absent. Stdlib only; Python 3.8+. Answer key in README.md.
+nothing, an AUTONOMOUS oracle measures but cannot self-promote (only a trusted oracle earns Tier 2), a cross-cell
+laundered oracle is still autonomous, an autonomous oracle that PROVES gate-independence earns Tier 2 hands-off, and a
+decoy-export witness cannot — measured, not faked. Needs `node`; skips with exit 0 if absent. Stdlib only; Python 3.8+.
 """
 import json
 import os
@@ -345,17 +353,94 @@ def _body():
             check(a8 is True and _auto.tier_for(d3) == 1 and not _led.trusted_refuter_checks(d3),
                   f"H8c: the laundered machine-authored oracle CANNOT earn Tier 2 — no trusted check (tier={_auto.tier_for(d3)})")
 
+        print("· H9 — gate-AGNOSTIC independence (the mutation proof): a PROVEN autonomous oracle earns Tier 2 hands-off")
+        with tempfile.TemporaryDirectory() as root4:
+            d4 = os.path.join(root4, ".factory")
+            api.init_instance(d4)
+            api.seed_cell(d4, "rubric", "system", "spec-quality", maturity="validated",
+                          signal_refs=["signals/rubric.system.spec-quality/seed.json"])
+            _hb.arm(d4, max_dispatches=9, deadline_s=3600)
+            GRADE = "export const ready = true;\nexport const grade = (n) => n >= 60 ? 'pass' : 'fail';\n"
+            NEG_GATE = "import * as m from './index.mjs';\nif (m.grade(50) !== 'fail') process.exit(1);\nconsole.log('ok');\n"
+            os.makedirs(os.path.join(d4, "coordination", "verify-spec"), exist_ok=True)
+            # cell A — an INDEPENDENT autonomous oracle: it tests the boundary grade(60), an input the (negative-form,
+            # data-blind-to-the-static-arm) gate never checks. The mutation proof finds a witness (a `>=`→`>` or 60→61
+            # mutant where the gate PASSES grade(50)='fail' but the refuter FAILS grade(60)≠'pass') → mutation_verified.
+            adir = os.path.join(d4, "capability", "indep"); os.makedirs(adir, exist_ok=True)
+            open(os.path.join(adir, "verify.mjs"), "w").write(NEG_GATE)
+            open(os.path.join(adir, "index.mjs"), "w").write(GRADE)
+            acell = "capability.system.indep"
+            _disp._register_autonomous(d4, acell)   # the autonomous refute-author authored this oracle
+            json.dump({"exports": ["grade"], "acceptance": [], "refute": ["grade(60) === 'pass'"], "generation": 0, "history": []},
+                      open(os.path.join(d4, "coordination", "verify-spec", f"{acell}.json"), "w"))
+            api.seed_cell(d4, "capability", "system", "indep", maturity="validated", asset_ref="capability/indep", signal_refs=["i"])
+            _disp.produce_refuter(d4, acell)
+            aside = json.load(open(os.path.join(d4, "coordination", "refuters", f"{acell}.json")))
+            check(aside.get("measuring") is True and aside.get("autonomous") is True and aside.get("mutation_verified") is True,
+                  f"H9a: an independent autonomous oracle PROVES gate-agnostic independence — a witness mutant (mutation_verified={aside.get('mutation_verified')})")
+            a9 = _disp.run_refuter(d4, acell)
+            check(a9 is True and _led.trusted_refuter_checks(d4) and _auto.tier_for(d4) == 2,
+                  f"H9b: a mutation-verified autonomous oracle is TRUSTED → Tier 2 with no human — proven INDEPENDENT (caught a gate-passing defect), a stronger bar than the bare human path (tier={_auto.tier_for(d4)})")
+            # cell B — a NEGATIVE-FORM gate-copy: `grade(50)==='fail'` restates the gate's own check. The static
+            # independent_of_gate MISSES it (=== vs !== — not a textual substring), so it MEASURES; but the mutation
+            # proof finds NO witness (G passes grade(50) ⟺ R passes grade(50)) → NOT mutation_verified → NOT trusted.
+            bdir = os.path.join(d4, "capability", "copy"); os.makedirs(bdir, exist_ok=True)
+            open(os.path.join(bdir, "verify.mjs"), "w").write(NEG_GATE)
+            open(os.path.join(bdir, "index.mjs"), "w").write(GRADE)
+            bcell = "capability.system.copy"
+            _disp._register_autonomous(d4, bcell)
+            json.dump({"exports": ["grade"], "acceptance": [], "refute": ["grade(50) === 'fail'"], "generation": 0, "history": []},
+                      open(os.path.join(d4, "coordination", "verify-spec", f"{bcell}.json"), "w"))
+            api.seed_cell(d4, "capability", "system", "copy", maturity="validated", asset_ref="capability/copy", signal_refs=["c"])
+            _disp.produce_refuter(d4, bcell)
+            bside = json.load(open(os.path.join(d4, "coordination", "refuters", f"{bcell}.json")))
+            check(bside.get("measuring") is True and bside.get("mutation_verified") is False,
+                  f"H9c: a negative-form gate-copy MEASURES (the static arm misses it) but the mutation proof finds NO witness → NOT trusted (mutation_verified={bside.get('mutation_verified')})")
+            b9 = _disp.run_refuter(d4, bcell)
+            trusted_cells = {(_e.get("subject") or {}).get("cell") for _e in _led.trusted_refuter_checks(d4)}
+            check(b9 is True and bcell not in trusted_cells and acell in trusted_cells,
+                  "H9d: the unproven gate-copy is EXCLUDED from trusted_refuter_checks; only the mutation-proven oracle counts")
+
+        print("· H10 — the DECOY-export forge is closed: a witness must be on the gate's CONTRACT surface")
+        with tempfile.TemporaryDirectory() as root5:
+            d5 = os.path.join(root5, ".factory")
+            api.init_instance(d5)
+            api.seed_cell(d5, "rubric", "system", "spec-quality", maturity="validated",
+                          signal_refs=["signals/rubric.system.spec-quality/seed.json"])
+            _hb.arm(d5, max_dispatches=9, deadline_s=3600)
+            # the forge: a worker plants a NON-spec export `_k` the gate never checks, and R rides a tripwire on it.
+            # A `7`→`8` mutant of `_k` would make the gate (which only tests compute) PASS but the refuter FAIL — a
+            # FALSE witness. `_gate_scoped_refute` drops `_k()===7` (off-contract), so no witness → NOT mutation_verified.
+            os.makedirs(os.path.join(d5, "coordination", "verify-spec"), exist_ok=True)
+            ddir = os.path.join(d5, "capability", "decoy"); os.makedirs(ddir, exist_ok=True)
+            open(os.path.join(ddir, "verify.mjs"), "w").write(GATE)   # data-driven gate over `compute` only
+            open(os.path.join(ddir, "index.mjs"), "w").write(
+                "export const ready = true;\nexport const compute = (a, b) => a + b;\nexport const _k = () => 7;\n")
+            dcell = "capability.system.decoy"
+            _disp._register_autonomous(d5, dcell)
+            json.dump({"exports": ["compute"], "acceptance": [],
+                       "refute": ["compute(7, 8) === 15", "_k() === 7"], "generation": 0, "history": []},
+                      open(os.path.join(d5, "coordination", "verify-spec", f"{dcell}.json"), "w"))
+            api.seed_cell(d5, "capability", "system", "decoy", maturity="validated", asset_ref="capability/decoy", signal_refs=["d"])
+            _disp.produce_refuter(d5, dcell)
+            dside = json.load(open(os.path.join(d5, "coordination", "refuters", f"{dcell}.json")))
+            check(dside.get("measuring") is True and dside.get("mutation_verified") is False,
+                  f"H10a: a decoy refute riding a NON-spec export is NOT mutation_verified — the witness must be on contract surface (mutation_verified={dside.get('mutation_verified')})")
+            d10 = _disp.run_refuter(d5, dcell)
+            check(d10 is True and _auto.tier_for(d5) == 1 and not _led.trusted_refuter_checks(d5),
+                  f"H10b: the decoy oracle measures but CANNOT earn Tier 2 — the tripwire forge is closed (tier={_auto.tier_for(d5)})")
+
     print()
     if fails:
         print(f"earned-autonomy: NOT MET — {len(fails)} check(s) failed:")
         for f in fails:
             print(f"  - {f}")
         return 1
-    print("earned-autonomy: OK — a generic (tautological) floor stays UNMEASURED and cannot earn Tier 2; a behavioral "
-          "refute set arms a MEASURING oracle that earns Tier 2 on a conformant module and CATCHES a gate-passing "
-          "overfit; a gate-COPY refute set measures NOTHING (independent_of_gate); and a gate-blind refute-author "
-          "MEASURES but cannot self-promote — only a human-vetted (trusted) oracle lifts the family to unattended "
-          "Tier 2. Measured by a refuter that can disagree, and the producer cannot grade its own promotion.")
+    print("earned-autonomy: OK — a tautological floor stays UNMEASURED; a behavioral oracle earns Tier 2 + CATCHES an "
+          "overfit; a gate-COPY measures NOTHING; an autonomous oracle MEASURES but cannot self-promote (provenance "
+          "gate) — yet one that PROVES gate-agnostic independence (a witness mutant the gate passes but it fails) is "
+          "mutation-verified → TRUSTED → earns Tier 2 hands-off. Measured by a refuter that can disagree; the producer "
+          "cannot grade its own promotion, but it CAN prove it.")
     return 0
 
 

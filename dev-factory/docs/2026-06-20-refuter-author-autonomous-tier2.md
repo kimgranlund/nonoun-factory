@@ -94,10 +94,30 @@ self-granted lights-out tier. Promotion to unattended Tier 2 requires a TRUSTED 
 oracle. This is the doc's earlier "stay gated on a human glance," now enforced in code (`autonomy.tier_for` +
 `ledger.trusted_refuter_checks`), not prose.
 
-**The path to FULL autonomous Tier 2 (deferred):** make the calibration robust enough to trust an auto-authored
-oracle without a human — either (i) STRUCTURAL blindness (dispatch the refute-author in a dir scrubbed of
-`verify.mjs`/`index.mjs`), and/or (ii) a gate-agnostic independence proof (does the refute set catch a gate-passing
-defect the gate misses?). Both are genuinely hard for opaque gates (the proof needs the gate's accepted inputs),
-which is why this increment ships the **producer + measurement + the provenance safety gate** and defers the full
-autonomous-earn. The factory can now author oracles and BUILD a measured track record hands-off; a human promotes
-it to lights-out, until the robust calibration lands.
+**FULL autonomous Tier 2 — the gate-agnostic independence proof (LANDED, harness-council round 7).**
+`dispatch._mutation_independent` is the trust upgrade that drops the provenance cap for an oracle that PROVES it is
+independent of the gate: it catches a gate-PASSING defect the gate misses — i.e. there exists a server-generated
+text-mutant `M'` of the real module where the gate `G(M')` PASSES but the refuter `R(M')` FAILS. A gate-copy `R`
+agrees with `G` on every mutant → no witness → not proven (fail-safe). It RUNS the real gate (never parses it), so
+it works on the opaque data-driven/negative-form gates the static `independent_of_gate` arm cannot inspect. When it
+finds a witness, `produce_refuter` stamps `mutation_verified: true` and `ledger.trusted_refuter_checks` counts the
+check (`autonomous is not True OR mutation_verified`), so an autonomously-authored oracle can earn unattended Tier 2
+with **no human** — `/loop`-driven lights-out becomes reachable hands-off.
+
+Forge-resistance + the honest bar (round-7 council):
+- **Forge-resistant:** `G` and `R` both run via STDIN-piped node — the worker's module can't read the harness source
+  to tell them apart, so it can only suppress a witness (fail-safe), never selectively fake `G`-pass + `R`-fail.
+- **Decoy close:** `_gate_scoped_refute` confines the proof to the gate's CONTRACT surface (refute assertions calling
+  only gate-declared exports or JS globals), so a witness cannot ride a worker-invented non-spec export (the `_k`
+  tripwire). Proven by eval **H10**.
+- **Double-bound trust:** `mutation_verified` (a scoped witness) is necessary but not alone sufficient — the live
+  `run_refuter` ALSO re-checks the oracle against the REAL module each epoch, and a weak/false oracle that fails the
+  real module self-incidents → mechanical demotion. A forged witness requires an oracle that fails reality, which
+  the re-check catches.
+- **The bar is honest + bounded:** a witness proves `R` is INDEPENDENT of the gate (not a gate-copy) — a strictly
+  stronger property than the bare human-authored `trusted` path, which proves nothing. It does NOT prove `R` is an
+  EXHAUSTIVE oracle against every adversarial special-case overfit (no static check can, for an opaque gate; the
+  mutants are single-edit perturbations, not wholesale gaming rewrites). So `mutation_verified` trusts an autonomous
+  oracle at the SAME bar the human path uses — a documented residual the human path shares, bounded by the operational
+  re-check. Proven by eval **H9** (independent → Tier 2) + **H7** (a tight-arithmetic oracle finds no witness → stays
+  provenance-gated, the safe fail-negative).

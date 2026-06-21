@@ -207,15 +207,17 @@ def refuter_checks(d, family=None):
 
 
 def trusted_refuter_checks(d, family=None):
-    """Measuring checks from a TRUSTED (non-autonomous) oracle — the denominator that may earn UNATTENDED Tier 2.
-    A check whose oracle was AUTONOMOUSLY authored by the refute-author is recorded `autonomous: true`; it still
-    MEASURES (it's in `refuter_checks`, so it builds the visible false-pass rate) but it does NOT count here,
-    because the current independence calibration is partial for opaque gates — a self-authored oracle must not
-    self-promote the loop to lights-out (harness-council round 6, the human-glance gate). A human-vetted or
-    server-folded oracle (autonomous absent/false) is trusted. Autonomous provenance is SERVER-stamped into a
-    worker-protected sidecar, never a worker claim, so this cannot be dodged by a verify-spec edit."""
+    """Measuring checks from a TRUSTED oracle — the denominator that may earn UNATTENDED Tier 2. An oracle is trusted
+    iff it is NOT autonomously-authored (human-vetted / server-folded), OR it is autonomous but has PROVED
+    gate-agnostic independence (`mutation_verified` — it caught a gate-passing defect the gate misses; task #23). A
+    bare autonomous oracle still MEASURES (it's in `refuter_checks`, building the visible false-pass rate) but does
+    NOT count here, because the static independence calibration is partial for opaque gates — a self-authored,
+    unproven oracle must not self-promote the loop to lights-out (harness-council round 6, the human-glance gate).
+    Both `autonomous` and `mutation_verified` are SERVER-stamped into a worker-protected sidecar, never a worker
+    claim, so this cannot be dodged by a verify-spec edit."""
     return [e for e in refuter_checks(d, family)
-            if (e.get("metrics") or {}).get("autonomous") is not True]
+            if (e.get("metrics") or {}).get("autonomous") is not True
+            or (e.get("metrics") or {}).get("mutation_verified") is True]
 
 
 def false_pass_rate(d, family=None):
