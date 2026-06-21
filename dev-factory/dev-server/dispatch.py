@@ -1202,6 +1202,124 @@ def _refuter_discriminates(refute, exports):
     return True   # disagreed with BOTH wrong stubs → it can genuinely disagree → measuring
 
 
+def _mutants(src, k=20):
+    """Generate up to `k` single-edit TEXT mutants of a module source — server-side, deterministic. Operator swaps,
+    integer-literal bumps, and boolean flips. A mutant that is a syntax error simply fails the gate (exit ≠ 0) and is
+    skipped, so the menu can be liberal. Used by `_mutation_independent` to search for a gate-PASSING defect the
+    refuter catches."""
+    out = []
+    for old, new in [("===", "!=="), ("!==", "==="), ("&&", "||"), ("||", "&&"),
+                     ("<=", "<"), (">=", ">"), ("*", "+")]:   # symbol swaps (multi-char first; avoid === vs ==)
+        i = src.find(old)
+        while i != -1 and len(out) < k:
+            out.append(src[:i] + new + src[i + len(old):])
+            i = src.find(old, i + len(old))
+    for old in ("+", "-"):                                    # arithmetic, but not ++ -- += -= etc.
+        i = src.find(old)
+        while i != -1 and len(out) < k:
+            prev = src[i - 1] if i > 0 else " "
+            nxt = src[i + 1] if i + 1 < len(src) else " "
+            if prev not in "+-*/=<>" and nxt not in "+-*/=<>":
+                out.append(src[:i] + ("-" if old == "+" else "+") + src[i + 1:])
+            i = src.find(old, i + 1)
+    for m in re.finditer(r"(?<![\w.])\d+(?![\w.])", src):     # bump an integer literal
+        if len(out) >= k:
+            break
+        out.append(src[:m.start()] + str(int(m.group()) + 1) + src[m.end():])
+    for old, new in (("true", "false"), ("false", "true")):
+        i = src.find(old)
+        while i != -1 and len(out) < k:
+            out.append(src[:i] + new + src[i + len(old):])
+            i = src.find(old, i + len(old))
+    return out[:k]
+
+
+def _run_stdin_harness(harness_src, abs_index, iso):
+    """Run a harness against a module via STDIN-piped node, returning the exit code (or None on error). The harness
+    text — G's or R's — is in NO readable channel (not argv/-e/a file), so a graded module cannot read it to tell the
+    gate from the refuter and selectively fake a witness (harness-council re-audit 4, reused for calibration). The
+    module's `'./index.mjs'` import is rewritten to the absolute mutant URL; sibling deps resolve from `iso`."""
+    rewritten = harness_src.replace("'./index.mjs'", f"'{abs_index}'")
+    try:
+        return subprocess.run(["node", "--input-type=module", "-"], input=rewritten,
+                              cwd=iso, capture_output=True, text=True, timeout=20).returncode
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+_JS_CALL_GLOBALS = {"Math", "JSON", "Object", "Array", "Number", "String", "Boolean", "parseInt", "parseFloat",
+                    "isNaN", "isFinite", "Map", "Set", "BigInt", "Symbol"}   # free-call identifiers an honest refute may use
+
+
+def _gate_scoped_refute(refute, exports):
+    """Keep only refute assertions whose every FREE function-call identifier is a GATE-DECLARED export (or a JS
+    global) — so the mutation proof's witness cannot ride on a NON-spec export the gate never covers. Closes the
+    decoy/tripwire forge (harness-council round 7 CRITICAL): a worker plants `_k = () => 7` in index.mjs + a refute
+    `_k() === 7`, then a `7`→`8` mutant makes the gate (which ignores `_k`) PASS but the refuter FAIL on the worker's
+    own dead export — a false witness. Confining the proof to the gate's contract surface defeats it: `_k` ∉ the
+    gate's exports, so that assertion is dropped and the `_k`-mutant no longer fails the refuter. Method calls
+    (`x.foo(`) don't count — only free identifiers (`foo(`), i.e. the export/global calls. A genuine independence
+    check on a real export at a NEW input (`compute(7,8)`) is kept; only off-contract references are dropped."""
+    allowed = {e for e in (exports or []) if isinstance(e, str)} | _JS_CALL_GLOBALS
+    out = []
+    for r in (refute or []):
+        if not isinstance(r, str):
+            continue
+        calls = set(re.findall(r"(?<![\w.$])([A-Za-z_$][\w$]*)\s*\(", r))   # free-identifier calls only (not `.foo(`)
+        if calls and calls <= allowed:    # ≥1 call, and every free call is a gate export or a global
+            out.append(r)
+    return out
+
+
+def _mutation_independent(cell_dir, exports, refute, gate_src):
+    """The gate-AGNOSTIC independence proof (task #23) — the trust upgrade for an autonomously-authored oracle. A
+    refute set R catches something the gate G does NOT iff there EXISTS a text-mutant M' of the REAL module where
+    G(M') PASSES but R(M') FAILS (a gate-PASSING defect R caught). A gate-COPY R agrees with G on every mutant → no
+    such witness → not proven (so it stays provenance-gated — fail-safe). This is what `independent_of_gate`'s static
+    textual arm cannot do for an opaque data-driven/negative-form gate: it RUNS the real gate, never parses it.
+
+    Forge-resistant: G and R both run via STDIN-piped node, so the (worker-authored) module cannot read the harness
+    source to distinguish them — it can only make BOTH pass or BOTH fail (suppressing a witness, which is fail-safe),
+    never selectively fake G-pass + R-fail. R is confined to the gate's CONTRACT surface (`_gate_scoped_refute`), so
+    the witness cannot ride on a worker-invented non-spec export (round-7 decoy forge). Server-run over
+    server-generated mutants; the worker controls only the module + R, both of which are exactly what is being graded.
+
+    The BAR is honest and bounded: a witness proves R is INDEPENDENT of the gate (it catches ≥1 gate-passing defect
+    the gate misses, on the contract surface) — a strictly stronger property than the bare human-authored `trusted`
+    path, which proves nothing. It does NOT prove R is an EXHAUSTIVE oracle against every adversarial special-case
+    overfit (no static check can, for an opaque gate; the mutants are single-edit perturbations, not wholesale
+    gaming rewrites). So `mutation_verified` is a sound basis to treat an autonomous oracle as trusted at the same
+    bar the human path uses — not a competence guarantee. Fail-CLOSED (no node / no module / no on-contract refute /
+    no witness)."""
+    if shutil.which("node") is None or not refute or not exports:
+        return False
+    scoped = _gate_scoped_refute(refute, exports)   # only checks on the gate's CONTRACT surface count (round-7 fix)
+    if not scoped:
+        return False                                 # every refute assertion was off-contract → no proof, fail-safe
+    try:
+        real = open(os.path.join(cell_dir, "index.mjs"), encoding="utf-8").read()
+    except OSError:
+        return False
+    r_harness = _vg.gen_cap_verify(exports, scoped)
+    iso = tempfile.mkdtemp(prefix="df-mut-")
+    try:
+        for n in os.listdir(cell_dir):                       # copy the cell so sibling deps resolve
+            sp = os.path.join(cell_dir, n)
+            if os.path.isfile(sp):
+                shutil.copy(sp, os.path.join(iso, n))
+        abs_index = pathlib.Path(os.path.join(iso, "index.mjs")).as_uri()
+        for mut in _mutants(real):
+            open(os.path.join(iso, "index.mjs"), "w", encoding="utf-8").write(mut)
+            if _run_stdin_harness(gate_src, abs_index, iso) != 0:   # mutant must SURVIVE the gate to be a witness
+                continue
+            r = _run_stdin_harness(r_harness, abs_index, iso)
+            if r is not None and r != 0:                     # gate PASSES the mutant, refuter FAILS it → witness
+                return True
+        return False
+    finally:
+        shutil.rmtree(iso, ignore_errors=True)
+
+
 def produce_refuter(d, cell_id):
     """The LIVE refuter PRODUCER (harness-council H6). When a cell first reaches `validated`, arm an independent
     refuter sidecar so the false-pass oracle (`refute_frontier` → `run_refuter`) has a work-item the next tick.
@@ -1283,8 +1401,19 @@ def produce_refuter(d, cell_id):
     # MEASURING upgrade lands in the deterministic sweep (not the author pass) is still marked autonomous (round 6:
     # closing the stamp-gap). The registry lives under the worker-protected run/ perimeter → untamperable.
     autonomous = _is_autonomous_cell(d, cell_id)
+    # The TRUST UPGRADE for an autonomous oracle (task #23): a measuring set authored by the refute-author is
+    # provenance-gated (can't earn unattended Tier 2) UNLESS it PROVES it catches a gate-passing defect the gate
+    # misses — `_mutation_independent` runs the real gate + the refuter against server-generated mutants of the real
+    # module and finds a witness (G-pass, R-fail). A gate-copy yields no witness → stays untrusted. Only worth the
+    # cost for a MEASURING + AUTONOMOUS oracle (a non-autonomous oracle is already trusted; a non-measuring one
+    # doesn't count). Server-run + forge-resistant (stdin-piped harnesses); the result is the trust signal `tier_for`
+    # reads via `trusted_refuter_checks`.
+    cell_dir = os.path.dirname(vpath)
+    mutation_verified = bool(measuring and autonomous
+                             and _mutation_independent(cell_dir, exports, refute, gate_src))
     json.dump({"harness": _vg.gen_cap_verify(exports, refute), "refute": refute, "measuring": measuring,
-               "autonomous": autonomous}, open(side, "w", encoding="utf-8"), indent=2)
+               "autonomous": autonomous, "mutation_verified": mutation_verified},
+              open(side, "w", encoding="utf-8"), indent=2)
     upgraded = existing is not None and measuring   # a liveness floor promoted by a now-authored behavioral set
     _led.append(d, "signal", {"kind": "server", "id": "refuter-producer"}, {"cell": cell_id},
                 f"{'UPGRADED to a MEASURING' if upgraded else 'armed a ' + ('MEASURING' if measuring else 'liveness-only (NON-measuring)')} "
@@ -1427,6 +1556,9 @@ def run_refuter(d, cell_id):
     # current independence calibration is partial for opaque gates, so a self-authored oracle cannot self-promote the
     # loop to lights-out. A human-vetted / server-folded oracle (autonomous absent/false) is the trusted denominator.
     autonomous = bool(sdata.get("autonomous"))
+    # an autonomous oracle that PROVED gate-agnostic independence (a witness mutant: G-pass, R-fail) is TRUSTED
+    # despite being machine-authored (task #23) — `trusted_refuter_checks` reads this off the metric.
+    mutation_verified = bool(sdata.get("mutation_verified"))
     if not harness or shutil.which("node") is None:
         return None
     # The refuter must IMPORT the product source (the cell's asset_ref) — a kit's output_root may have rooted it OUT
@@ -1464,8 +1596,10 @@ def run_refuter(d, cell_id):
     _led.append(d, "signal", {"kind": "server", "id": "refuter"}, {"cell": cell_id},
                 f"independent refuter {'AGREED' if agreed else 'DISAGREED — FALSE PASS caught'} on {cell_id}"
                 + ("" if measuring else " (liveness-only — NOT a false-pass measurement)")
-                + (" [autonomously-authored oracle — measures, but does not earn unattended Tier 2]" if measuring and autonomous else ""),
-                metrics={"refuter": True, "agreed": agreed, "measuring": measuring, "autonomous": autonomous})
+                + (" [autonomously-authored oracle — measures, but does not earn unattended Tier 2]" if measuring and autonomous and not mutation_verified else "")
+                + (" [autonomous + MUTATION-VERIFIED — proved independent of the gate (caught a gate-passing defect on contract surface); trusted]" if measuring and autonomous and mutation_verified else ""),
+                metrics={"refuter": True, "agreed": agreed, "measuring": measuring,
+                         "autonomous": autonomous, "mutation_verified": mutation_verified})
     if not agreed:
         _auto.record_incident(d, cell_id, f"refuter caught a false pass: {cell_id} validated against its gate but "
                               "fails an independent re-check (overfit / gamed)")
@@ -1798,6 +1932,17 @@ def selftest():
             _register_autonomous(vfd, "capability.system.store")
             expect(_is_autonomous_cell(vfd, "capability.system.store"),
                    "_register_autonomous records the cell in the server-owned registry (untamperable provenance)")
+            # _gate_scoped_refute (the round-7 decoy close, node-free): the mutation proof's witness must be on the
+            # gate's CONTRACT surface. A refute riding a NON-spec export (`_k()`) is dropped; a real-export check at a
+            # new input is kept; a method call (`.foo(`) doesn't disqualify; a no-call reference is dropped.
+            expect(_gate_scoped_refute(["compute(7,8) === 15", "_k() === 7"], ["compute"]) == ["compute(7,8) === 15"],
+                   "_gate_scoped_refute must DROP an assertion that calls a non-gate export (the decoy tripwire)")
+            expect(_gate_scoped_refute(["deal(5).length === 5"], ["deal"]) == ["deal(5).length === 5"],
+                   "_gate_scoped_refute must KEEP a real gate-export call at a new input (method `.length` is not a free call)")
+            expect(_gate_scoped_refute(["Math.max(compute(1,2), 0) === compute(1,2)"], ["compute"]) == ["Math.max(compute(1,2), 0) === compute(1,2)"],
+                   "_gate_scoped_refute must KEEP a JS global (Math) + a gate-export call")
+            expect(_gate_scoped_refute(["_k === 7", "secret() === 1"], ["compute"]) == [],
+                   "_gate_scoped_refute must DROP a no-call reference and a non-gate-export call (no on-contract assertion remains)")
         finally:
             del os.environ["DEV_FACTORY_KIT"]
 

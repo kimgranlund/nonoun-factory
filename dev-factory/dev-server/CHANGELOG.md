@@ -3,6 +3,31 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-21 — FULL autonomous Tier 2: the gate-agnostic independence proof (harness-council round 7)
+
+The refute-author's provenance gate (round 6) let an autonomous oracle MEASURE but not self-promote — full autonomy
+waited on a way to TRUST an auto-authored oracle without a human. `_mutation_independent` is that proof, and it is
+gate-AGNOSTIC: an autonomous oracle is `mutation_verified` → TRUSTED (earns unattended Tier 2 hands-off) iff it catches
+a gate-PASSING defect the gate misses — there exists a server-generated text-mutant `M'` of the real module where the
+gate `G(M')` PASSES but the refuter `R(M')` FAILS. It RUNS the real gate (never parses it), so it works on the opaque
+data-driven/negative-form gates the static `independent_of_gate` arm cannot inspect (eval H9 vs H7). `produce_refuter`
+stamps `mutation_verified`; `run_refuter` propagates it; `ledger.trusted_refuter_checks` counts it.
+
+The council (reward-hacking · verifier-integrity) red-teamed it:
+
+- **Forge-resistant** — `G` and `R` run STDIN-piped, so the worker's module can't read the harness source to tell them
+  apart and selectively fake a witness; it can only suppress one (fail-safe).
+- **The DECOY forge, closed** (round-7 CRITICAL): a worker planted a non-spec export `_k=()=>7` the gate ignores + a
+  refute `_k()===7`; a `7`→`8` mutant faked a witness off the dead export. `_gate_scoped_refute` confines the proof to
+  the gate's CONTRACT surface (refute assertions calling only gate-declared exports / JS globals). Proven by eval H10.
+- **Honest bar + double-bound trust**: a witness proves INDEPENDENCE (not a gate-copy) — stronger than the bare human
+  path, but NOT exhaustive adversarial competence (no static check can, for an opaque gate). It is double-bound by the
+  live `run_refuter` re-check: a weak/false oracle that fails the REAL module self-incidents → demotion. The
+  "full autonomy proven" language was toned to "independence-proven."
+
+This completes task #23 — `/loop`-driven lights-out is now reachable hands-off for an oracle that proves its
+independence, with the human glance still required for the unprovable (tight-arithmetic) case. dev-kernel 0.2.23 → 0.2.24.
+
 ## 2026-06-20 — the REFUTE-AUTHOR (autonomous Tier-2 producer) + the human-glance gate (harness-council round 6)
 
 The missing PRODUCER for earned autonomy: until now the behavioral refute set (the false-pass oracle) was

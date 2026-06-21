@@ -61,9 +61,25 @@ module worker is gate-denied verify-spec entirely, so the only worker writes the
 one now stamped autonomous. Proven by eval **H8** (a laundering adapter writes a victim cell; it is registered, not
 the target, and cannot earn Tier 2).
 
+## Round 7 — the gate-agnostic independence proof lands, and the decoy forge it first missed
+
+`_mutation_independent` (the deferred "full autonomous Tier 2" close) landed: an autonomous oracle is `mutation_verified`
+→ TRUSTED iff it catches a gate-PASSING defect on a server-generated mutant (a witness G-pass/R-fail), run stdin-piped
+(forge-resistant). The **reward-hacking** critic found a CRITICAL — the **decoy-export tripwire**: a worker plants a
+non-spec export `_k=()=>7` the gate ignores + a refute `_k()===7`; a `7`→`8` mutant fakes a witness off the worker's
+own dead export. **Closed** by `_gate_scoped_refute` (the witness must be on the gate's CONTRACT surface — refute
+assertions calling only gate-declared exports); proven by eval H10. The **verifier-integrity** critic rated the proof
+SOUND-BUT-WEAK-BAR (one witness over single-edit mutants ≠ adversarial-overfit competence) and flagged the
+"full autonomy proven" overclaim — addressed by the gate-scope fix (witness now contract-anchored), honest reframing
+("proven INDEPENDENT, not exhaustively competent — the same bar the human path uses, stronger"), and the
+**double-bound** trust (a `mutation_verified` witness AND live `run_refuter` agreement on the real module; a weak/false
+oracle that fails reality self-incidents → demotion). The reward-hacking re-audit confirmed the decoy CLOSED (rubric > 2).
+
 ## Disposition
 
-The provenance gate (with the laundering close) makes the system SAFE regardless of the calibration's fundamental
-partiality — a fake measurement, however authored, cannot grant lights-out without a trusted (human-vetted) oracle.
-Full *autonomous* Tier 2 awaits a gate-agnostic independence proof (deferred). See
-`2026-06-20-refuter-author-autonomous-tier2.md` for the as-built design + the honest residual.
+The system is SAFE in layers: (1) the provenance gate (an autonomous oracle can't self-promote on a fake
+measurement); (2) the mutation proof (an autonomous oracle that PROVES gate-independence earns Tier 2 hands-off —
+full autonomy for the provable case); (3) the live re-check (a weak/false oracle that fails the real module
+self-incidents). The residual — one-witness independence ≠ exhaustive adversarial competence — is fundamental for
+opaque gates, shared by the human-vetted path, and bounded by (3). See
+`2026-06-20-refuter-author-autonomous-tier2.md` for the as-built design.

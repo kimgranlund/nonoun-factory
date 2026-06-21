@@ -2,6 +2,12 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.24] — 2026-06-21
+
+### Changed (full autonomous Tier 2 — the gate-agnostic independence proof, harness-council round 7)
+
+- **`ledger.trusted_refuter_checks` now trusts a mutation-VERIFIED autonomous oracle.** The denominator that earns unattended Tier 2 was "non-autonomous checks only"; it now also counts an autonomous check whose oracle PROVED gate-agnostic independence (`mutation_verified` — it caught a gate-passing defect the gate misses, on the gate's contract surface). So an autonomously-authored oracle can earn lights-out Tier 2 with no human once it proves it is not a gate-copy — a strictly stronger bar than the bare human-vetted path. The proof itself is the dev-server's (`_mutation_independent` over server-generated mutants, stdin-piped + forge-resistant + decoy-scoped); the kernel change is the trust clause + its provenance read. Both `autonomous` and `mutation_verified` are SERVER-stamped into a worker-protected sidecar, never a worker claim. Native (not vendored): no `KERNEL_VERSION` change. plugin.json 0.2.23 → 0.2.24.
+
 ## [0.2.23] — 2026-06-20
 
 ### Added (the refute-author — autonomous Tier-2 measurement, harness-council round 6)
