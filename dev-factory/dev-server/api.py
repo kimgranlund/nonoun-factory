@@ -460,6 +460,37 @@ def ready_tickets(d):
     return out
 
 
+def app_completeness(d, kit_dir=None):
+    """Is this a SHIPPABLE app — does it have a bootable browser shell? KIT-AWARE: only an instance whose bound kit
+    declares a single-file shell authoring (a browser-app kit like dev-kit-app) needs one; a docs kit never does.
+    The factory's 'drained = done' is a LIE for an app that built capability modules but never spec'd a `shell` that
+    imports + mounts them (no index.html at the product root) — the exact gap a decomposition can silently leave
+    (mechanizing the invariant the lattice-management skill must seed). Returns {bootable, reason}: bootable False
+    (with a reason) ONLY when a shell is required, capability modules are built, and none exists; True (incl. N/A)
+    otherwise. Pure read; reads DEV_FACTORY_KIT when kit_dir is unset."""
+    kit_dir = kit_dir or os.environ.get("DEV_FACTORY_KIT")
+    declares_shell = False
+    if kit_dir:
+        try:
+            kit = json.load(open(os.path.join(kit_dir, "kit.json"), encoding="utf-8"))
+            declares_shell = any(a.get("layer") == "capability" and a.get("slug") == "shell"
+                                 and a.get("mode") == "single-file" for a in kit.get("authoring", []))
+        except (OSError, ValueError):
+            pass
+    if not declares_shell:
+        return {"bootable": True, "reason": None}            # not a browser-app kit → a shell is N/A
+    lat = _lat.load(d)
+    built = [c for c in lat.get("cells", []) if c.get("layer") == "capability" and c.get("slug") != "shell"
+             and c.get("maturity") in SETTLED_MATURITIES]
+    shell = next((c for c in lat.get("cells", []) if c.get("layer") == "capability" and c.get("slug") == "shell"), None)
+    shell_done = bool(shell and shell.get("maturity") in SETTLED_MATURITIES)
+    has_entry = os.path.isfile(os.path.join(os.path.dirname(d.rstrip("/")), "index.html"))
+    if built and not (shell_done or has_entry):
+        return {"bootable": False, "reason": f"{len(built)} capability module(s) built but NO bootable shell — add a "
+                "capability.system.shell (the index.html at the product root that imports + mounts the modules)"}
+    return {"bootable": True, "reason": None}
+
+
 def factory_state(d, heartbeat_enabled=False, paused=False, family=None):
     """A single 'is the factory working, and what is it doing' headline — what the SSE 'live' dot does NOT
     answer (that only means the socket is connected). Derived from real state (running workers, the heartbeat
@@ -483,9 +514,13 @@ def factory_state(d, heartbeat_enabled=False, paused=False, family=None):
         state = "awaiting-review"    # heartbeat on, no workers/ready/active — the autonomous build is DONE; tickets await the human gate
     else:
         state = "drained"            # heartbeat on, nothing active and nothing awaiting — the queue is empty / build fully accepted
+    comp = app_completeness(d)
+    if state in ("drained", "idle") and not comp["bootable"]:
+        state = "incomplete"         # the queue drained but the app is NOT shippable — no bootable shell (index.html)
     return {"state": state, "running_agents": len(running), "ready_to_dispatch": len(ready),
             "active_tickets": len(active), "awaiting_review": len(awaiting),
             "ready_cells": [t.get("target_cell") for t in ready][:8],
+            "bootable": comp["bootable"], "completeness": comp["reason"],
             "heartbeat_enabled": bool(heartbeat_enabled), "paused": bool(paused)}
 
 
@@ -595,6 +630,28 @@ def selftest():
         expect(spec_stage and spec_stage["done"] == spec_stage["total"] == 1, "milestones must report the SPEC stage as 1/1 after the spec validated")
         expect(ms["ship_cell"] is None and ms["shipped"] is False, "no integrator cell → not shipped")
         expect("spec_revisions" in ms, "milestones must surface the bi-directional spec_revisions count")
+
+        # app_completeness — mechanize the 'drained = done' lie away: a browser-app instance (a kit that DECLARES a
+        # single-file shell) which built capability modules but has NO bootable shell reads INCOMPLETE, not drained.
+        # A non-app (no shell-declaring) kit is N/A → always bootable. The exact silent-omission a decomposition can leave.
+        with tempfile.TemporaryDirectory() as aroot:
+            ad = os.path.join(aroot, "proj", ".factory"); init_instance(ad)
+            appkit = os.path.join(os.path.dirname(os.path.dirname(_store._KERNEL_BIN)), "dev-kit-app")
+            expect(app_completeness(ad, kit_dir=None)["bootable"] is True, "no shell-declaring kit → bootable (N/A)")
+            if os.path.isfile(os.path.join(appkit, "kit.json")):
+                expect(app_completeness(ad, kit_dir=appkit)["bootable"] is True, "app kit, no built modules yet → bootable")
+                seed_cell(ad, "capability", "system", "core", maturity="validated", asset_ref="core", signal_refs=["s"])
+                r = app_completeness(ad, kit_dir=appkit)
+                expect(r["bootable"] is False and "shell" in (r["reason"] or ""),
+                       "a built capability module + NO shell → NOT bootable (the silent-omission gap)")
+                os.environ["DEV_FACTORY_KIT"] = appkit
+                try:
+                    expect(factory_state(ad, heartbeat_enabled=True)["state"] == "incomplete",
+                           "a drained app with built modules but no shell must read INCOMPLETE, not drained")
+                finally:
+                    os.environ.pop("DEV_FACTORY_KIT", None)
+                seed_cell(ad, "capability", "system", "shell", maturity="validated", asset_ref="../index.html", signal_refs=["s"])
+                expect(app_completeness(ad, kit_dir=appkit)["bootable"] is True, "a validated shell cell → bootable again")
 
         # the 5s operator-input / guidance channel: enqueue -> drain -> buffer -> recent (latest-last)
         expect(recent_guidance(d) == [], "guidance must start empty")
