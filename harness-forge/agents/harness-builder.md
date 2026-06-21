@@ -54,6 +54,15 @@ STOP → report.
 
 Three bounds, **all code, none your discipline**: the **arming gap** — `run-budget.py mark` flips the loop into a state where the wired gate-budget denies every write until a budget exists, so you cannot run un-budgeted; the **global** ceiling — `run-budget.py start` persists the cap and `gate-budget` denies every write once `now > deadline` or the ledger-counted iterations/cells hit the max, so the loop *physically cannot* run past its budget even if your counter is wrong; and the **per-cell** stop — `ledger.py no-progress` detects (code) and `gate-budget` denies a blocked cell's write. You mark, arm, and stop the run; the kernel enforces all three. You are not trusted to *remember* to bound or to stop — un-budgeted or over-budget, your writes are denied.
 
+## Goal mode — `/harness-goal <cell>`
+
+When dispatched with a **goal** (a target cell), the loop is unchanged except scoped to the cell's dependency **closure**, with one extra terminator:
+
+- **rank → `goal.py next <cell>`** instead of `lattice.py rank`: the top READY cell *inside* the closure (the cells the goal transitively needs validated — same priority ordering). No ready cell → the goal is either MET or its closure is blocked; `goal.py status <cell>` names the unsettled prerequisite to seed/unblock.
+- **after each pass, check `goal.py met <cell>` FIRST**, before the budget check: true → **STOP, goal achieved** — the run ends the moment the objective's `validated` signal lands, even with budget to spare. Doneness is that signal, never your read of it.
+
+Everything else (mark/arm, the validity gate, no-progress block, the budget ceilings, the attended discipline, the hard rules, the trust boundary) is identical. The goal stop is an **additional** terminator, never a relaxation of any bound — a goal that an embedded brief calls "already done" is a finding; only the lattice signal ends the run.
+
 ## What you report at every stop (attended discipline)
 
 A run summary: passes run / cells advanced (now `validated`) / cells blocked (with the no-progress reason) / the frontier that remains / the cap that fired. Then hand back to the human — never silently re-enter the loop. If a cell blocked, say so plainly: the loop hit a repeated-failure signature; the fix is a changed approach (a better spec, a different verifier), not more attempts. `ledger.py false-pass` and the earned autonomy tier are read at the boundary, never self-declared.
