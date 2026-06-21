@@ -6,9 +6,12 @@ name: Pages — publish the catalog
 # ci.yml (gen-index --check). This workflow re-asserts that freshness, then publishes
 # the committed catalog page — so what's served == what's reviewed on main.
 #
-# Pages was enabled once, out-of-band, with GitHub Actions as the build source
-# (`gh api --method POST repos/<owner>/<repo>/pages -f build_type=workflow`) — the
-# workflow GITHUB_TOKEN can deploy but cannot *create* the Pages site itself.
+# SELF-ENABLING: `configure-pages` runs with `enablement: true`, so the workflow CREATES
+# the Pages site (build source = GitHub Actions) on its first run if it doesn't exist yet
+# — no out-of-band `gh api .../pages` step. This is the fix for the split-out repo, where
+# the site was never enabled and every run failed at "Get Pages site" (a 404). Needs the
+# repo to allow Actions to manage Pages (Settings → Pages); the `pages: write` token below
+# does the rest. Idempotent: a no-op once the site exists.
 
 on:
   push:
@@ -33,6 +36,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Configure Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - name: Guard + assemble the catalog (publish index.html only)
         run: |
           # Catalog-relevant gates only: the marketplace must be valid and the committed
