@@ -39,7 +39,7 @@ jobs:
 
       - name: dev-server selftests
         run: |
-          for s in store api app dispatch heartbeat reports; do echo "» $s"; python3 "dev-factory/dev-server/$s.py" selftest; done
+          for s in store api app dispatch heartbeat reports verify_gen; do echo "» $s"; python3 "dev-factory/dev-server/$s.py" selftest; done
 
       - name: kit verifier selftests
         run: |

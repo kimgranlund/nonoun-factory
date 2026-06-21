@@ -195,6 +195,13 @@ def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None, strict_acce
     #     denominator; a DISAGREEMENT records an incident (autonomy demotes — the NEXT tick reads the lower tier_for).
     # One re-check per tick keeps ticks cheap.
     produced = _disp.produce_refuters(d)
+    #  1b. AUTHOR — the autonomous producer (headless only): a gate-BLIND refute-author writes a behavioral oracle
+    #      into ONE still-unmeasured cell's verify-spec, which the next produce_refuter calibrates + UPGRADES to
+    #      measuring — so the factory earns Tier 2 WITHOUT a human hand-authoring the refute set. Mock cannot
+    #      synthesize a domain contract, so this is a real-build step; one per tick keeps the loop cheap + budget-bounded.
+    authored = {}
+    if getattr(adapter, "name", "mock") != "mock":
+        authored = _disp.author_refuters(d, adapter, limit=1)
     refuted = None
     frontier = _disp.refute_frontier(d)
     if frontier:
@@ -207,8 +214,8 @@ def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None, strict_acce
         b["ticks"] = b.get("ticks", 0) + 1
         json.dump(b, open(_budget_path(d), "w"), indent=2)
     return {"halted": False, "reason": None, "tier": tier, "dispatched": dispatched,
-            "reconciled": reconciled, "produced": produced, "refuted": refuted, "distilled": distilled,
-            "cycle": cycle}
+            "reconciled": reconciled, "produced": produced, "authored": authored, "refuted": refuted,
+            "distilled": distilled, "cycle": cycle}
 
 
 def run(d, adapter=None, tier=1, max_concurrency=2, period_s=30):

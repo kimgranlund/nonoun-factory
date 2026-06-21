@@ -3,6 +3,32 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-20 — the REFUTE-AUTHOR (autonomous Tier-2 producer) + the human-glance gate (harness-council round 6)
+
+The missing PRODUCER for earned autonomy: until now the behavioral refute set (the false-pass oracle) was
+hand-authored, so a cell stayed honestly `unmeasured` (Tier 1) until a human wrote one — Tier 2 was earnable but not
+*autonomously*. This adds a gate-blind **refute-author** (`author_refuter` / `author_refuters`, a rubric-architect
+role wired `--allow-refute`) that authors a cell's `refute` set from the spec; the server's three-proof calibration
+(`is_behavioral` · `_refuter_discriminates` · `independent_of_gate`) decides `measuring`; `produce_refuter` UPGRADES a
+liveness floor to measuring (the producer's landing point) and stamps PROVENANCE. Wired into the heartbeat
+(headless-only, one per tick, budget-bounded). `verify_gen.independent_of_gate` closes the gate-COPY hole using the
+**server-read gate source**, not the worker-writable `acceptance` field.
+
+The harness-council (reward-hacking · autonomy-trajectory · verifier-integrity · scoreboard-independence) red-teamed
+it and found the autonomous-Tier-2-for-lights-out claim unsafe: the calibration is partial for opaque
+data-driven/negative-form gates, and the loop could self-promote on a fake measurement. **Fixes (round 6):**
+
+- **The human-glance gate, in code (not prose).** An autonomously-authored oracle is stamped `autonomous: true` (a
+  server-owned, worker-protected registry `run/autonomous-oracles.json` + the refuter sidecar); `tier_for` grants
+  unattended Tier 2 only with a TRUSTED (non-autonomous) check. The autonomous oracle MEASURES (builds the visible
+  rate + a track record) but cannot SELF-PROMOTE; a human-vetted oracle is the trusted check that lifts the family.
+- **The cross-cell LAUNDERING close.** Provenance follows the WRITE, not the nominal target: `author_refuters` diffs
+  the verify-spec dir before/after each dispatch and registers every cell the worker actually authored — so a
+  dispatch targeting X cannot launder a machine-authored oracle onto a sibling Y to dodge the gate.
+- The mock refute-author is an honest no-op; full *autonomous* Tier 2 awaits a gate-agnostic independence proof
+  (deferred — see `docs/2026-06-20-refuter-author-autonomous-tier2.md` + `…-council.md`). Eval `earned-autonomy`
+  H6/H7/H8 prove the gate-copy rejection, the human-glance gate, and the laundering close. dev-kernel 0.2.22 → 0.2.23.
+
 ## 2026-06-20 — harness-council RE-AUDIT round 5 (round 14): the in-process forge is CLOSED; fix the fail-open default
 
 The fifth verification CONFIRMED the keystone goal: a worker who authors `index.mjs` cannot forge the measurement —

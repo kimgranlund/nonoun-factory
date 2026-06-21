@@ -233,6 +233,15 @@ class MockAdapter(DispatchAdapter):
                 "if (m.ready !== true) { console.error('FAIL: index.mjs must export ready=true'); process.exit(1); }\n"
                 "console.log('pass'); process.exit(0);\n")
             return {"ok": True, "asset_ref": os.path.relpath(vpath, d), "metrics": {"tokens": 4000, "iterations": 1}}
+        if unit.get("kind") == "refute-author":
+            # HONEST no-op: a mock cannot synthesize a real DOMAIN oracle (it does not know what the module SHOULD
+            # compute), so it authors NO behavioral refute set — the cell stays liveness-only / UNMEASURED, exactly the
+            # honest outcome (a headless rubric-architect reading the spec is required to mint a measuring oracle, just
+            # as the mock verifier writes only a smoke stub). It records the no-op so the producer leaves the cell at
+            # Tier 1, never faking measurement. Returns ok (the dispatch succeeded) without touching the verify-spec.
+            cell_id = unit["target_cell"]
+            return {"ok": True, "asset_ref": f"coordination/verify-spec/{cell_id}.json", "mock_no_oracle": True,
+                    "metrics": {"tokens": 2000, "iterations": 1}}
         authoring = _authoring_for({"layer": layer, "slug": slug})
         if authoring and authoring.get("mode") == "single-file":
             # the integration shell: a single runnable entry at the product root (e.g. index.html). The mock
@@ -280,7 +289,7 @@ class MockAdapter(DispatchAdapter):
         return {"ok": True, "asset_ref": asset_rel, "metrics": {"tokens": 8000, "iterations": 1}}
 
 
-def wire_gates(worktree, kernel_bin, allow_verify=False):
+def wire_gates(worktree, kernel_bin, allow_verify=False, allow_refute=False):
     """Make the immutable boundary ACTIVE inside the worker's worktree: write a .claude/settings.json that
     runs the dev-kernel gates as PreToolUse(Write|Edit) hooks. A worker that tries to forge a signal or
     rewrite the lattice/ledger is denied in-process (gate-verifier emits permissionDecision: deny). This is
@@ -288,10 +297,15 @@ def wire_gates(worktree, kernel_bin, allow_verify=False):
 
     `allow_verify` wires the verifier-author boundary (`gate-verifier --allow-verify`): the rubric-architect
     authoring a cell's verify.mjs may write it (it IS the gate), while signals/lattice/ledger/rubric stay
-    denied. The module worker is wired WITHOUT it, so it still cannot write the gate it must pass."""
+    denied. `allow_refute` wires the INVERSE refute-author boundary (`--allow-refute`): the refute-author
+    authoring the verify-spec's behavioral oracle may write `coordination/verify-spec/*` while verify.mjs, the
+    refuter sidecars, signals, the lattice/ledger, and the product barrel stay denied. The two are mutually
+    exclusive (gate-verifier rejects both flags). The module worker is wired with NEITHER, so it can write
+    neither the gate it must pass nor the oracle that re-checks it."""
     cfg_dir = os.path.join(worktree, ".claude")
     os.makedirs(cfg_dir, exist_ok=True)
-    gv = f"{os.path.join(kernel_bin, 'gate-verifier')} --hook" + (" --allow-verify" if allow_verify else "")
+    gv = f"{os.path.join(kernel_bin, 'gate-verifier')} --hook" + (
+        " --allow-verify" if allow_verify else " --allow-refute" if allow_refute else "")
     settings = {"hooks": {"PreToolUse": [
         {"matcher": "Write|Edit|MultiEdit", "hooks": [
             {"type": "command", "command": gv},
@@ -370,6 +384,8 @@ class HeadlessClaudeAdapter(DispatchAdapter):
         # implements its contract. The module worker is gate-denied from writing verify.mjs; THIS authors it.
         if unit.get("kind") == "verifier":
             return self._verifier_prompt(d, unit, project_root, gtxt, ftxt)
+        if unit.get("kind") == "refute-author":
+            return self._refute_author_prompt(d, unit, project_root, gtxt, ftxt)
 
         authoring = _authoring_for({"layer": unit["layer"], "slug": unit["slug"]})
         # the INTEGRATION SHELL (a single-file root entry): the capability modules are ALREADY separate cells —
@@ -466,13 +482,54 @@ class HeadlessClaudeAdapter(DispatchAdapter):
                 f"`ready` check — that punt is exactly the presence-predicate this replaces. "
                 f"Author ONLY `{dir_rel}/verify.mjs`; do NOT author the module or touch `.factory/` state.{spec_txt}{gtxt}{ftxt}")
 
+    def _refute_author_prompt(self, d, unit, project_root, gtxt, ftxt):
+        """The REFUTE-AUTHOR (a rubric-architect role, BLIND TO THE GATE) authors the cell's behavioral REFUTE set —
+        the HIDDEN independent oracle that re-checks a validated module on inputs its gate never used. This is the
+        producer that makes Tier 2 AUTONOMOUSLY earnable: until now the measuring refute set was hand-authored, so a
+        cell stayed `unmeasured` (Tier 1) until a human wrote one. The dispatch is wired with gate-verifier
+        --allow-refute: it may write ONLY `coordination/verify-spec/<cell>.json`; verify.mjs (the gate), the refuter
+        sidecars, signals, the lattice/ledger, and the product barrel are all denied. INDEPENDENCE is the whole point
+        — it derives from the SPEC, not the gate (which it is not shown), on DIFFERENT inputs, or the server's
+        calibration (is_behavioral · _refuter_discriminates · independent_of_gate) rejects the set and the cell stays
+        honestly unmeasured. No claim of doneness is the author's; the calibration + the live re-check decide."""
+        cell_id = unit["target_cell"]
+        spec_path = os.path.join(d, "coordination", "verify-spec", f"{cell_id}.json")
+        exports = []
+        if os.path.isfile(spec_path):
+            try:
+                exports = (json.load(open(spec_path, encoding="utf-8")) or {}).get("exports") or []
+            except (OSError, ValueError):
+                pass
+        spec_abs = os.path.join(d, "spec", "app.md")
+        spec_txt = ("\n\nTHE SPEC (the cell's contract — derive EVERY refute check from THIS, never from the gate):\n"
+                    + open(spec_abs, encoding="utf-8").read()[:4000]) if os.path.exists(spec_abs) else ""
+        spec_rel = os.path.relpath(spec_path, project_root)
+        exp_txt = (" The cell exports: " + ", ".join(f"`{e}`" for e in exports if isinstance(e, str)) + ".") if exports else ""
+        return (f"You are the dev-factory REFUTE-AUTHOR for the capability `{cell_id}` — you author the HIDDEN "
+                f"INDEPENDENT ORACLE that re-checks this module AFTER it has passed its own gate.{exp_txt} Edit ONLY "
+                f"the JSON file `{spec_rel}`: set its `refute` field to a JSON array of 3-6 BEHAVIORAL boolean "
+                f"JavaScript assertion STRINGS over the exports, preserving the other fields (`exports`, `acceptance`, "
+                f"`generation`, `history`). Each assertion MUST (a) CALL an export with CONCRETE inputs and assert a "
+                f"SPECIFIC VALUE (e.g. `\"createDeck().length === 52\"`, `\"add(7, 8) === 15\"`, "
+                f"`\"reverse([1,2,3])[0] === 3\"`) — never a `typeof`/shape probe, never identical operands "
+                f"(`x()===x()`); (b) hold for a SPEC-CONFORMANT module and FAIL for a wrong one.\n"
+                f"CRITICAL — INDEPENDENCE: you are deliberately NOT shown `verify.mjs` (the gate). Derive every check "
+                f"from THE SPEC and choose DIFFERENT concrete inputs than an obvious gate would pick — the oracle's "
+                f"job is to catch a module that OVERFIT to the gate's exact inputs, so a check that merely restates "
+                f"the gate measures nothing and is rejected. Do NOT read or guess at verify.mjs; do NOT author the "
+                f"module, signals, the refuter, or any other file. The server independently calibrates your set (it "
+                f"must genuinely disagree with a wrong module) — a vacuous or gate-copying set earns nothing and the "
+                f"cell stays at Tier 1.{spec_txt}{gtxt}{ftxt}")
+
     def dispatch(self, d, unit):
         if shutil.which("claude") is None:
             return {"ok": False, "error": "the `claude` CLI is not on PATH", "metrics": {}}
         # the worker runs from the PROJECT ROOT so the product lands in the clean tree the critic validates,
         # and the gates' protected `.factory/` globs match the worker's writes.
         project_root = os.path.dirname(os.path.dirname(d.rstrip("/")))
-        settings = wire_gates(unit["worktree"], _api._store._KERNEL_BIN, allow_verify=(unit.get("kind") == "verifier"))
+        settings = wire_gates(unit["worktree"], _api._store._KERNEL_BIN,
+                              allow_verify=(unit.get("kind") == "verifier"),
+                              allow_refute=(unit.get("kind") == "refute-author"))
         budget = unit.get("budget") or {}
         effort = (unit.get("plan") or {}).get("effort") or {}          # the assembled execution plan's effort ladder
         max_turns = effort.get("max_iterations") or budget.get("iterations", 10)
@@ -524,6 +581,18 @@ class HeadlessClaudeAdapter(DispatchAdapter):
         # not the worker's process code — so `ok` means "an asset exists to validate"; the exit code is advisory
         # metrics. (A crash that writes nothing → no asset → correctly failed.) Authoring-aware: a multi-file
         # capability produces a DIRECTORY of source (anything but its critic harness), a doc/spec a single `.md`.
+        if unit.get("kind") == "refute-author":
+            # produced = the verify-spec now carries a NON-EMPTY behavioral refute set (the oracle's source). The
+            # server still independently CALIBRATES it (produce_refuter); authoring it is not the same as it MEASURING.
+            asset_rel = os.path.join("coordination", "verify-spec", f"{unit['target_cell']}.json")
+            try:
+                refute = (json.load(open(os.path.join(d, asset_rel), encoding="utf-8")) or {}).get("refute") or []
+            except (OSError, ValueError):
+                refute = []
+            produced = bool(refute)
+            err = None if produced else f"no refute set authored into the verify-spec (claude exited {proc.returncode})"
+            return {"ok": produced, "asset_ref": asset_rel, "error": err,
+                    "metrics": {"cost_usd": cost, "tokens": tokens, "exit": proc.returncode}}
         if unit.get("kind") == "verifier":
             asset_rel = os.path.join(_asset_rel("capability", unit["slug"],                # the critic harness FILE
                         _authoring_for({"layer": "capability", "slug": unit["slug"]})), "verify.mjs")
@@ -642,6 +711,116 @@ def author_app_verifiers(d, slugs, adapter, repo_root=None, scope="system"):
         finally:
             teardown_worktree(d, wt, repo_root)
     return results
+
+
+def author_refuter(d, cell, adapter, repo_root=None):
+    """Author a validated cell's behavioral REFUTE set via the FACTORY (the rubric-architect role, BLIND TO THE
+    GATE) — the autonomous producer that makes Tier 2 EARNABLE without a human. It writes the verify-spec's `refute`
+    field (gate-verifier --allow-refute boundary); the server's produce_refuter then independently CALIBRATES it
+    (is_behavioral · _refuter_discriminates · independent_of_gate) and only a set that clears all three UPGRADES the
+    cell's liveness floor to a MEASURING oracle. A vacuous or gate-copying set changes nothing — the cell stays
+    honestly unmeasured. Run it on a validated CODE cell whose refuter is still liveness-only. Returns the dispatch
+    result {ok, asset_ref, ...}."""
+    unit = {"layer": cell["layer"], "scope": cell["scope"], "slug": cell["slug"], "kind": "refute-author",
+            "target_cell": f"{cell['layer']}.{cell['scope']}.{cell['slug']}",
+            "ticket": cell.get("ticket", "refute-author"), "dir": d, "worktree": cell.get("worktree", repo_root or d)}
+    return adapter.dispatch(d, unit)
+
+
+def author_refuters(d, adapter, repo_root=None, scope="system", limit=None):
+    """The REFUTE-AUTHOR PASS: run the gate-blind refute-author over validated CODE cells whose refuter is still
+    LIVENESS-only (`refute_author_frontier`), each in its own worktree, then re-run produce_refuter so a set that
+    passes calibration upgrades the cell to MEASURING. After this pass the cells that earned a real behavioral oracle
+    count toward `false_pass` — the missing producer that lets the factory earn Tier 2 autonomously. Mock authors no
+    oracle (it cannot synthesize a domain contract), so this is a real-build (headless) step. `limit` caps how many
+    cells are authored this call (the heartbeat passes 1 — one dispatch per tick keeps the loop cheap + budget-bounded).
+    Returns {cell: newly_measuring?}."""
+    results = {}
+    frontier = refute_author_frontier(d)
+    if limit is not None:
+        frontier = frontier[:limit]
+    for cell_id in frontier:
+        cell = _lat.find(_lat.load(d), cell_id)
+        if not cell:
+            continue
+        wt, _ = provision_worktree(d, cell_id, "refute-author", repo_root)
+        snap = _verify_spec_hashes(d)   # snapshot BEFORE the dispatch, to register what it actually WROTE
+        try:
+            author_refuter(d, {**cell, "worktree": wt, "ticket": f"refute-{cell.get('slug')}"}, adapter, repo_root)
+        finally:
+            teardown_worktree(d, wt, repo_root)
+        # Register EVERY cell whose verify-spec the dispatch CREATED OR CHANGED — NOT just the nominal target. The
+        # --allow-refute gate permits writing ANY `coordination/verify-spec/*` (the per-cell scope is prompt-only), so
+        # a dispatch targeting X could write a SIBLING Y's verify-spec to LAUNDER a machine-authored oracle onto an
+        # unregistered (→ "trusted") cell (harness-council round 6 CRITICAL). Diffing what was written closes it: the
+        # module worker is gate-denied verify-spec entirely, so the ONLY worker writes here are this dispatch's — every
+        # one is provenance-stamped autonomous, wherever its measuring upgrade later lands.
+        after = _verify_spec_hashes(d)
+        for changed in [c for c in after if after[c] != snap.get(c)]:
+            _register_autonomous(d, changed)
+        before = _measuring_now(d, cell_id)
+        produce_refuter(d, cell_id)   # stamps autonomous:true from the registry if it upgrades to measuring
+        results[cell_id] = _measuring_now(d, cell_id) and not before
+    return results
+
+
+def _verify_spec_hashes(d):
+    """{cell_id: content-hash} for every verify-spec on disk — a snapshot to diff what a refute-author dispatch wrote,
+    so provenance is registered for the cells actually AUTHORED, not the loop's nominal target (closes the cross-cell
+    laundering forge)."""
+    import hashlib
+    out = {}
+    vdir = os.path.join(d, "coordination", "verify-spec")
+    try:
+        names = os.listdir(vdir)
+    except OSError:
+        return out
+    for n in names:
+        if n.endswith(".json"):
+            try:
+                out[n[:-5]] = hashlib.md5(open(os.path.join(vdir, n), "rb").read()).hexdigest()
+            except OSError:
+                pass
+    return out
+
+
+def _autonomous_registry_path(d):
+    return os.path.join(d, "run", "autonomous-oracles.json")
+
+
+def _is_autonomous_cell(d, cell_id):
+    """True iff this cell's refute oracle was AUTONOMOUSLY authored (recorded in the server-owned registry). Drives
+    the sidecar's `autonomous` stamp → the human-glance gate. Reads a worker-PROTECTED file (run/* ∈ VERIFIER), so a
+    worker cannot clear its own autonomous mark to dodge the gate."""
+    try:
+        return cell_id in set(json.load(open(_autonomous_registry_path(d), encoding="utf-8")) or [])
+    except (OSError, ValueError):
+        return False
+
+
+def _register_autonomous(d, cell_id):
+    """Record (server-side, in the worker-protected run/ perimeter) that this cell's refute oracle is AUTONOMOUSLY
+    authored — so produce_refuter stamps `autonomous: true` no matter WHERE the measuring upgrade lands (the author
+    pass OR a later sweep). SERVER-determined (only author_refuters calls this), never a worker claim; the verify-spec
+    is worker-writable, this registry is not."""
+    p = _autonomous_registry_path(d)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    try:
+        cur = set(json.load(open(p, encoding="utf-8")) or [])
+    except (OSError, ValueError):
+        cur = set()
+    cur.add(cell_id)
+    json.dump(sorted(cur), open(p, "w", encoding="utf-8"), indent=2)
+
+
+def _measuring_now(d, cell_id):
+    """True iff the cell's refuter sidecar is currently a MEASURING oracle — the post-calibration state, read from
+    disk (never the author's claim)."""
+    side = os.path.join(d, "coordination", "refuters", f"{cell_id}.json")
+    try:
+        return bool((json.load(open(side, encoding="utf-8")) or {}).get("measuring"))
+    except (OSError, ValueError):
+        return False
 
 
 _MOCK_VERIFIER_MARK = "dev-factory:mock-verifier"  # sentinel every seed/mock-authored stub stamps; a real harness omits it
@@ -939,6 +1118,37 @@ def refute_frontier(d):
     return out
 
 
+def refute_author_frontier(d):
+    """The REFUTE-AUTHOR's work-list: validated multi-file CODE cells whose refuter is still LIVENESS-only (or
+    absent) — i.e. the cell is `unmeasured` and a behavioral oracle would let it EARN Tier 2. A cell already armed
+    with a MEASURING oracle is excluded (nothing to author), and presence-stub-validated / non-code cells are skipped
+    (no real contract to refute). This is what `author_refuters` iterates — the producer half of autonomous Tier 2."""
+    out = []
+    for c in _lat.load(d).get("cells", []):
+        if c.get("maturity") not in ("validated", "operating"):
+            continue
+        authoring = _authoring_for(c)
+        if not authoring or authoring.get("mode") != "multi-file":
+            continue
+        cid = _lat.cid(c)
+        if _measuring_now(d, cid):   # already a measuring oracle → nothing to author
+            continue
+        # the gate must be a REAL spec-conformance harness, not a mock/presence stub — resolve verify.mjs the SAME
+        # asset_ref-aware way produce_refuter does (NOT _is_mock_verifier, which resolves via _asset_rel and so
+        # disagrees when asset_ref points elsewhere), then inline the real-gate test: a stub with no contract gives
+        # nothing to write an INDEPENDENT oracle against (the verifier-author must run first).
+        vpath = os.path.normpath(os.path.join(d, c.get("asset_ref")
+                                 or _asset_rel(c["layer"], c["slug"], authoring), "verify.mjs"))
+        try:
+            src = open(vpath, encoding="utf-8").read()
+        except OSError:
+            continue   # no gate authored yet
+        if _MOCK_VERIFIER_MARK in src or not _exercises_export(src):
+            continue   # mock smoke stub / presence check → premature to author an oracle
+        out.append(cid)   # validated, real gate, still unmeasured → a behavioral oracle would let it earn Tier 2
+    return out
+
+
 def _exports_from_verify(src):
     """Recover a cell's exported API from its `verify.mjs` — the `required = [ ... ]` array a generated gate embeds,
     plus any `m.<name>` the harness exercises (a hand-authored real harness). `ready`/`m.ready` (the seed-stub
@@ -1005,10 +1215,22 @@ def produce_refuter(d, cell_id):
         catches a module that throws on load, but it is TAUTOLOGICAL against any loading module, so it must NOT mint a
         measured 0.0 false-pass (the prior bug auto-granted Tier 2 from exactly this vacuous oracle). A cell with no
         behavioral refute set therefore stays HONESTLY `unmeasured` (Tier 1) until a real oracle is authored.
-    Returns the cell_id if it armed any oracle, else None. Idempotent + non-clobbering; multi-file CODE cells only."""
+    UPGRADE path (the autonomous refute-author): a sidecar already armed as a LIVENESS floor is re-evaluated — if a
+    behavioral refute set has SINCE been authored into the verify-spec (by `author_refuter`, the headless rubric-
+    architect), this upgrades it liveness→MEASURING. A sidecar that is ALREADY measuring is never clobbered, and a
+    still-liveness cell with no measuring candidate is left as-is (no churn). So the deterministic sweep arming a
+    liveness floor first does NOT strand a later-authored behavioral oracle.
+    Returns the cell_id if it armed/upgraded an oracle, else None. Idempotent; multi-file CODE cells only."""
     side = os.path.join(d, "coordination", "refuters", f"{cell_id}.json")
+    existing = None
     if os.path.isfile(side):
-        return None
+        try:
+            existing = json.load(open(side, encoding="utf-8")) or {}
+        except (OSError, ValueError):
+            existing = {}
+        if existing.get("measuring"):
+            return None   # already a MEASURING oracle — never clobber it (a re-arm could only weaken)
+        # else: a LIVENESS-only sidecar — fall through to re-evaluate, and UPGRADE if a behavioral set now exists
     cell = _lat.find(_lat.load(d), cell_id)
     if not cell:
         return None
@@ -1018,7 +1240,8 @@ def produce_refuter(d, cell_id):
     vpath = os.path.normpath(os.path.join(d, cell.get("asset_ref")
                              or _asset_rel(cell["layer"], cell["slug"], authoring), "verify.mjs"))
     try:
-        exports = _exports_from_verify(open(vpath, encoding="utf-8").read())
+        gate_src = open(vpath, encoding="utf-8").read()
+        exports = _exports_from_verify(gate_src)
     except OSError:
         return None
     # PREFER a real behavioral refute set authored into the verify-spec; fall back to the generic liveness floor.
@@ -1027,15 +1250,28 @@ def produce_refuter(d, cell_id):
     refute, measuring = None, False
     if os.path.isfile(spec_path):
         try:
-            cand = (json.load(open(spec_path, encoding="utf-8")) or {}).get("refute") or []
-            # MEASURING requires BOTH the cheap syntactic pre-filter (is_behavioral — invokes an export, no obvious
-            # tautology) AND the semantic positive proof (_refuter_discriminates — actually disagrees with a poison
-            # stub). A behavioral-LOOKING but vacuous refute set (`compute(1)===compute(1)`) fails the calibration.
-            if _vg.is_behavioral(cand, exports) and _refuter_discriminates(cand, exports):
+            sdata = json.load(open(spec_path, encoding="utf-8")) or {}
+            cand = sdata.get("refute") or []
+            # MEASURING requires THREE proofs, none the author's say-so: (1) is_behavioral — invokes an export, no
+            # obvious tautology; (2) _refuter_discriminates — actually disagrees with a typed poison; (3)
+            # independent_of_gate — carries a behavioral check the gate does NOT already enforce, so it can catch an
+            # overfit the gate waved through (the gate-COPY hole the auto-author opens). The independence baseline is
+            # the SERVER-READ gate SOURCE (`gate_src`), NOT the verify-spec's `acceptance` — that field is
+            # WORKER-WRITABLE under --allow-refute, so trusting it would let a refute-author declare `acceptance: []`
+            # and disarm the structured arm (harness-council round 6 CRITICAL). We pass [] for acceptance here; the
+            # server-trusted structured arm applies only on the self-heal path, where `fold` computes it. NOTE: the
+            # gate-source arm is itself PARTIAL for opaque data-driven/negative-form gates, so a passing autonomous
+            # oracle is additionally provenance-gated — it measures but does not earn unattended Tier 2 (see tier_for).
+            if (_vg.is_behavioral(cand, exports) and _refuter_discriminates(cand, exports)
+                    and _vg.independent_of_gate(cand, [], exports, gate_src=gate_src)):
                 refute, measuring = cand, True
         except (OSError, ValueError):
             pass
     if refute is None:
+        # no measuring candidate. If a liveness sidecar already exists, leave it (no churn — the upgrade only
+        # fires when a behavioral set appears); only ARM a fresh liveness floor when there is no sidecar yet.
+        if existing is not None:
+            return None
         refute = _vg.fresh_refute(exports, [], 0)   # generic liveness floor (cannot disagree → non-measuring)
         if not refute:
             return None
@@ -1043,14 +1279,19 @@ def produce_refuter(d, cell_id):
             os.makedirs(os.path.join(d, "coordination", sub), exist_ok=True)
         json.dump(_vg.new_spec(exports, [], refute), open(spec_path, "w", encoding="utf-8"), indent=2)
     os.makedirs(os.path.join(d, "coordination", "refuters"), exist_ok=True)
-    json.dump({"harness": _vg.gen_cap_verify(exports, refute), "refute": refute, "measuring": measuring},
-              open(side, "w", encoding="utf-8"), indent=2)
+    # PROVENANCE stamped HERE (not only in author_refuters), from the server-owned registry — so an oracle whose
+    # MEASURING upgrade lands in the deterministic sweep (not the author pass) is still marked autonomous (round 6:
+    # closing the stamp-gap). The registry lives under the worker-protected run/ perimeter → untamperable.
+    autonomous = _is_autonomous_cell(d, cell_id)
+    json.dump({"harness": _vg.gen_cap_verify(exports, refute), "refute": refute, "measuring": measuring,
+               "autonomous": autonomous}, open(side, "w", encoding="utf-8"), indent=2)
+    upgraded = existing is not None and measuring   # a liveness floor promoted by a now-authored behavioral set
     _led.append(d, "signal", {"kind": "server", "id": "refuter-producer"}, {"cell": cell_id},
-                f"armed a {'MEASURING' if measuring else 'liveness-only (NON-measuring)'} refuter for {cell_id} "
-                f"({len(exports)} export(s), {len(refute)} check(s))"
+                f"{'UPGRADED to a MEASURING' if upgraded else 'armed a ' + ('MEASURING' if measuring else 'liveness-only (NON-measuring)')} "
+                f"refuter for {cell_id} ({len(exports)} export(s), {len(refute)} check(s))"
                 + ("" if measuring else " — the generic floor cannot disagree, so the cell stays UNMEASURED until a "
                    "behavioral refute set is authored (it will NOT earn Tier 2 on this)"),
-                metrics={"refuter_armed": True, "exports": len(exports), "measuring": measuring})
+                metrics={"refuter_armed": True, "exports": len(exports), "measuring": measuring, "upgraded": upgraded})
     return cell_id
 
 
@@ -1107,10 +1348,13 @@ def self_heal_cell(d, cell_id):
     # is authored — it does NOT silently re-earn Tier 2 on a tautology).
     sidecar = os.path.join(d, "coordination", "refuters", f"{cell_id}.json")
     if refuter_harness:
-        _rf, _ex = new_spec.get("refute") or [], new_spec.get("exports") or []
-        # re-armed `measuring` requires BOTH the syntactic pre-filter AND the poison calibration — the same AND-gate
-        # the live produce_refuter uses (re-audit 4 N: a fold must not certify an invoking-but-vacuous re-arm).
-        rearm_measuring = _vg.is_behavioral(_rf, _ex) and _refuter_discriminates(_rf, _ex)
+        _rf, _ex, _acc = new_spec.get("refute") or [], new_spec.get("exports") or [], new_spec.get("acceptance") or []
+        # re-armed `measuring` requires the SAME three-proof AND-gate the live produce_refuter uses — the syntactic
+        # pre-filter, the poison calibration, AND independence from the (just-strengthened) gate (re-audit 4 N: a fold
+        # must not certify an invoking-but-vacuous re-arm; the fold FOLDS the old refute INTO acceptance, so a fresh
+        # refuter that only re-states a folded check is now a gate-copy and independent_of_gate correctly rejects it).
+        rearm_measuring = (_vg.is_behavioral(_rf, _ex) and _refuter_discriminates(_rf, _ex)
+                           and _vg.independent_of_gate(_rf, _acc, _ex, gate_src=verify_js))
         json.dump({"harness": refuter_harness, "refute": _rf, "measuring": rearm_measuring},
                   open(sidecar, "w", encoding="utf-8"), indent=2)
     elif os.path.isfile(sidecar):
@@ -1177,6 +1421,12 @@ def run_refuter(d, cell_id):
     # auto-Tier-2. It still records its agree/disagree (a disagreement demotes via the incident path either way); it
     # just does not earn the denominator. Fail-safe by construction, independent of whether the wiring is installed.
     measuring = sdata.get("measuring", False)
+    # PROVENANCE (the human-glance gate, harness-council round 6): an oracle AUTONOMOUSLY authored by the refute-author
+    # is recorded `autonomous: true` (server-stamped, in a worker-protected sidecar). It still MEASURES — it builds the
+    # visible false-pass rate — but `tier_for` does not let an all-autonomous measurement earn UNATTENDED Tier 2: the
+    # current independence calibration is partial for opaque gates, so a self-authored oracle cannot self-promote the
+    # loop to lights-out. A human-vetted / server-folded oracle (autonomous absent/false) is the trusted denominator.
+    autonomous = bool(sdata.get("autonomous"))
     if not harness or shutil.which("node") is None:
         return None
     # The refuter must IMPORT the product source (the cell's asset_ref) — a kit's output_root may have rooted it OUT
@@ -1213,8 +1463,9 @@ def run_refuter(d, cell_id):
     agreed = (rc == 0 and nonce in out)
     _led.append(d, "signal", {"kind": "server", "id": "refuter"}, {"cell": cell_id},
                 f"independent refuter {'AGREED' if agreed else 'DISAGREED — FALSE PASS caught'} on {cell_id}"
-                + ("" if measuring else " (liveness-only — NOT a false-pass measurement)"),
-                metrics={"refuter": True, "agreed": agreed, "measuring": measuring})
+                + ("" if measuring else " (liveness-only — NOT a false-pass measurement)")
+                + (" [autonomously-authored oracle — measures, but does not earn unattended Tier 2]" if measuring and autonomous else ""),
+                metrics={"refuter": True, "agreed": agreed, "measuring": measuring, "autonomous": autonomous})
     if not agreed:
         _auto.record_incident(d, cell_id, f"refuter caught a false pass: {cell_id} validated against its gate but "
                               "fails an independent re-check (overfit / gamed)")
@@ -1507,6 +1758,46 @@ def selftest():
             sside = os.path.join(vfd, "coordination", "refuters", "capability.system.store.json")
             expect(json.load(open(sside)).get("measuring") is True,
                    "produce_refuter must arm a MEASURING refuter from a behavioral refute set (save(1) invokes the export)")
+            # the REFUTE-AUTHOR producer (task #20 — autonomous Tier 2):
+            #  · the frontier lists the validated, real-gated, still-UNMEASURED cell (core, liveness-only) and EXCLUDES
+            #    the already-measuring one (store) — the gate-blind author's work-list.
+            front = refute_author_frontier(vfd)
+            expect("capability.system.core" in front and "capability.system.store" not in front,
+                   f"refute_author_frontier must list the unmeasured real-gated cell, not the measuring one (got {front})")
+            #  · the MOCK refute-author is an HONEST no-op (it cannot synthesize a domain oracle) — it fabricates no
+            #    measurement, so core stays liveness-only after a mock author pass (only a headless author measures).
+            mr = MockAdapter().dispatch(vfd, {"kind": "refute-author", "target_cell": "capability.system.core",
+                                              "layer": "capability", "scope": "system", "slug": "core"})
+            expect(mr.get("ok") and mr.get("mock_no_oracle") is True,
+                   "the mock refute-author must be an honest no-op (ok, mock_no_oracle) — it never fabricates measurement")
+            #  · the UPGRADE path: a behavioral set authored into core's verify-spec promotes its liveness floor to
+            #    MEASURING (produce_refuter re-evaluates a liveness-only sidecar — the autonomous author's landing point).
+            json.dump({"exports": ["deal"], "acceptance": ["deal(3).length === 3"], "refute": ["deal(5).length === 5"],
+                       "generation": 0, "history": []},
+                      open(os.path.join(vfd, "coordination", "verify-spec", "capability.system.core.json"), "w"))
+            expect(produce_refuter(vfd, "capability.system.core") == "capability.system.core"
+                   and json.load(open(side)).get("measuring") is True,
+                   "produce_refuter must UPGRADE a liveness floor to MEASURING once a behavioral refute set is authored")
+            #  · a POSITIVE-FORM gate-copy is REJECTED by the SERVER-trusted gate-SOURCE arm — produce_refuter does NOT
+            #    trust the verify-spec's worker-writable `acceptance` (round 6 CRITICAL); independence is from the gate.
+            _api.seed_cell(vfd, "capability", "system", "copycell", maturity="validated", asset_ref="copycell")
+            os.makedirs(os.path.join(vfd, "copycell"), exist_ok=True)
+            open(os.path.join(vfd, "copycell", "verify.mjs"), "w").write(
+                "import * as m from './index.mjs';\nconst ok = (m.f(2) === 4);\nif (!ok) process.exit(1);\nconsole.log('ok');\n")
+            json.dump({"exports": ["f"], "acceptance": [], "refute": ["f(2) === 4"], "generation": 0, "history": []},
+                      open(os.path.join(vfd, "coordination", "verify-spec", "capability.system.copycell.json"), "w"))
+            produce_refuter(vfd, "capability.system.copycell")
+            expect(json.load(open(os.path.join(vfd, "coordination", "refuters", "capability.system.copycell.json"))).get("measuring") is False,
+                   "produce_refuter must REJECT a positive-form gate-copy via the server-trusted gate-SOURCE arm (not the worker's acceptance)")
+            #  · provenance (the human-glance gate): produce_refuter stamps a non-registered (human-authored) oracle
+            #    autonomous:false → TRUSTED; the server-owned, worker-protected registry marks an autonomous cell so a
+            #    measuring upgrade in EITHER the author pass OR a later sweep is stamped. (The full register→stamp→tier
+            #    chain — autonomous measures but caps at Tier 1 — is exercised end-to-end by the earned-autonomy eval H7.)
+            expect(json.load(open(sside)).get("autonomous") is False and not _is_autonomous_cell(vfd, "capability.system.store"),
+                   "produce_refuter must stamp a non-registered (human-authored) oracle autonomous:false → trusted")
+            _register_autonomous(vfd, "capability.system.store")
+            expect(_is_autonomous_cell(vfd, "capability.system.store"),
+                   "_register_autonomous records the cell in the server-owned registry (untamperable provenance)")
         finally:
             del os.environ["DEV_FACTORY_KIT"]
 

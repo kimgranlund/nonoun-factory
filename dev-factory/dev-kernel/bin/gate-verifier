@@ -13,7 +13,12 @@ Consent-wired as a PreToolUse(Write|Edit) hook in the worker loop; non-zero exit
 writable — for the verifier-author authoring the gate — while signals/, rubric/, the lattice/ledger, and the
 wiring stay denied. The module worker is wired WITHOUT this flag, so it still cannot grade its own homework.
 
-Usage:  gate-verifier [--allow-verify] --hook | check <path> | selftest
+`--allow-refute` switches to the REFUTE-AUTHOR boundary (REFUTE_AUTHOR): the verify-spec (`coordination/verify-
+spec/*`) becomes writable — for the autonomous refute-author authoring the behavioral oracle — while `verify.mjs`,
+the refuter sidecars, signals/, rubric/, the lattice/ledger, the wiring, AND the product barrel stay denied. The two
+flags are inverses (verify-author writes verify.mjs / refute-author writes verify-spec); passing both is rejected.
+
+Usage:  gate-verifier [--allow-verify | --allow-refute] --hook | check <path> | selftest
 Stdlib only; Python 3.8+.
 """
 import os
@@ -25,7 +30,14 @@ import _gates  # noqa: E402
 if __name__ == "__main__":
     argv = sys.argv[1:]
     globs = _gates.VERIFIER
+    if "--allow-verify" in argv and "--allow-refute" in argv:
+        sys.stderr.write("gate-verifier: --allow-verify and --allow-refute are mutually exclusive "
+                         "(a verifier-author writes verify.mjs; a refute-author writes verify-spec — never the same dispatch)\n")
+        sys.exit(2)
     if "--allow-verify" in argv:                       # the verifier-author may write verify.mjs (it IS the gate)
         globs = _gates.VERIFIER_AUTHOR
         argv = [a for a in argv if a != "--allow-verify"]
+    elif "--allow-refute" in argv:                     # the refute-author may write the verify-spec (the oracle's source)
+        globs = _gates.REFUTE_AUTHOR
+        argv = [a for a in argv if a != "--allow-refute"]
     sys.exit(_gates.run_path_gate("gate-verifier", globs, argv, "verifier/immutable asset"))

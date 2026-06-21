@@ -2,6 +2,12 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.23] — 2026-06-20
+
+### Added (the refute-author — autonomous Tier-2 measurement, harness-council round 6)
+
+- **The REFUTE-AUTHOR boundary + the human-glance gate, in code.** Kernel support for dev-factory's autonomous refute-author (the producer that lets the factory author its own false-pass oracles): a new `REFUTE_AUTHOR` gate boundary (`_gates.py`) + `gate-verifier --allow-refute` — the inverse of the verifier-author: it may write `coordination/verify-spec/*` (the oracle source) while `verify.mjs`, the refuter sidecars, signals, the lattice/ledger, and the product barrel stay denied (the two flags are mutually exclusive). `ledger.trusted_refuter_checks` counts only NON-autonomous (human-vetted / server-folded) measuring checks, and `autonomy.tier_for` now requires at least one TRUSTED check to grant unattended Tier 2 — so an autonomously-authored oracle MEASURES (it builds the visible false-pass rate) but cannot SELF-PROMOTE the loop to lights-out. The council surfaced, and this closes in code, the "stay gated on a human glance" mitigation that had been prose only. Native (not vendored): no `KERNEL_VERSION` change. plugin.json 0.2.22 → 0.2.23.
+
 ## [0.2.22] — 2026-06-20
 
 ### Fixed (harness-council re-audit, round 4)
