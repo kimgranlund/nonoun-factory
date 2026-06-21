@@ -3,6 +3,16 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-21 — fix: the mock shell imports a REAL built sibling, not a hardcoded `./core/`
+
+Surfaced building a demo app whose modules weren't named `core`: the MockAdapter's single-file (shell) author
+hardcoded `import './core/index.mjs'`, so a mock shell build over any other decomposition (e.g.
+`osc-303`/`viz-renderer`/…) emitted an import that doesn't resolve — which the static app-shell + render-coherence
+gates correctly REFUSE, leaving a "built" instance with no bootable entry. The mock shell now scans the product
+root for the first built sibling module (a dir with an `index.mjs`) and imports THAT; it falls back to a
+self-contained mount only when no module is built yet. Regression-guarded in the dispatch selftest (a shell over an
+`engine` module must import `./engine/`, never `./core/`). dev-server only — no kernel change, no version bump.
+
 ## 2026-06-21 — FULL autonomous Tier 2: the gate-agnostic independence proof (harness-council round 7)
 
 The refute-author's provenance gate (round 6) let an autonomous oracle MEASURE but not self-promote — full autonomy

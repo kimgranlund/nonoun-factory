@@ -252,10 +252,18 @@ class MockAdapter(DispatchAdapter):
             asset_abs = os.path.join(d, asset_rel)
             os.makedirs(os.path.dirname(asset_abs), exist_ok=True)
             if not os.path.exists(asset_abs) or os.path.getsize(asset_abs) == 0:
+                # Import an ACTUAL built sibling module (the first product dir with an index.mjs), NOT a hardcoded
+                # `./core/` — that only resolves for a decomposition that happens to name a module `core`, so a mock
+                # shell over any other module set (e.g. osc-303/viz-renderer/…) produced an import that the static +
+                # render gates correctly REFUSE. The shell is built after the modules, so a sibling exists; fall back
+                # to a self-contained mount only when none is built yet.
+                root = os.path.dirname(asset_abs)
+                sib = next((n for n in sorted(os.listdir(root)) if not n.startswith(".")
+                            and os.path.isfile(os.path.join(root, n, "index.mjs"))), None) if os.path.isdir(root) else None
                 open(asset_abs, "w", encoding="utf-8").write(
                     "<!doctype html><meta charset=utf-8><title>app</title><main id=app></main>\n"
                     '<script type="module">\n'
-                    "  import './core/index.mjs';\n"
+                    + (f"  import './{sib}/index.mjs';\n" if sib else "") +
                     "  document.getElementById('app').appendChild(document.createElement('div'));\n"
                     "</script>\n")
             return {"ok": True, "asset_ref": asset_rel, "metrics": {"tokens": 6000, "iterations": 1}}
@@ -1810,6 +1818,19 @@ def selftest():
             del os.environ["DEV_FACTORY_KIT"]
         expect("INTEGRATION SHELL" in ps and "index.html" in ps and "ALREADY BUILT" in ps,
                "the shell prompt must be a root-entry bootstrap that imports+mounts the already-built modules")
+        # the MockAdapter shell BUILD must import the first REAL built sibling module, never a hardcoded ./core/
+        # (else a mock shell over a non-`core` decomposition emits an import the render gate correctly refuses).
+        proot = os.path.dirname(d)
+        os.makedirs(os.path.join(proot, "engine"), exist_ok=True)
+        open(os.path.join(proot, "engine", "index.mjs"), "w").write("export const ready = true;\n")
+        os.environ["DEV_FACTORY_KIT"] = kits
+        try:
+            MockAdapter().dispatch(d, {"layer": "capability", "scope": "system", "slug": "shell", "ticket": "t"})
+        finally:
+            del os.environ["DEV_FACTORY_KIT"]
+        shell_html = open(os.path.join(proot, "index.html"), encoding="utf-8").read()
+        expect("import './engine/index.mjs'" in shell_html and "./core/" not in shell_html,
+               "the mock shell must import the first BUILT sibling module (./engine/), not a hardcoded ./core/")
 
         # #2 (factory-authored verifiers): a kind=verifier dispatch authors the cell's REAL critic harness, not
         # a `ready` stub. The headless prompt is the rubric-architect's (tests the SPEC); the mock writes a smoke
