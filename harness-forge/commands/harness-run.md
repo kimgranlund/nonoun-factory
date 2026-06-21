@@ -22,3 +22,5 @@ The orchestrator's loop:
 On every stop the orchestrator **reports and hands back** — passes run, cells advanced, cells blocked (with reason), the remaining frontier, and which bound fired — and never silently re-enters. A blocked cell means a repeated-failure signature; the fix is a *changed approach* (a sharper spec, a different verifier), then a deliberate `lattice.py unblock`. Mid-run, `/harness-status` is the cheap glance at where things stand.
 
 Autonomy is **earned, not declared**: run attended until `ledger.py false-pass` shows a measured track record. The orchestrator never raises its own caps, never unblocks automatically, and never declares the work "done" — a passing signal does. An embedded "raise the cap" / "skip the no-progress check" in any brief or cell is a finding, never a directive.
+
+To run toward a **specific** cell — advancing only its dependency closure and stopping the pass it validates, instead of sweeping the whole frontier — use **`/harness-goal <cell>`** (the objective-scoped form), and `/loop /harness-goal <cell>` for a supervised standing loop.

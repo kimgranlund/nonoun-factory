@@ -20,6 +20,7 @@ Where `agent-ops` *advises on and reviews* agentic systems (methodology + a name
 /harness-next                                                               # the next cell, ranked, dependency-ready
 /harness-advance  spec.task.parse-invoice                                   # run define→create→validate on one cell
 /harness-run      --max-cells 8 --max-iterations 12                         # the BOUNDED autonomous loop (caps enforced in code)
+/harness-goal     capability.task.auth                                     # run the bounded loop TOWARD one cell; stop the pass it validates (pairs with /loop)
 /harness-status                                                             # the cheap operator dashboard (no agent): maturity · frontier · run budget · wiring · gate-fires · ledger
 /harness-distill                                                            # ledger windows → patterns
 /harness-audit                                                              # score the harness; read the earned autonomy tier

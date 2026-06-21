@@ -14,6 +14,24 @@ operating a running server; this is the task-oriented "how do I…" guide.
 
 ---
 
+## The goal primitive — a ticket **is** a `/harness-goal`
+
+dev-factory is the server-driven sibling of `harness-forge`'s bounded loop, so the same objective-scoped
+primitive shows up in both planes — a **ticket here is the standing form of `harness-forge`'s `/harness-goal <cell>`**:
+
+| `harness-forge` (attended slash-commands) | dev-factory (the server's standing loop) |
+|---|---|
+| `/harness-goal <cell>` — run toward one cell | a **ticket** bound to `target_cell` + `target_transition` + `acceptance.rubric_cell` (a goal = a target cell + a *validated* rubric) |
+| `/loop /harness-goal <cell>` — the supervised standing loop | the **heartbeat** — each tick dispatches the active ticket toward its target cell, re-armed against the run budget |
+| STOP the pass the goal first reads **MET** (the lattice's `validated` signal, never the orchestrator's say-so) | a ticket reaches `done` **only** through the same `gate-signal` that validates its target cell — *the board cannot disagree with the lattice* |
+| gated to **attended / Tier 1** until a measured false-pass track record | `DEV_FACTORY_TIER` (0 attended · 1 gated-at-`in-review` · 2+ unattended-to-`done`) — the same earned, mechanically-revocable ladder |
+
+So everything below — creating a ticket against a target cell, watching the heartbeat drive it, accepting the
+parked cell — is dev-factory's "run toward a goal." The objective is the ticket; the standing loop is the
+heartbeat; doneness is the validated signal on the target cell, not any worker's claim.
+
+---
+
 ## 0 · Setup — an instance + a bound kit
 
 A dev-factory **instance** is a project's `src/<project>/.factory/`. Scaffold it, then bind a family kit

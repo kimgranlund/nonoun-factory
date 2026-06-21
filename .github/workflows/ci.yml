@@ -141,6 +141,7 @@ jobs:
           python3 harness-forge/bin/propagate-staleness selftest
           python3 harness-forge/bin/wire.py selftest
           python3 harness-forge/bin/run-budget.py selftest
+          python3 harness-forge/bin/goal.py selftest
           python3 harness-forge/bin/council-precheck.py selftest
           python3 harness-forge/bin/harness-status.py selftest
           python3 harness-forge/bin/survey.py selftest
