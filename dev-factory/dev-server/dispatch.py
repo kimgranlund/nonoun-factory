@@ -1251,9 +1251,14 @@ def reconcile_leases(d, now=None):
     each tick (§8.1, §15). in-review has no direct edge to active, so it steps through in-progress.
 
     The lease is the discriminator: a CLEANLY-completed in-review ticket (worker handed off, critic validated,
-    awaiting human sign-off) has had its lease cleared at the in-review hand-off, so `not exp` skips it here — a
+    awaiting human sign-off) has had its lease cleared at the in-review hand-off, so a missing lease skips it here — a
     pending human approval is NOT a dead worker and must not be reaped. Only an in-review ticket still HOLDING a
-    lease (i.e. the process genuinely died mid-dispatch before clearing it) is presumed dead and re-queued."""
+    lease (i.e. the process genuinely died mid-dispatch before clearing it) is presumed dead and re-queued.
+
+    But a `claimed`/`in-progress` ticket with NO (or a corrupt) lease is the OPPOSITE case — a dead worker, not a
+    clean hand-off: the dispatch died after the state transition but before establishing the lease, so reconcile
+    could never expire it and it wedges FOREVER (observed live: a ticket claimed with an empty claim, unreapable for
+    hours while the loop ran). A laceless claimed/in-progress ticket is therefore reaped to active too."""
     now = now or _now()
     reclaimed = []
     for t in _api.list_tickets(d):
@@ -1262,12 +1267,22 @@ def reconcile_leases(d, now=None):
         full = _api.get_ticket(d, t["id"])
         claim = full.get("claim") or {}
         exp = claim.get("lease_expiry")
+        in_review = t.get("state") == "in-review"
         if not exp:
-            continue
-        try:
-            dead = datetime.datetime.fromisoformat(exp) < now
-        except ValueError:
-            dead = False
+            # No lease. For in-review this is the CLEAN hand-off (worker done, critic validated, awaiting human
+            # sign-off — the lease was cleared on purpose), NOT a dead worker → skip. But a `claimed`/`in-progress`
+            # ticket without a lease is a WEDGE: the dispatch died after the state transition but before establishing
+            # the lease (or the claim object was lost), so reconcile could never expire it and it sticks FOREVER
+            # (observed live: a ticket claimed with an empty claim object, unreapable for hours, the loop running).
+            # Treat a laceless claimed/in-progress ticket as a dead worker and return it to active.
+            if in_review:
+                continue
+            dead = True
+        else:
+            try:
+                dead = datetime.datetime.fromisoformat(exp) < now
+            except ValueError:
+                dead = not in_review   # a corrupt lease also wedges a claimed/in-progress ticket → reap; leave in-review
         if dead:
             full["claim"] = None
             _lc.save_ticket(d, full)
@@ -1908,6 +1923,24 @@ def selftest():
         expect(tr["id"] not in reclaimed2, "in-review ticket awaiting human sign-off was wrongly reaped")
         expect(_api.get_ticket(d, tr["id"])["state"] == "in-review",
                "awaiting-human ticket bounced off in-review by the lease reaper")
+
+        # WEDGE FIX: a CLAIMED ticket with NO lease (an empty/missing claim — the dispatch died after the claimed
+        # transition but before establishing the lease) is a permanent wedge the reaper could never expire (observed
+        # live: a ticket claimed with `claim: {}`, unreapable for hours while the loop ran). It must be reaped to
+        # active — distinct from the in-review hand-off above, which (also laceless) is correctly LEFT for the human.
+        _api.seed_cell(d, "spec", "task", "wedge", maturity="instantiated", asset_ref="spec/wedge.md")
+        open(os.path.join(d, "spec", "wedge.md"), "w").write("# wedge\n")
+        tw = _api.create_ticket(d, "task", "laceless claim", target_cell="spec.task.wedge",
+                                target_transition={"from": "instantiated", "to": "validated"},
+                                acceptance={"rubric_cell": "rubric.task.r"}, budget={"iterations": 1, "tokens": 1000})
+        _api.transition_ticket(d, tw["id"], "active", srv)
+        okc, _tw, _mc = _api.transition_ticket(d, tw["id"], "claimed", srv)   # claimed, but NO claim object is written
+        expect(okc and (_api.get_ticket(d, tw["id"]).get("claim") or {}).get("lease_expiry") is None,
+               "setup: the ticket must be claimed with a laceless claim")
+        reclaimed3 = reconcile_leases(d)
+        expect(tw["id"] in reclaimed3, "a CLAIMED ticket with NO lease must be reaped (the unreapable-wedge fix)")
+        expect(_api.get_ticket(d, tw["id"])["state"] == "active",
+               "the laceless-claim ticket was not returned to active by the reaper")
 
         # retry-then-block, TWO backstops: a transient worker failure RETRIES (self-recovers instead of wedging the
         # build), but the kernel's signature detector (ledger.no_progress, n=2) blocks a DETERMINISTICALLY stuck cell

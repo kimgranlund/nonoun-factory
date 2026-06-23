@@ -3,6 +3,17 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-22 — fix: a `claimed`/`in-progress` ticket with no lease wedged forever
+
+Observed live: a ticket sat in **Claimed** for hours while the loop was running and never recovered. Root cause —
+the dispatch died after the `active → claimed` transition but **before establishing the lease** (it materialized with
+an empty `claim: {}`), and `reconcile_leases` only reaps a claim whose lease has *expired*: a claim with **no** lease
+can't expire, so it was skipped on every tick, forever. The `not exp → skip` rule is correct for an **in-review**
+hand-off (the lease is cleared on purpose; it's awaiting human sign-off, not a dead worker) — but for a `claimed`/
+`in-progress` ticket a missing (or corrupt) lease is the OPPOSITE: a dead worker that must be re-queued. The reaper now
+returns a laceless `claimed`/`in-progress` ticket to `active`, while still leaving a laceless `in-review` ticket for the
+human. New `dispatch.selftest` case alongside the existing expired-lease + in-review-skip regressions.
+
 ## 2026-06-22 — prompt → autonomous loop: auto-triage + persistent posture + the overwrite guard
 
 The factory was *designed* for "write a prompt, walk away, get working software" — prompt → untriaged intake →
