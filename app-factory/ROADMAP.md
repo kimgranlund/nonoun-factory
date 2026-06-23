@@ -19,8 +19,13 @@ Installable plugin; vendored spine selftests green; `/app-new` scaffolds a corpu
 ## 0.6.0 (done) — the live layer
 - SSE (`GET /api/stream`) auto-refresh + a server-mediated **▶ Run loop** action (`POST …/loop` → the gated `app-loop.py run`, ledgered, never a bypass). The kanban moves tickets to `validated` live as the loop runs. Proven on quicklog (defined → Run loop → validated, no reload).
 
-## Next
-- **Full dev-kernel authoring vendoring.** The actual derive/entail/calibration machinery (spec-author discipline, the spec-council + lens critics, `gate-ticket-ready`) behind the live loop's worker/deriver/validator/refuter agents — beyond the format/gate already built.
+## 0.7.0 (done) — the keystone ENFORCED (M2, part 1)
+- **`bin/gate-protect.py`** — a blocking `PreToolUse(Write|Edit)` hook: every agent is deny-on-write to the `.factory/` verifier substrate (signals · ledger · lattice · budget · sealed bars · wiring). A worker can't forge a pass, launder the ledger, fake maturity, lift the budget, or edit its bar. Bars sealed by copy (writable `spec/bars/` → protected `.factory/acceptance/`). Wired in the plugin `hooks.json` (no per-project `wire.py`). Proven: the four reward-hacking moves are denied (exit 2), legitimate writes allowed.
+
+## Next (M2 remainder)
+- **Calibrate the verifiers** — vendor/adapt dev-kernel's `evals/calibration` so the entailment-critic's fidelity check and the rubrics are calibrated, not asserted.
+- **Vendor the full dev-kernel authoring rigor** (spec-author discipline, the spec-council lens critics, `gate-ticket-ready`) behind the live deriver/critic/refuter agents.
+- **Re-run the harness-council on the BUILT system** to confirm the keystone holds in code.
 
 ## Later
 - Skills layer (cultivation · decompose · execute · distill).

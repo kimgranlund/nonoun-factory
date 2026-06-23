@@ -2,6 +2,15 @@
 
 All notable changes to **app-factory** are documented here.
 
+## [0.7.0] — 2026-06-23
+
+M2: the keystone is **enforced**, not declared — a deny-on-write gate.
+
+### Added
+- **`bin/gate-protect.py`** — a blocking `PreToolUse(Write|Edit)` hook (modeled on harness-forge's `gate-signal`). An agent is mechanically **deny-on-write to the entire `.factory/` verifier substrate** — signals, ledger, lattice, run budget, sealed bars, and manifests — plus the wiring (`.claude/settings.json`). A worker cannot forge a pass signal, launder the ledger, fake a cell's maturity, lift the budget ceiling, or edit the bar it is graded against. `build/`, specs, and the bar source stay writable. Wired in the plugin `hooks.json` (always-on), so app-factory needs no per-project `wire.py`.
+- **Bars are sealed by copy.** The acceptance-deriver authors a bar SOURCE in the writable `spec/bars/`; `/app-spec commit` copies it into the protected `.factory/acceptance/` (a kernel-path write), so the committed bar of record is the sealed copy — and `.factory/**` can be fully protected without breaking the authoring flow.
+- Proven: the gate denies forging a signal / laundering the ledger / editing the bar / lifting the budget (exit 2) and allows the worker's build + the bar source (exit 0); the full lifecycle (commit → seal → loop → validated) still composes end-to-end.
+
 ## [0.6.0] — 2026-06-23
 
 The dev-server gets a live layer — watch the loop run in the browser.

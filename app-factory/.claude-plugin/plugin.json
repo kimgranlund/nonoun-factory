@@ -1,6 +1,6 @@
 {
   "name": "app-factory",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "stateNamespace": ".factory",
   "description": "Cultivate a project as a corpus of prose documents — idea → PRD → SPEC → tickets → QA — and compile it into software with a bounded /app-goal + /app-loop. app-factory is a prose-cultivation front door over a vendored, self-testing verification spine: a coding agent never grades its own work (the signal is minted from a real verifier command's exit status, not the worker's opinion) and never authors the bar it is graded against (a ticket's checkable acceptance is independently derived from the spec prose, entailment-checked for fidelity, and human-sealed). The simplicity is in the operator surface (prose + ~6 app-{verb} commands); the rigor is undiminished — vendored from harness-forge (the bounded loop, ledger, signal minting, frontier ranking, the code-enforced budget stop-gate) and dev-kernel (the spec-authoring discipline, the spec council, the gates, the refuter, calibration). Ships the app-{verb} command surface, a keystone agent roster (acceptance-deriver · entailment-critic · app-worker · app-validator · app-refuter), an independent trust sensor — the refuter records corroborate/refute events feeding a dispatch-time tier gate, so autonomy above attended must be earned — a working /app-new corpus scaffolder, a /app-status operator dashboard, and a read-only corpus-query MCP over a project's .factory/ state. Self-contained.",
   "author": {

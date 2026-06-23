@@ -26,6 +26,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -98,9 +99,16 @@ def crystallize(project, spec_rel):
         target = t["target_cell"]
         t_scope, t_slug = _scope_slug(target)
         rubric_cell = f"rubric.{t_scope}.{t_slug}"
-        acc_cmd = t["acceptance"]["cmd"]                       # path relative to project root
-        if not os.path.isfile(os.path.join(project, acc_cmd)):
-            return 1, f"ticket {tid}: sealed acceptance {acc_cmd} does not exist — the bar is not sealed; commit rejected"
+        bar_src = t["acceptance"]["cmd"]                       # the WRITABLE bar SOURCE (e.g. spec/bars/t1-storage.py)
+        if not os.path.isfile(os.path.join(project, bar_src)):
+            return 1, f"ticket {tid}: bar source {bar_src} does not exist — author it (acceptance-deriver), then commit"
+        # SEAL the bar: copy the source into the protected `.factory/acceptance/` — a kernel-path write the
+        # executor is deny-on-write to (gate-protect). The committed bar of record is the sealed copy, not the
+        # source, so post-commit edits to the writable source never change what the loop grades against.
+        sealed_rel = os.path.join(".factory", "acceptance", os.path.basename(bar_src))
+        sealed_abs = os.path.join(project, sealed_rel)
+        os.makedirs(os.path.dirname(sealed_abs), exist_ok=True)
+        shutil.copyfile(os.path.join(project, bar_src), sealed_abs)
 
         # the rubric cell IS the sealed bar — minted `validated` by a certification signal
         # (standing for the entailment-critic's fidelity certification + the human seal)
@@ -109,11 +117,11 @@ def crystallize(project, spec_rel):
         sigabs = os.path.join(state, sigrel)
         os.makedirs(os.path.dirname(sigabs), exist_ok=True)
         json.dump({"cell_id": rubric_cell, "ts": ts, "harness": "entailment-cert", "kind": "gate",
-                   "result": "pass", "evidence": f"acceptance {acc_cmd} certified faithful to {spec_cell} and sealed",
+                   "result": "pass", "evidence": f"acceptance {sealed_rel} certified faithful to {spec_cell} and sealed",
                    "validated_against": {spec_cell: spec_hash}}, open(sigabs, "w"), indent=2)
         if _lat.find(lat, rubric_cell) is None:
             lat["cells"].append({"layer": "rubric", "scope": t_scope, "slug": t_slug, "maturity": "validated",
-                                 "depends_on": [spec_cell], "asset_ref": acc_cmd, "signal_refs": [sigrel],
+                                 "depends_on": [spec_cell], "asset_ref": sealed_rel, "signal_refs": [sigrel],
                                  "validated_against": {spec_cell: spec_hash}})
         if _lat.find(lat, target) is None:
             lat["cells"].append({"layer": "capability", "scope": t_scope, "slug": t_slug, "maturity": "defined",
@@ -124,7 +132,7 @@ def crystallize(project, spec_rel):
         with open(os.path.join(project, "tickets", f"{tid}.md"), "w", encoding="utf-8") as f:
             f.write(f"---\nkind: ticket\nname: {tid}\nmaturity: draft\ntarget_cell: {target}\n"
                     f"covers: {','.join(t.get('covers', []))}\n---\n\n# {tid}\n\n"
-                    f"**Sealed acceptance** (deny-on-write to the executor): `{acc_cmd}`\n\n"
+                    f"**Sealed acceptance** (deny-on-write to the executor): `{sealed_rel}`\n\n"
                     f"The worker writes `build/{t_slug}.py`; the independent `app-validator` runs the sealed "
                     f"acceptance to mint the signal. The worker never runs or edits this bar.\n")
         created.append((tid, target, rubric_cell))
@@ -171,15 +179,17 @@ def selftest():
         subprocess.run([sys.executable, os.path.join(HERE, "app-new.py"), "demo", "--into", tmp],
                        capture_output=True, text=True)
         proj = os.path.join(tmp, "demo")
-        os.makedirs(os.path.join(proj, ".factory", "acceptance"), exist_ok=True)
+        os.makedirs(os.path.join(proj, "spec", "bars"), exist_ok=True)
         for n in ("t1.sh", "t2.sh"):
-            with open(os.path.join(proj, ".factory", "acceptance", n), "w") as f:
+            with open(os.path.join(proj, "spec", "bars", n), "w") as f:   # the WRITABLE bar source
                 f.write("#!/bin/sh\nexit 0\n")
         with open(os.path.join(proj, "spec", "cli.md"), "w") as f:
-            f.write(GATE.GOOD.replace("acceptance/t1.sh", ".factory/acceptance/t1.sh")
-                    .replace("acceptance/t2.sh", ".factory/acceptance/t2.sh"))
+            f.write(GATE.GOOD.replace("acceptance/t1.sh", "spec/bars/t1.sh")
+                    .replace("acceptance/t2.sh", "spec/bars/t2.sh"))
         rc, msg = crystallize(proj, "spec/cli.md")
         expect(rc == 0, f"crystallize failed: {msg}")
+        expect(os.path.isfile(os.path.join(proj, ".factory", "acceptance", "t1.sh")),
+               "bar was not sealed by copy into .factory/acceptance/")
         state = os.path.join(proj, ".factory", "state")
         lat = _lat.load(state)
         expect(_lat.find(lat, "spec.task.cli")["maturity"] == "validated", "spec cell not validated")

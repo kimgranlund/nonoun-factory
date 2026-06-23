@@ -78,6 +78,8 @@ def scaffold(name, into):
     for d in SUBDIRS:
         os.makedirs(os.path.join(root, d), exist_ok=True)
         open(os.path.join(root, d, ".gitkeep"), "w").close()
+    os.makedirs(os.path.join(root, "spec", "bars"), exist_ok=True)   # writable bar SOURCES; sealed into .factory on commit
+    open(os.path.join(root, "spec", "bars", ".gitkeep"), "w").close()
     for fn, tmpl in DOC_TEMPLATES.items():
         with open(os.path.join(root, fn), "w") as f:
             f.write(tmpl.format(name=name))

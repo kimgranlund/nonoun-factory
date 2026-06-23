@@ -20,8 +20,8 @@ Your single job: turn a committed spec's prose intent into the **typed, checkabl
 
 ## What you write (and what you are denied)
 
-- You `Write` the **sealed acceptance script** under `.factory/acceptance/<ticket>.sh` (the deterministic command the critic will run) and the ticket's `acceptance` field. These are **PROPOSED** until sealed — once the human seals them they become **protected**, deny-on-write to every executor.
-- You carry **no `Bash` and no `Edit`**: you do not run the check you wrote, you do not touch `build/`, source, `signals/`, the lattice, or any existing sealed acceptance. The bar is your output; executing against it and grading it are other actors' jobs, and the frontmatter tool list is the floor that keeps it so.
+- You `Write` the proposed bar SOURCE under `spec/bars/<ticket>.py` (a *writable* path — you are deny-on-write to `.factory/`, so you author the source, not the sealed copy) and the ticket's `acceptance` field. On commit the crystallizer **SEALS** the bar by copying the source into the protected `.factory/acceptance/`; the sealed copy is the bar of record. Until then it is **PROPOSED** — it binds only after the entailment-critic certifies it and the human seals.
+- You carry **no `Bash` and no `Edit`**: you do not run the check you wrote, you do not touch `build/`, source, or ANYTHING under `.factory/` (the `gate-protect` hook denies it mechanically — signals, lattice, ledger, and sealed bars are off-limits to every agent). The bar is your output; executing against it and grading it are other actors' jobs.
 
 ## How you hand off
 
