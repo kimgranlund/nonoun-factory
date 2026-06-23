@@ -63,6 +63,28 @@
   --space: 1rem;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* --- Scrim ladder — neutral overlays at an opacity step ramp (adopted from nonoun-color-tokens' scrim roles).
+     One vocabulary for hovers, dividers, backdrops, and pressed washes, so depth is a token, not a magic rgba. --- */
+  --scrim-1: light-dark(oklch(0.45 var(--chroma-soft) var(--hue-neutral) / 0.04), oklch(0.8 var(--chroma-soft) var(--hue-neutral) / 0.05));
+  --scrim-2: light-dark(oklch(0.45 var(--chroma-soft) var(--hue-neutral) / 0.07), oklch(0.8 var(--chroma-soft) var(--hue-neutral) / 0.09));
+  --scrim-3: light-dark(oklch(0.45 var(--chroma-soft) var(--hue-neutral) / 0.11), oklch(0.8 var(--chroma-soft) var(--hue-neutral) / 0.14));
+  --scrim-4: light-dark(oklch(0.45 var(--chroma-soft) var(--hue-neutral) / 0.18), oklch(0.8 var(--chroma-soft) var(--hue-neutral) / 0.22));
+  --scrim-strong: light-dark(oklch(0.3 var(--chroma-soft) var(--hue-neutral) / 0.44), oklch(0.12 var(--chroma-soft) var(--hue-neutral) / 0.6)); /* modal backdrop */
+
+  /* --- Outline variants — the factory had border + border-soft; name the stronger divider too (color-tokens
+     outline / outline-variant), so a prominent seam vs. a hairline is a deliberate token choice. --- */
+  --outline-variant: var(--border-soft);
+  --outline-strong: light-dark(oklch(0.78 var(--chroma-trace) var(--hue-neutral)), oklch(0.42 var(--chroma-trace) var(--hue-neutral)));
+  /* an elevated surface for overlays/sheets (one step above --surface-raised) */
+  --surface-overlay: light-dark(oklch(1 var(--chroma-flat) var(--hue-neutral)), oklch(0.285 var(--chroma-trace) var(--hue-neutral)));
+
+  /* --- Geometry — a shared focus ring + control dimensions (color-tokens' --ctl-thumb principle: tokenize the
+     control geometry, not a full pixel ramp). The new accessible primitives + the switch share these. --- */
+  --ring: var(--accent);
+  --ring-w: 2px;
+  --ctl-h: 1.65rem;       /* the shared control height (icon buttons, switch, segmented) */
+  --ctl-thumb: 0.86rem;   /* the switch thumb / range thumb */
 }
 
 /* A small mixin-by-convention: every status family resolves through these.
@@ -97,7 +119,7 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--scroll-thumb); border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
 a { color: var(--accent); }
 button { font: inherit; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+:focus-visible { outline: var(--ring-w) solid var(--ring); outline-offset: 2px; border-radius: 4px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* ─────────────────────────────── app shell ─────────────────────────────── */
@@ -272,7 +294,7 @@ table.lattice th.row-h { text-align: right; font-family: var(--mono); text-trans
 .mat-deprecated { --_h: var(--hue-danger); }
 
 /* ═══════════════════════════ side panel ═══════════════════════════ */
-.scrim { position: fixed; inset: 0; background: oklch(0 0 0 / 0.4); z-index: 30; }
+.scrim { position: fixed; inset: 0; background: var(--scrim-strong); z-index: 30; }
 .panel { position: fixed; top: 0; right: 0; bottom: 0; width: min(30rem, 92vw); background: var(--surface); border-left: 1px solid var(--border); box-shadow: var(--shadow); z-index: 31; display: flex; flex-direction: column; }
 .panel > header { display: flex; align-items: center; gap: 0.5rem; padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); }
 .panel > header h3 { margin: 0; font-size: 14px; font-family: var(--mono); letter-spacing: -0.02em; }
@@ -286,8 +308,8 @@ table.lattice th.row-h { text-align: right; font-family: var(--mono); text-trans
 .panel ul { margin: 0; padding-left: 1.1rem; font-size: 13px; }
 
 /* ═══════════════════════════ modal (create ticket) ═══════════════════════════ */
-.modal { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: oklch(0 0 0 / 0.4); padding: 1rem; }
-.modal .sheet { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); width: min(34rem, 100%); max-height: 90vh; overflow-y: auto; }
+.modal { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: var(--scrim-strong); padding: 1rem; }
+.modal .sheet { background: var(--surface-overlay); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); width: min(34rem, 100%); max-height: 90vh; overflow-y: auto; }
 .modal .sheet header { padding: 0.9rem 1.1rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; }
 .modal .sheet header h3 { margin: 0; font-size: 15px; }
 .modal form { padding: 1.1rem; display: grid; gap: 0.8rem; }
@@ -416,8 +438,12 @@ table.lattice th.row-h { text-align: right; font-family: var(--mono); text-trans
 :root { --hh: 48px; --ch: 44px; --fh: 30px; }
 
 df-app { display: block; height: 100vh; overflow: hidden; }
-df-app[data-theme="light"] { color-scheme: light; }
-df-app[data-theme="dark"]  { color-scheme: dark; }
+df-app[data-theme="system"] { color-scheme: light dark; }  /* follow the OS preference (the default) */
+df-app[data-theme="light"]  { color-scheme: light; }
+df-app[data-theme="dark"]   { color-scheme: dark; }
+/* the accessible switch primitive (role=switch) — Play/Pause rides this base under its .hb-toggle skin */
+.switch { appearance: none; cursor: pointer; display: inline-flex; align-items: center; gap: 0.3rem; min-height: var(--ctl-h); }
+.field-hint { margin: 0.25rem 0 0; font-size: 11px; color: var(--faint); }
 .shell {
   display: grid; height: 100%;
   grid-template-columns: 290px minmax(0, 1fr) 332px;
@@ -440,7 +466,7 @@ df-app[data-theme="dark"]  { color-scheme: dark; }
 df-preview { display: block; }
 .preview-frame { margin-top: 0.3rem; height: calc(100vh - 212px); min-height: 360px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #fff; }
 .preview-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
-.icon-btn { appearance: none; border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: var(--radius-sm); padding: 0.3rem 0.5rem; cursor: pointer; font-size: 14px; line-height: 1; }
+.icon-btn { appearance: none; border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: var(--radius-sm); padding: 0.3rem 0.5rem; cursor: pointer; font-size: 14px; line-height: 1; min-height: var(--ctl-h); display: inline-flex; align-items: center; justify-content: center; }
 .icon-btn:hover { background: var(--surface-sunken); color: var(--fg); }
 .app-header .theme-toggle { font-size: 15px; }
 
