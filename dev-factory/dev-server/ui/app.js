@@ -442,10 +442,13 @@ class DfApp extends UIElement {
     if (hb) hb.onclick = async () => {
       const fs = store.factory.peek() || {};
       const on = !!fs.heartbeat_enabled;
+      const halted = fs.state === "halted";
       const live = (store.adapter.peek() || "mock") === "headless";
-      if (!on && live && !confirm("Start the autonomous loop on the HEADLESS adapter?\n\nIt dispatches real Claude workers and spends tokens — bounded by the armed window ($/token ceiling). Auto-triage will bind any pending prompts and the loop will build them.")) return;
+      // halted (the armed window is spent) → resume RE-ARMS it; off → resume plays; on + running → pause
+      const action = (on && !halted) ? "pause" : "resume";
+      if (action === "resume" && live && !confirm("Start / re-arm the autonomous loop on the HEADLESS adapter?\n\nIt dispatches real Claude workers and spends tokens — bounded by the armed window ($/token ceiling). Auto-triage will bind any pending prompts and the loop will build them.")) return;
       hb.disabled = true;
-      try { await jsend("POST", on ? "/api/control/pause" : "/api/control/resume"); await refreshStatus(); }
+      try { await jsend("POST", `/api/control/${action}`); await refreshStatus(); }
       finally { hb.disabled = false; }
     };
     this.querySelectorAll("[data-zoom]").forEach((b) => (b.onclick = () => {
@@ -522,12 +525,14 @@ class DfApp extends UIElement {
         const a = fs.active_tickets ?? 0;
         const detail = fs.state === "running" ? `${fs.running_agents} worker${fs.running_agents === 1 ? "" : "s"}`
           : fs.state === "paused" ? "heartbeat paused"
+          : fs.state === "halted" ? `${fs.ready_to_dispatch} ready · window spent — ▶ re-arm`
           : fs.state === "armed" ? `${fs.ready_to_dispatch} ready`
           : fs.state === "blocked" ? `${a} queued · deps unmet`
           : fs.state === "awaiting-review" ? `${fs.awaiting_review ?? 0} awaiting your sign-off`
           : fs.state === "drained" ? "queue empty"
           : (a ? `${a} queued · heartbeat off` : "no work queued");
         fel.dataset.state = fs.state;
+        fel.title = fs.state === "halted" ? `dispatch halted — ${fs.halted_reason || "the armed window is spent"}; ▶ re-arm to resume` : "the factory's work state";
         fel.textContent = `${fs.state.toUpperCase()} · ${detail}`;
       } else { fel.textContent = ""; fel.removeAttribute("data-state"); }
     }
@@ -536,16 +541,19 @@ class DfApp extends UIElement {
     if (hel) {
       if (fs && fs.state) {
         const on = !!fs.heartbeat_enabled;
+        const halted = fs.state === "halted";
         const live = (store.adapter.value || "mock") === "headless";
         hel.hidden = false;
-        hel.dataset.on = on ? "1" : "0";
+        hel.dataset.on = (on && !halted) ? "1" : "0";              // halted reads as an inviting ▶ Re-arm, not a running Pause
         hel.setAttribute("aria-checked", on ? "true" : "false");   // role=switch state for assistive tech
-        hel.textContent = on ? "⏸ Pause" : "▶ Play";
-        hel.title = on
-          ? "pause the autonomous loop — durable (survives navigation + restart) until you Play again"
-          : live
-            ? "start the autonomous loop — headless: dispatches real Claude workers (spends tokens, bounded by the armed window)"
-            : "start the autonomous loop — mock: the free deterministic loop (no tokens)";
+        hel.textContent = halted ? "▶ Re-arm" : on ? "⏸ Pause" : "▶ Play";
+        hel.title = halted
+          ? `dispatch halted — ${fs.halted_reason || "the armed window is spent"}; click to re-arm the bounded window and resume`
+          : on
+            ? "pause the autonomous loop — durable (survives navigation + restart) until you Play again"
+            : live
+              ? "start the autonomous loop — headless: dispatches real Claude workers (spends tokens, bounded by the armed window)"
+              : "start the autonomous loop — mock: the free deterministic loop (no tokens)";
       } else { hel.hidden = true; }
     }
     // milestone strip — PRD › SPEC › CAPABILITY › SHIP (+ the bi-directional spec-revision count)
