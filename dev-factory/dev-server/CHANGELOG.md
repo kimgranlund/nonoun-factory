@@ -3,6 +3,34 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-23 — the Ledger feed shows what the agent did + the raw event
+
+"Where can I see what the agent/build is doing, in the UI?" — the **Ledger** tab (≣) was already the live SSE event
+feed, but each row was a one-line summary that DROPPED the `metrics` (which agent, the activity kind, tokens/$),
+and there was no way to see the full event. Now each row carries a **metrics tag** (`agent · kind · N tok · $cost`) —
+on headless this is where the worker's teed tool-stream + spend appears — and **clicking a row reveals the raw event
+JSON** (the full jsonl line: every field, hashes, metrics). So the in-UI feed is a real "what's happening" view, not
+just a summary. Keyboard-accessible (Enter/Space toggles the raw view).
+
+## 2026-06-23 — surface the silent halt: a spent armed window now reads HALTED, and ▶ Play re-arms it
+
+The recurring "I moved a ticket to Active and nothing happens": the loop was alive and the ticket was *ready*, but
+the armed window's wall-clock deadline (`DEV_FACTORY_DEADLINE_S`) had passed, so `budget_exhausted` halted dispatch
+on every tick — **invisibly**. The headline still read **ARMED** (it only looked at the ready queue, never the
+budget), and ▶ Play couldn't recover it (`resume()` re-armed only when *no* window existed, not a spent one). So a
+ready ticket sat forever with no visible reason. Three fixes:
+
+- **`factory_state` gains a `halted` state** — the transport passes the heartbeat's budget verdict
+  (`heartbeat.budget_exhausted`), and when the heartbeat is on with work waiting but the window is spent
+  (deadline / max-dispatches / token / dollar), the headline reads **HALTED** with the reason, not a quiet ARMED.
+- **`resume()` re-arms a SPENT window**, not just an absent one (`budget_exhausted` is the condition) — so ▶ Play
+  recovers a deadline-halted loop in one click.
+- **UI**: a `HALTED · N ready · window spent — ▶ re-arm` headline (alert hue), and the header toggle becomes
+  **▶ Re-arm** when halted (a single click that re-arms + resumes), instead of a misleading ⏸ Pause.
+
+New `api.selftest` case (a spent window with work waiting reads `halted`). Operator note: the bounded window is a
+safety feature, not a bug — but for a long-running mock demo, raise `DEV_FACTORY_DEADLINE_S` (or just ▶ Re-arm).
+
 ## 2026-06-22 — fix: a `claimed`/`in-progress` ticket with no lease wedged forever
 
 Observed live: a ticket sat in **Claimed** for hours while the loop was running and never recovered. Root cause —

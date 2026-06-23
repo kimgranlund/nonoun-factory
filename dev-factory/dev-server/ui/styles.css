@@ -171,6 +171,9 @@ df-app { display: flex; flex-direction: column; min-height: 100vh; }
   border-color: light-dark(oklch(0.82 var(--chroma-soft) var(--_h)), oklch(0.5 var(--chroma-soft) var(--_h)));
   background: light-dark(oklch(0.95 var(--chroma-soft) var(--_h)), oklch(0.32 var(--chroma-soft) var(--_h))); animation: pulse 2s ease-in-out infinite; }
 .factory-state[data-state="armed"] { color: var(--accent); border-color: transparent; background: var(--accent-soft); }
+.factory-state[data-state="halted"] { --_h: var(--hue-alert); color: light-dark(oklch(0.5 var(--chroma-vivid) var(--_h)), oklch(0.84 var(--chroma-vivid) var(--_h)));
+  border-color: light-dark(oklch(0.82 var(--chroma-soft) var(--_h)), oklch(0.5 var(--chroma-soft) var(--_h)));
+  background: light-dark(oklch(0.95 var(--chroma-soft) var(--_h)), oklch(0.32 var(--chroma-soft) var(--_h))); }
 .factory-state[data-state="paused"], .factory-state[data-state="drained"] { --_h: var(--hue-caution);
   color: light-dark(oklch(0.5 var(--chroma-vivid) var(--_h)), oklch(0.84 var(--chroma-vivid) var(--_h)));
   border-color: light-dark(oklch(0.82 var(--chroma-soft) var(--_h)), oklch(0.5 var(--chroma-soft) var(--_h))); }
@@ -341,8 +344,15 @@ table.lattice th.row-h { text-align: right; font-family: var(--mono); text-trans
 
 /* ═══════════════════════════ Ledger feed ═══════════════════════════ */
 .feed { display: flex; flex-direction: column; gap: 2px; font-family: var(--mono); font-size: 12.5px; }
-.feed .ev { display: grid; grid-template-columns: 5.5rem 8.5rem 1fr; gap: 0.6rem; align-items: baseline; padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid transparent; }
+.feed .ev { display: grid; grid-template-columns: 5.5rem 8.5rem 1fr; gap: 0.2rem 0.6rem; align-items: baseline; padding: 0.4rem 0.6rem; border-radius: var(--radius-sm); border: 1px solid transparent; cursor: pointer; }
 .feed .ev:hover { background: var(--surface-sunken); border-color: var(--border-soft); }
+.feed .detail .chg { color: var(--faint); }
+/* the agent/spend metrics the one-line summary used to hide — "what the agent did" */
+.feed .ev-meta { color: var(--accent); background: var(--accent-soft); border-radius: var(--radius-sm); padding: 0.05rem 0.35rem; font-size: 11px; white-space: nowrap; }
+/* the raw event JSON, revealed on click — the full jsonl line, every field */
+.feed .ev-raw { grid-column: 1 / -1; margin: 0.4rem 0 0.1rem; padding: 0.6rem 0.8rem; background: var(--surface-sunken); border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm); font: 11.5px/1.5 var(--mono); color: var(--muted); white-space: pre; overflow-x: auto; max-height: 22rem; overflow-y: auto; }
+.feed .ev-raw[hidden] { display: none; }
 .feed .ev.fresh { animation: flash 1.2s ease-out; }
 @keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
 .feed .ts { color: var(--faint); }

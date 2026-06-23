@@ -491,11 +491,14 @@ def app_completeness(d, kit_dir=None):
     return {"bootable": True, "reason": None}
 
 
-def factory_state(d, heartbeat_enabled=False, paused=False, family=None):
+def factory_state(d, heartbeat_enabled=False, paused=False, family=None, halted_reason=None):
     """A single 'is the factory working, and what is it doing' headline — what the SSE 'live' dot does NOT
     answer (that only means the socket is connected). Derived from real state (running workers, the heartbeat
-    posture, the ready queue) so the UI can say IDLE / RUNNING / ARMED / PAUSED instead of leaving an operator
-    to infer it from a green dot. Pure: the transport passes the live HEARTBEAT_ENABLED / PAUSED flags in."""
+    posture, the ready queue) so the UI can say IDLE / RUNNING / ARMED / PAUSED / HALTED instead of leaving an
+    operator to infer it from a green dot. Pure: the transport passes the live HEARTBEAT_ENABLED / PAUSED flags in,
+    plus `halted_reason` — the heartbeat's budget verdict (the window's wall-clock / dispatch / token / dollar
+    ceiling is spent), since an exhausted armed window halts dispatch and must NOT read as a quietly-'armed' queue
+    (the silent-halt trap: a ready ticket sits forever with no visible reason)."""
     running = agents_running(d)
     ready = ready_tickets(d)
     active = list_tickets(d, state="active")
@@ -506,6 +509,8 @@ def factory_state(d, heartbeat_enabled=False, paused=False, family=None):
         state = "running"            # workers actively on cells (claimed/in-progress)
     elif not heartbeat_enabled:
         state = "awaiting-review" if awaiting else "idle"   # Crawl/human-driven; surface a pending acceptance queue rather than "idle"
+    elif halted_reason and (ready or active):
+        state = "halted"             # heartbeat on + work waiting, but the armed window is SPENT — dispatch is halted, not idle. Re-arm to resume.
     elif ready:
         state = "armed"              # heartbeat on, dispatchable work waiting — one tick from running
     elif active:
@@ -521,6 +526,7 @@ def factory_state(d, heartbeat_enabled=False, paused=False, family=None):
             "active_tickets": len(active), "awaiting_review": len(awaiting),
             "ready_cells": [t.get("target_cell") for t in ready][:8],
             "bootable": comp["bootable"], "completeness": comp["reason"],
+            "halted_reason": halted_reason if state == "halted" else None,
             "heartbeat_enabled": bool(heartbeat_enabled), "paused": bool(paused)}
 
 
@@ -620,6 +626,18 @@ def selftest():
         expect(factory_state(d, heartbeat_enabled=True)["state"] == "drained",
                "factory_state with heartbeat on + no active tickets must be 'drained' (queue empty)")
         expect(factory_state(d, paused=True, heartbeat_enabled=True)["state"] == "paused", "paused not reported")
+        # HALTED: heartbeat ON + dispatchable work waiting, but the armed window is SPENT (halted_reason set) → 'halted',
+        # NOT a silently-stuck 'armed'. This is the recurring "moved to active, nothing happens" — the window's
+        # wall-clock deadline had passed invisibly, so a ready ticket sat forever reading as a quiet 'armed' queue.
+        th = create_ticket(d, "task", "ready-but-halted", target_cell="spec.task.x",
+                           target_transition={"from": "validated", "to": "operating"}, acceptance={"rubric_cell": "rubric.task.x"})
+        ok_a, _ta, _ma = transition_ticket(d, th["id"], "active", srv)
+        expect(ok_a, f"setup: the halted-test ticket must go active: {_ma}")
+        hs = factory_state(d, heartbeat_enabled=True, halted_reason="wall-clock deadline reached")
+        expect(hs["state"] == "halted" and hs["halted_reason"], f"a spent window with work waiting must read 'halted', got {hs['state']}")
+        expect(factory_state(d, heartbeat_enabled=True, halted_reason=None)["state"] != "halted",
+               "no halt reason → NOT halted (the window is fine; armed/blocked/etc.)")
+        cancel_ticket(d, th["id"], srv)   # clean up so later assertions see a clear queue
         expect("active_tickets" in factory_state(d, False) and "ready_to_dispatch" in factory_state(d, False),
                "factory_state must surface the active + ready counts the UI renders")
 
