@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "corpus-query": {
+      "command": "python3",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/kernel/lattice-mcp.py"],
+      "env": {
+        "HARNESS_DIR": "${user_config.project_factory_dir}"
+      }
+    }
+  }
+}
