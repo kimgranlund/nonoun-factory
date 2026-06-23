@@ -1126,26 +1126,47 @@ class DfLedger extends UIElement {
     // newest last (append-only reads chronological); render newest first for the feed
     const rows = events.slice(-200).reverse();
     feed.innerHTML = rows.map((e, i) => this.#row(e, i)).join("");
+    // click / Enter / Space a row to reveal its RAW event JSON (the full jsonl line — metrics, hashes, every field)
+    feed.querySelectorAll("[data-ev]").forEach((el) => {
+      const toggle = () => {
+        const pre = el.querySelector(".ev-raw");
+        if (!pre) return;
+        pre.hidden = !pre.hidden;
+        el.setAttribute("aria-expanded", pre.hidden ? "false" : "true");
+      };
+      el.onclick = toggle;
+      el.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggle(); } };
+    });
   }
   #row(e, i) {
     const h = EVENT_HUE[e.event] || "h-neutral";
     const sub = e.subject || {};
     const subj = sub.ticket || sub.cell || "";
     const actor = e.actor ? `${e.actor.kind}:${e.actor.id}` : "";
-    const change = e.from || e.to ? html` <span style="color:var(--faint)">${e.from || "∅"} → ${e.to || "∅"}</span>` : "";
+    const change = e.from || e.to ? html` <span class="chg">${e.from || "∅"} → ${e.to || "∅"}</span>` : "";
+    // the "what the agent did" detail the one-line summary used to drop: which agent, the activity kind, spend.
+    // On headless this is where the worker's tool stream + token cost shows up; on mock it's terse.
+    const m = e.metrics || {};
+    const bits = [];
+    if (m.agent) bits.push(m.agent);
+    if (m.kind) bits.push(m.kind);
+    if (m.tokens) bits.push(`${(+m.tokens).toLocaleString()} tok`);
+    if (m.cost_usd) bits.push(`$${(+m.cost_usd).toFixed(3)}`);
+    const meta = bits.length ? html` <span class="ev-meta">${bits.join(" · ")}</span>` : "";
     const key = `${e.ts}|${e.event}|${subj}`;
     const fresh = !this._seen.has(key);
     this._seen.add(key);
     if (this._seen.size > 1000) this._seen = new Set([...this._seen].slice(-500)); // bound the fresh-flash memo
     return html`
-      <div class="ev ${fresh && i < 3 ? "fresh" : ""}">
+      <div class="ev ${fresh && i < 3 ? "fresh" : ""}" data-ev tabindex="0" role="button" aria-expanded="false" title="show the raw event JSON">
         <span class="ts">${fmtTime(e.ts)}</span>
         <span class="ev-name">${raw(chip(e.event, h, true))}</span>
         <span class="detail">
-          <span class="subj">${subj}</span>${raw(change)}
-          ${e.rationale ? html` <span class="rat">· ${e.rationale}</span>` : ""}
+          <span class="subj">${subj}</span>${change}
+          ${e.rationale ? html` <span class="rat">· ${e.rationale}</span>` : ""}${meta}
           <span class="rat"> · ${actor}</span>
         </span>
+        <pre class="ev-raw" hidden>${JSON.stringify(e, null, 2)}</pre>
       </div>`;
   }
 }
