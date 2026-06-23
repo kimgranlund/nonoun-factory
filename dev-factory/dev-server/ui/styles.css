@@ -131,6 +131,20 @@ df-app { display: flex; flex-direction: column; min-height: 100vh; }
   padding: 0.22rem 0.55rem; border-radius: 999px; white-space: nowrap; border: 1px solid var(--st-neutral-border);
   color: var(--muted); background: light-dark(oklch(0.97 var(--chroma-trace) var(--hue-neutral)), oklch(0.3 var(--chroma-trace) var(--hue-neutral))); }
 .factory-state:empty { display: none; }
+/* the autonomous-loop PLAY / PAUSE toggle — a header pill button beside the work-state headline */
+.hb-toggle { display: inline-flex; align-items: center; gap: 0.3rem; font: 700 11px/1 var(--mono, ui-monospace);
+  letter-spacing: 0.03em; padding: 0.26rem 0.6rem; border-radius: 999px; cursor: pointer; white-space: nowrap;
+  border: 1px solid var(--border); color: var(--muted); background: var(--surface); transition: background 120ms, color 120ms, border-color 120ms; }
+.hb-toggle[hidden] { display: none; }
+.hb-toggle:hover { border-color: var(--accent); color: var(--text); }
+.hb-toggle:disabled { opacity: 0.5; cursor: progress; }
+/* Play (loop OFF) reads as the inviting action; Pause (loop ON) reads as live/positive so the running state is obvious */
+.hb-toggle[data-on="0"] { --_h: var(--hue-positive); color: light-dark(oklch(0.45 var(--chroma-vivid) var(--_h)), oklch(0.85 var(--chroma-vivid) var(--_h)));
+  border-color: light-dark(oklch(0.82 var(--chroma-soft) var(--_h)), oklch(0.5 var(--chroma-soft) var(--_h)));
+  background: light-dark(oklch(0.96 var(--chroma-soft) var(--_h)), oklch(0.3 var(--chroma-soft) var(--_h))); }
+.hb-toggle[data-on="1"] { --_h: var(--hue-caution); color: light-dark(oklch(0.5 var(--chroma-vivid) var(--_h)), oklch(0.84 var(--chroma-vivid) var(--_h)));
+  border-color: light-dark(oklch(0.82 var(--chroma-soft) var(--_h)), oklch(0.5 var(--chroma-soft) var(--_h)));
+  background: light-dark(oklch(0.96 var(--chroma-trace) var(--_h)), oklch(0.3 var(--chroma-trace) var(--_h))); }
 .factory-state[data-state="running"] { --_h: var(--hue-positive); color: light-dark(oklch(0.45 var(--chroma-vivid) var(--_h)), oklch(0.85 var(--chroma-vivid) var(--_h)));
   border-color: light-dark(oklch(0.82 var(--chroma-soft) var(--_h)), oklch(0.5 var(--chroma-soft) var(--_h)));
   background: light-dark(oklch(0.95 var(--chroma-soft) var(--_h)), oklch(0.32 var(--chroma-soft) var(--_h))); animation: pulse 2s ease-in-out infinite; }

@@ -340,6 +340,7 @@ const SHELL_HTML = (() => {
         <div class="milestones" title="build milestones — where the build is, and whether it shipped"></div>
         <span class="spacer"></span>
         <span class="factory-state" title="the factory's work state"></span>
+        <button class="hb-toggle" data-hb-toggle hidden aria-label="Start or pause the autonomous loop"></button>
         <span class="adapter" title="dispatch adapter — mock is free, headless spends real tokens"></span>
         <button class="icon-btn theme-toggle" data-theme-toggle title="toggle light / dark" aria-label="Toggle theme">◐</button>
       </header>
@@ -398,6 +399,19 @@ class DfApp extends UIElement {
     if (tt) tt.onclick = () => { const next = store.theme.peek() === "dark" ? "light" : "dark"; store.theme.value = next; localStorage.setItem("df-theme", next); };
     const add = this.querySelector("[data-add-ticket]");
     if (add) add.onclick = () => (store.modal.value = { kind: "create-ticket", state: "draft", mode: "structured" });
+    // the autonomous-loop PLAY / PAUSE toggle — resume/pause are the SAME endpoints a curl hits; the posture is
+    // persisted server-side, so this survives navigation + restart. On the headless adapter a fresh Play confirms
+    // first (it dispatches real claude workers, bounded by the armed window); on mock (free) it's a one-click start.
+    const hb = this.querySelector("[data-hb-toggle]");
+    if (hb) hb.onclick = async () => {
+      const fs = store.factory.peek() || {};
+      const on = !!fs.heartbeat_enabled;
+      const live = (store.adapter.peek() || "mock") === "headless";
+      if (!on && live && !confirm("Start the autonomous loop on the HEADLESS adapter?\n\nIt dispatches real Claude workers and spends tokens — bounded by the armed window ($/token ceiling). Auto-triage will bind any pending prompts and the loop will build them.")) return;
+      hb.disabled = true;
+      try { await jsend("POST", on ? "/api/control/pause" : "/api/control/resume"); await refreshStatus(); }
+      finally { hb.disabled = false; }
+    };
     this.querySelectorAll("[data-zoom]").forEach((b) => (b.onclick = () => {
       const z = store.zoom.peek();
       store.zoom.value = b.dataset.zoom === "in" ? Math.min(2, z + 0.1) : b.dataset.zoom === "out" ? Math.max(0.4, z - 0.1) : 1;
@@ -473,6 +487,22 @@ class DfApp extends UIElement {
         fel.dataset.state = fs.state;
         fel.textContent = `${fs.state.toUpperCase()} · ${detail}`;
       } else { fel.textContent = ""; fel.removeAttribute("data-state"); }
+    }
+    // PLAY / PAUSE toggle — reflects the live heartbeat posture (server-persisted). Shown once status has loaded.
+    const hel = this.querySelector("[data-hb-toggle]");
+    if (hel) {
+      if (fs && fs.state) {
+        const on = !!fs.heartbeat_enabled;
+        const live = (store.adapter.value || "mock") === "headless";
+        hel.hidden = false;
+        hel.dataset.on = on ? "1" : "0";
+        hel.textContent = on ? "⏸ Pause" : "▶ Play";
+        hel.title = on
+          ? "pause the autonomous loop — durable (survives navigation + restart) until you Play again"
+          : live
+            ? "start the autonomous loop — headless: dispatches real Claude workers (spends tokens, bounded by the armed window)"
+            : "start the autonomous loop — mock: the free deterministic loop (no tokens)";
+      } else { hel.hidden = true; }
     }
     // milestone strip — PRD › SPEC › CAPABILITY › SHIP (+ the bi-directional spec-revision count)
     const ms = store.milestones.value;
