@@ -326,7 +326,12 @@ def build_app():
         # dot does not answer. HEARTBEAT_ENABLED is the transport's posture; the rest is derived from state.
         # + run_budget: the bounded-loop gauge (dispatches-so-far / cap / deadline) the cockpit's analysis rail
         # draws, read from the armed window (run/heartbeat.json) + the ledger's dispatch count — never inferred.
-        return {**api.status(DIR), "factory": api.factory_state(DIR, HEARTBEAT_ENABLED),
+        # the budget VERDICT (only when the heartbeat is on): an exhausted/un-armed window halts dispatch, so the
+        # headline must read HALTED with the reason, not a silently-stuck 'armed' — the recurring "moved to active,
+        # nothing happens" was exactly this (the window's wall-clock deadline had passed, invisibly).
+        import heartbeat as _hb
+        halt = _hb.budget_exhausted(DIR)[1] if HEARTBEAT_ENABLED else None
+        return {**api.status(DIR), "factory": api.factory_state(DIR, HEARTBEAT_ENABLED, halted_reason=halt),
                 "milestones": api.milestones(DIR), "adapter": _dispatch.adapter_name(),
                 "run_budget": _run_budget()}
 
@@ -440,8 +445,8 @@ def build_app():
         HEARTBEAT_ENABLED = True
         _save_posture(DIR, True, _current_tier())     # this project is now AUTONOMOUS — restored on a later switch back
         import heartbeat as _hb
-        if not _hb.load_budget(DIR):                   # arm a bounded window if none exists, so resume actually dispatches
-            _arm_from_env(DIR)                          # (the always-on loop fails closed on an un-armed window)
+        if _hb.budget_exhausted(DIR)[0]:               # arm if NO window OR the window is SPENT (deadline/dispatches/
+            _arm_from_env(DIR)                          # token/$): ▶ Play must recover a halted loop, not only a fresh one
         return {"paused": False}
 
     @app.get("/api/stream")
