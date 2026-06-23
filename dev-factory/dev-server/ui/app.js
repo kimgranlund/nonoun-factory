@@ -122,6 +122,11 @@ const hueFor = (state) => STATE_HUE[state] || "h-neutral";
 // ═══════════════════ store + api client ═══════════════════
 const API = ""; // same-origin; the dev-server serves both /api and this UI
 
+// 3-state app theme (adopted from nonoun-color-tokens): system → light → dark → system. "system" follows the OS
+// via color-scheme: light dark; light/dark pin it. Sun / moon / half-moon glyphs name the current mode.
+const SCHEME_ICON = { system: "◐", light: "☀", dark: "☾" };
+const SCHEME_NEXT = { system: "light", light: "dark", dark: "system" };
+
 const store = {
   view: signal(location.hash.slice(1) || "lattice"),   // the CANVAS mode — lattice|board|roadmap|agents|ledger
   lens: signal("ticket"),       // kanban lens: "ticket" | "agent"
@@ -143,7 +148,7 @@ const store = {
   panel: signal(null),          // the INSPECTOR selection — { kind:"cell"|"ticket", id } (right-pane, persistent)
   inspectorTab: signal("cell"), // right-pane segmented tab — "cell" | "asset" | "signals" | "steer"
   runBudget: signal(null),      // the bounded-loop gauge from /api/status.run_budget (dispatches/cap + deadline)
-  theme: signal(localStorage.getItem("df-theme") || "dark"),  // ◐ light/dark, persisted
+  theme: signal(["system", "light", "dark"].includes(localStorage.getItem("df-theme")) ? localStorage.getItem("df-theme") : "system"),  // system/light/dark, persisted; default respects the OS
   zoom: signal(1),              // canvas zoom (the canvas-header −/Fit/+ scales .canvas-scene)
   modal: signal(null),          // { kind:"create-ticket", state, mode:"structured"|"prompt"|"instruction" }
   toast: signal(null),
@@ -298,6 +303,37 @@ async function refreshActive() {
 // ═══════════════════ small render helpers ═══════════════════
 const chip = (text, hueClass, mono = false) =>
   html`<span class="chip st ${hueClass}${mono ? " mono" : ""}">${text}</span>`;
+
+// ── accessible primitive factories (adopted from nonoun-color-tokens' switchControl / btn / field) ──────────
+// String-returning, to match this UI's template-string idiom: ONE place that enforces role / aria-label / pressed
+// state + the shared :focus-visible ring, so a control announces itself to assistive tech instead of relying on
+// per-button hand-wiring. Click behaviour stays wired separately (the existing `.onclick` pattern).
+const _attr = (k, v) => (v == null || v === false ? "" : v === true ? ` ${k}` : ` ${k}="${escapeHtml(String(v))}"`);
+const iconBtn = (glyph, { cls = "", title, ariaLabel, ariaPressed, attrs = "" } = {}) =>
+  `<button type="button" class="icon-btn${cls ? " " + cls : ""}"${_attr("title", title)}${_attr("aria-label", ariaLabel || title)}${_attr("aria-pressed", ariaPressed)} ${attrs}>${glyph}</button>`;
+const btn = (label, { variant = "", cls = "", title, ariaLabel, ariaPressed, attrs = "" } = {}) => {
+  // variant "bare" omits the .btn base (for buttons with their own skin); otherwise .btn + optional ghost/primary/danger
+  const classes = [variant === "bare" ? "" : "btn", variant && variant !== "bare" ? variant : "", cls].filter(Boolean).join(" ");
+  return `<button type="button" class="${classes}"${_attr("title", title)}${_attr("aria-label", ariaLabel)}${_attr("aria-pressed", ariaPressed)} ${attrs}>${label}</button>`;
+};
+const switchControl = ({ label, on, cls = "", title, ariaLabel, attrs = "" }) =>
+  `<button type="button" class="switch${cls ? " " + cls : ""}" role="switch" aria-checked="${on ? "true" : "false"}"${_attr("title", title)}${_attr("aria-label", ariaLabel)} ${attrs}>${label}</button>`;
+const field = (labelText, controlHtml, { id, hint } = {}) =>
+  `<div class="field"><label${id ? ` for="${id}"` : ""}>${escapeHtml(labelText)}</label>${controlHtml}${hint ? `<p class="field-hint">${escapeHtml(hint)}</p>` : ""}</div>`;
+
+// a dependency-free FOCUS-TRAP for the light-DOM modal (native <dialog> gives this free, but the overlay re-renders
+// its innerHTML on every signal change, so trapping over the LIVE container is simpler than re-promoting a dialog
+// each render). Keeps Tab/Shift+Tab within `container`; the caller restores focus to the opener + clears `inert` on
+// teardown. Reads focusables live at each keypress, so it survives the modal re-rendering (mode-tab switches).
+const _FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+function trapTab(e, container) {
+  if (e.key !== "Tab" || !container) return;
+  const f = [...container.querySelectorAll(_FOCUSABLE)].filter((el) => el.offsetParent !== null || el === document.activeElement);
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1], a = document.activeElement;
+  if (e.shiftKey && (a === first || !container.contains(a))) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && (a === last || !container.contains(a))) { e.preventDefault(); first.focus(); }
+}
 const fmtTime = (iso) => {
   if (!iso) return "—";
   try { const d = new Date(iso); return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
@@ -340,9 +376,9 @@ const SHELL_HTML = (() => {
         <div class="milestones" title="build milestones — where the build is, and whether it shipped"></div>
         <span class="spacer"></span>
         <span class="factory-state" title="the factory's work state"></span>
-        <button class="hb-toggle" data-hb-toggle hidden aria-label="Start or pause the autonomous loop"></button>
+        ${switchControl({ label: "", on: false, cls: "hb-toggle", ariaLabel: "Start or pause the autonomous loop", attrs: "data-hb-toggle hidden" })}
         <span class="adapter" title="dispatch adapter — mock is free, headless spends real tokens"></span>
-        <button class="icon-btn theme-toggle" data-theme-toggle title="toggle light / dark" aria-label="Toggle theme">◐</button>
+        ${iconBtn("◐", { cls: "theme-toggle", title: "App theme", ariaLabel: "App theme", attrs: "data-theme-toggle" })}
       </header>
       <aside class="left-pane"><df-analysis></df-analysis></aside>
       <section class="center">
@@ -396,7 +432,7 @@ class DfApp extends UIElement {
     // these controls don't change with data — wire their handlers once
     this.querySelectorAll(".canvas-switch button").forEach((b) => (b.onclick = () => { location.hash = b.dataset.view; }));
     const tt = this.querySelector("[data-theme-toggle]");
-    if (tt) tt.onclick = () => { const next = store.theme.peek() === "dark" ? "light" : "dark"; store.theme.value = next; localStorage.setItem("df-theme", next); };
+    if (tt) tt.onclick = () => { const next = SCHEME_NEXT[store.theme.peek()] || "system"; store.theme.value = next; localStorage.setItem("df-theme", next); };
     const add = this.querySelector("[data-add-ticket]");
     if (add) add.onclick = () => (store.modal.value = { kind: "create-ticket", state: "draft", mode: "structured" });
     // the autonomous-loop PLAY / PAUSE toggle — resume/pause are the SAME endpoints a curl hits; the posture is
@@ -420,7 +456,14 @@ class DfApp extends UIElement {
   #applyTheme() {
     const t = store.theme.value;
     this.dataset.theme = t;
-    document.documentElement.style.colorScheme = t;
+    // "system" → both keywords so light-dark() follows the OS; light/dark pin it. The chrome + every --*  token flip together.
+    document.documentElement.style.colorScheme = t === "system" ? "light dark" : t;
+    const tt = this.querySelector("[data-theme-toggle]");
+    if (tt) {
+      tt.textContent = SCHEME_ICON[t] || "◐";
+      tt.title = `App theme: ${t} (system follows your OS) — cycle system / light / dark`;
+      tt.setAttribute("aria-label", `App theme: ${t} — activate to switch to ${SCHEME_NEXT[t] || "system"}`);
+    }
   }
   #renderCanvasChrome() {
     const view = store.view.value, zoom = store.zoom.value;
@@ -496,6 +539,7 @@ class DfApp extends UIElement {
         const live = (store.adapter.value || "mock") === "headless";
         hel.hidden = false;
         hel.dataset.on = on ? "1" : "0";
+        hel.setAttribute("aria-checked", on ? "true" : "false");   // role=switch state for assistive tech
         hel.textContent = on ? "⏸ Pause" : "▶ Play";
         hel.title = on
           ? "pause the autonomous loop — durable (survives navigation + restart) until you Play again"
@@ -1426,10 +1470,21 @@ function cellOptions(cells, { filter = null, empty = "— no matching cells —"
 // ═══════════════════ OVERLAY · create-ticket modal ═══════════════════
 class DfModal extends UIElement {
   connected() {
-    this._onKey = (e) => { if (e.key === "Escape") this.#close(); };
+    this._opener = document.activeElement;                 // the control that opened the modal — focus returns here
+    const shell = document.querySelector(".shell");
+    if (shell) shell.inert = true;                          // background goes inert: non-interactive + hidden from AT
+    this._onKey = (e) => {
+      if (e.key === "Escape") this.#close();
+      else trapTab(e, this.querySelector(".modal"));         // keep Tab inside the dialog
+    };
     addEventListener("keydown", this._onKey);
   }
-  disconnected() { removeEventListener("keydown", this._onKey); }
+  disconnected() {
+    removeEventListener("keydown", this._onKey);
+    const shell = document.querySelector(".shell");
+    if (shell) shell.inert = false;
+    this._opener?.focus?.();                                // restore focus to the opener (the +Ticket / Triage button)
+  }
   #close() { store.modal.value = null; }
   static template = () => {
     const m = store.modal.value;
