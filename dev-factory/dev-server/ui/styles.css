@@ -171,6 +171,9 @@ df-app { display: flex; flex-direction: column; min-height: 100vh; }
   border-color: light-dark(oklch(0.82 var(--chroma-soft) var(--_h)), oklch(0.5 var(--chroma-soft) var(--_h)));
   background: light-dark(oklch(0.95 var(--chroma-soft) var(--_h)), oklch(0.32 var(--chroma-soft) var(--_h))); animation: pulse 2s ease-in-out infinite; }
 .factory-state[data-state="armed"] { color: var(--accent); border-color: transparent; background: var(--accent-soft); }
+.factory-state[data-state="halted"] { --_h: var(--hue-alert); color: light-dark(oklch(0.5 var(--chroma-vivid) var(--_h)), oklch(0.84 var(--chroma-vivid) var(--_h)));
+  border-color: light-dark(oklch(0.82 var(--chroma-soft) var(--_h)), oklch(0.5 var(--chroma-soft) var(--_h)));
+  background: light-dark(oklch(0.95 var(--chroma-soft) var(--_h)), oklch(0.32 var(--chroma-soft) var(--_h))); }
 .factory-state[data-state="paused"], .factory-state[data-state="drained"] { --_h: var(--hue-caution);
   color: light-dark(oklch(0.5 var(--chroma-vivid) var(--_h)), oklch(0.84 var(--chroma-vivid) var(--_h)));
   border-color: light-dark(oklch(0.82 var(--chroma-soft) var(--_h)), oklch(0.5 var(--chroma-soft) var(--_h))); }
