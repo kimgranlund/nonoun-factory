@@ -40,6 +40,9 @@ VERIFIER = [
                                # reserved critic-harness basename, so protect it wherever it lives.
     f"{NS}/coordination/refuters/*",  # the HIDDEN independent refuter (false-pass oracle) — a worker must not be
     f"{NS}/coordination/verify-spec/*",  # the verify-spec (exports/acceptance/refute) the gate + self-heal fold derive from
+    f"{NS}/coordination/triage/*",  # the ticket-triager's PROPOSAL (target_cell/transition/rubric) — a plain worker
+                               # cannot write it (only the gate-blind triage-author may, via TRIAGE_AUTHOR); the
+                               # server reads it and applies via api.triage_issue (judgment proposes; the gate decides)
     f"{NS}/lattice.json",       # able to forge/disable it
     f"{NS}/*.schema.json",
     ".claude/settings.json",
@@ -64,6 +67,18 @@ VERIFIER_AUTHOR = [g for g in VERIFIER if g != "*/verify.mjs"] + ["*/index.mjs"]
 # module that trivially passes it). The asymmetry with VERIFIER_AUTHOR: the verifier-author may write verify.mjs and
 # is denied verify-spec; the refute-author is the inverse — may write verify-spec and is denied verify.mjs.
 REFUTE_AUTHOR = [g for g in VERIFIER if g != f"{NS}/coordination/verify-spec/*"] + ["*/index.mjs"]
+
+# The TRIAGE-AUTHOR's boundary: everything VERIFIER protects EXCEPT the triage proposals dir
+# (`coordination/triage/*`). The autonomous ticket-triager (the producer that turns a free-text prompt into a
+# bound, dispatchable ticket without a human) writes ONE thing — its PROPOSAL
+# (`coordination/triage/<tid>.json`: target_cell + a legal transition + a validated rubric_cell) — which the
+# single-writer server reads and applies via api.triage_issue, then `gate-ticket-ready` decides legality. It
+# must NOT: forge signals, rewrite the lattice/ledger/rubric, unwire its hooks, write any verify.mjs/verify-spec
+# or refuter (the verification surface it has no business near), touch the run/ budget+posture perimeter, OR author
+# the product barrel (`*/index.mjs`, denied like VERIFIER_AUTHOR/REFUTE_AUTHOR so one triage dispatch can't also plant
+# product code in the live tree). So the triage-author is pure JUDGMENT with ZERO authority over state — it proposes;
+# the gate disposes. The only surface it may write is its own proposal under `coordination/triage/*`.
+TRIAGE_AUTHOR = [g for g in VERIFIER if g != f"{NS}/coordination/triage/*"] + ["*/index.mjs"]
 
 
 def is_protected(path, globs):
@@ -187,8 +202,16 @@ def _selftest_path_gate(name, globs, what):
     # denied both. (Identity compares against the module-level glob lists, which are passed by reference.)
     vmjs, vspec, barrel = "src/p/x/verify.mjs", f"{NS}/coordination/verify-spec/cap.json", "src/p/x/index.mjs"
     refsc, sig = f"{NS}/coordination/refuters/cap.json", f"{NS}/signals/x.json"
-    if globs is VERIFIER and not (is_protected(vmjs, globs) and is_protected(vspec, globs)):
-        fails.append("VERIFIER must deny BOTH verify.mjs and the verify-spec to a plain worker")
+    triage = f"{NS}/coordination/triage/iss-7.json"
+    if globs is VERIFIER and not (is_protected(vmjs, globs) and is_protected(vspec, globs) and is_protected(triage, globs)):
+        fails.append("VERIFIER must deny verify.mjs, the verify-spec, AND the triage proposal to a plain worker")
+    if globs is TRIAGE_AUTHOR:
+        if is_protected(triage, globs):
+            fails.append("TRIAGE_AUTHOR must ALLOW the triage proposal (coordination/triage/*) — it writes only that")
+        if not (is_protected(vmjs, globs) and is_protected(vspec, globs) and is_protected(refsc, globs)
+                and is_protected(sig, globs) and is_protected(f"{NS}/run/heartbeat.json", globs)
+                and is_protected(f"{NS}/lattice.json", globs) and is_protected(barrel, globs)):
+            fails.append("TRIAGE_AUTHOR must still deny verify.mjs/verify-spec/refuters/signals/run/lattice/barrel (zero authority over state)")
     if globs is VERIFIER_AUTHOR:
         if is_protected(vmjs, globs) or not is_protected(vspec, globs):
             fails.append("VERIFIER_AUTHOR must ALLOW verify.mjs and DENY the verify-spec (it writes the gate, not the oracle source)")

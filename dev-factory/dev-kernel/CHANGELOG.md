@@ -2,6 +2,14 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.26] — 2026-06-22
+
+### Added (the TRIAGE-AUTHOR boundary — kernel support for autonomous prompt triage)
+
+- **A new `TRIAGE_AUTHOR` gate boundary (`_gates.py`) + `gate-verifier --allow-triage`.** Kernel support for dev-factory's autonomous **ticket-triager** — the producer that turns a free-text prompt into a bound, dispatchable ticket with no human at the triage form. `coordination/triage/*` joins the VERIFIER protected set (a plain worker cannot write a triage proposal), and `TRIAGE_AUTHOR` is the triager's narrow boundary: it may write ONLY its proposal (`coordination/triage/<tid>.json`) while signals, rubric, the lattice/ledger, `verify.mjs`, the verify-spec, the refuters, the `run/` budget+posture perimeter, the wiring, AND the product barrel (`*/index.mjs`) all stay denied — pure judgment, zero authority over state (it proposes; `gate-ticket-ready` disposes). The third sibling of `--allow-verify`/`--allow-refute`; the three flags are mutually exclusive (each producer writes exactly one surface). The dev-server reads the proposal and applies it via `api.triage_issue`.
+- **New ledger event `triage-attempt`** — a failed/parked auto-triage of an intake, the anti-livelock counter the dev-server's `triage_frontier` reads (a prompt the triager genuinely cannot bind parks for a human after two tries rather than burning a dispatch every tick).
+- Native (not vendored): no `KERNEL_VERSION` change. plugin.json 0.2.25 → 0.2.26.
+
 ## [0.2.25] — 2026-06-21
 
 ### Changed (the bootable-shell invariant — every app needs a runnable entry)

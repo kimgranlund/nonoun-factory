@@ -36,6 +36,11 @@ jobs:
         run: |
           for b in dev-factory/dev-kernel/bin/*.py; do echo "» $b"; python3 "$b" selftest; done
           for g in gate-signal gate-verifier gate-ledger gate-naming; do echo "» $g"; python3 "dev-factory/dev-kernel/bin/$g" selftest; done
+          # the producer boundaries (gate-verifier's --allow-* variants): the verifier-author may write verify.mjs,
+          # the refute-author the verify-spec, the triage-author ONLY its proposal — each denied all other state.
+          for f in --allow-verify --allow-refute --allow-triage; do
+            echo "» gate-verifier $f"; python3 dev-factory/dev-kernel/bin/gate-verifier $f selftest
+          done
 
       - name: dev-server selftests
         run: |

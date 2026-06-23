@@ -41,6 +41,63 @@ def _run_budget():
             "max_dispatches": b.get("max_dispatches"), "deadline_ts": b.get("deadline_ts"),
             "ticks": b.get("ticks", 0), "start_ts": start, "token_ceiling": b.get("token_ceiling")}
 
+
+def _posture_path(d):
+    return os.path.join(d, "run", "posture.json")
+
+
+def _load_posture(d):
+    """The per-instance AUTONOMOUS POSTURE — {heartbeat: bool, tier: int} — or {} if the project was never armed.
+    It lives under the worker-protected `run/*` perimeter (∈ _gates.VERIFIER), so a WORKER cannot flip itself
+    autonomous or raise its own tier; only the single-writer server's control routes write it. The posture tier is
+    operator INTENT, not authority: the live loop dispatches at `_dispatch_tier()`, which CLAMPS it to the
+    ledger-earned tier (autonomy.tier_for) — so an operator (or a stale posture) can never run a family ABOVE what
+    its measured false_pass earned, and a mechanical demotion re-clamps the next tick. Restored on a project switch
+    so 'no steering' survives navigation: a project you armed resumes running; one you never armed lands paused."""
+    try:
+        return json.load(open(_posture_path(d), encoding="utf-8")) or {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_posture(d, heartbeat, tier):
+    """Persist the autonomous posture (server-only write). Called by the pause/resume control routes and the project
+    switch — the operator's deliberate 'this project is/ isn't autonomous' act, made durable across navigation + restart."""
+    p = _posture_path(d)
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    json.dump({"heartbeat": bool(heartbeat), "tier": int(tier)}, open(p, "w"), indent=2)
+
+
+def _current_tier(d=None):
+    """The operator's posture tier (INTENT): the persisted posture's tier, else the env default. This is what the
+    pause/resume routes persist — NOT necessarily the tier the loop dispatches at (see _dispatch_tier, which clamps it)."""
+    return _load_posture(d or DIR).get("tier") or int(os.environ.get("DEV_FACTORY_TIER", "1"))
+
+
+def _dispatch_tier(d=None):
+    """The tier the LIVE loop actually dispatches at: the operator's posture tier CLAMPED to the ledger-EARNED tier
+    (autonomy.tier_for). Posture is a CEILING, never a floor — an operator (or a stale posture file) can run BELOW the
+    earned tier for extra caution, but NEVER above it. So an UNMEASURED family can't be driven lights-out by setting
+    posture tier 2 (it runs at its earned tier and stops at in-review), and a MECHANICAL demotion takes effect on the
+    very next tick: an incident lowers tier_for, which re-clamps here regardless of what the posture says. This keeps
+    the earned-autonomy ladder load-bearing on the live server, not only in the evals (harness-council H6)."""
+    import autonomy as _auto   # the kernel ladder (kernel bin is on sys.path via the api import)
+    d = d or DIR
+    return min(_current_tier(d), _auto.tier_for(d))
+
+
+def _arm_from_env(d):
+    """Arm `d`'s bounded heartbeat window from the operator's env ceilings (deadline / max-dispatches / token / dollar).
+    The ONE place the four ceilings are read, so startup, resume, and a project switch all bound spend identically and
+    per-instance (each `.factory/run/heartbeat.json`). An armed-but-uncapped window can't exist — heartbeat.arm() stamps
+    a safety wall-clock deadline when no ceiling is set."""
+    import heartbeat as _hb
+    return _hb.arm(d,
+                   deadline_s=int(os.environ.get("DEV_FACTORY_DEADLINE_S", "0")) or None,
+                   max_dispatches=int(os.environ.get("DEV_FACTORY_MAX_DISPATCHES", "0")) or None,
+                   token_ceiling=int(os.environ.get("DEV_FACTORY_TOKEN_CEILING", "0")) or None,
+                   dollar_ceiling=float(os.environ.get("DEV_FACTORY_DOLLAR_CEILING", "0")) or None)
+
 try:
     from fastapi import FastAPI, HTTPException, Request
     from fastapi.responses import StreamingResponse, JSONResponse, FileResponse, HTMLResponse
@@ -283,9 +340,10 @@ def build_app():
         # Re-point the running server at a SIBLING project's instance (src/<name>/.factory) — the header
         # selector's switch. Everything (api/store/heartbeat) reads DIR dynamically and opens the index per
         # call, so re-projecting the new instance is all it takes; no restart. Guarded: refuse mid-build (a
-        # live worker would be orphaned), reject a name that escapes src/, and LAND PAUSED so a switched-to
-        # project never auto-dispatches — the operator arms/resumes it deliberately (each project's run budget
-        # is its own, on disk under its .factory/run/).
+        # live worker would be orphaned) and reject a name that escapes src/. The switched-to project RESTORES
+        # its own persisted autonomous posture — a project the operator armed resumes running (re-armed from the
+        # env ceilings, spend bounded per-project); a never-armed project lands paused (the safe default). This is
+        # what lets 'no steering' survive navigation without a switch ever auto-spending on a project you didn't arm.
         global DIR, HEARTBEAT_ENABLED
         b = await req.json()
         name = (b.get("project") or b.get("name") or "").strip()
@@ -300,11 +358,13 @@ def build_app():
         if n:
             raise HTTPException(409, f"a worker is running ({n}) — pause or let it finish before switching projects")
         DIR = target
-        HEARTBEAT_ENABLED = False            # land paused; the new project is armed/resumed deliberately
         api.init_instance(DIR)
         _store.rebuild(DIR)
+        HEARTBEAT_ENABLED = bool(_load_posture(DIR).get("heartbeat", False))   # restore; never-armed → paused (safe default)
+        if HEARTBEAT_ENABLED:
+            _arm_from_env(DIR)               # re-arm THIS instance's bounded window (spend bounded per-project)
         STREAM.publish("lattice", api.lattice_grid(DIR))
-        return {**_project_info(), "switched": True, "paused": True}
+        return {**_project_info(), "switched": True, "paused": not HEARTBEAT_ENABLED}
 
     @app.get("/preview")
     @app.get("/preview/")
@@ -371,12 +431,17 @@ def build_app():
     def pause():
         global HEARTBEAT_ENABLED
         HEARTBEAT_ENABLED = False
+        _save_posture(DIR, False, _current_tier())   # the kill-switch is durable — this project stays paused across nav/restart
         return {"paused": True}
 
     @app.post("/api/control/resume")
     def resume():
         global HEARTBEAT_ENABLED
         HEARTBEAT_ENABLED = True
+        _save_posture(DIR, True, _current_tier())     # this project is now AUTONOMOUS — restored on a later switch back
+        import heartbeat as _hb
+        if not _hb.load_budget(DIR):                   # arm a bounded window if none exists, so resume actually dispatches
+            _arm_from_env(DIR)                          # (the always-on loop fails closed on an un-armed window)
         return {"paused": False}
 
     @app.get("/api/stream")
@@ -390,9 +455,10 @@ def build_app():
                 time.sleep(0.5)
         return StreamingResponse(gen(), media_type="text/event-stream")
 
-    # Walk: the 30s heartbeat is wired here, calling the SAME api as a human drag. OFF in Crawl.
-    if HEARTBEAT_ENABLED:
-        _wire_heartbeat(app)
+    # The 30s heartbeat is wired ALWAYS (not only when enabled at boot): the loop reads the LIVE posture each
+    # iteration — ticking when enabled, idling when not — so resume / a switch-to-an-armed-project starts dispatching
+    # WITHOUT a server restart. Spend stays bounded: an un-armed tick fails closed (heartbeat.budget_exhausted).
+    _wire_heartbeat(app)
     # the 5s operator-input poll runs ALWAYS — steering must work in Crawl too, independent of the dispatch loop
     _wire_input_poll(app)
     # the 15s token-spend snapshot poll — drives the realtime token-burn graph (per model + effort)
@@ -405,20 +471,18 @@ def build_app():
 
 
 def _wire_heartbeat(app):
-    """Walk: an asyncio interval task that runs one heartbeat tick (compass → dispatcher) every period.
-    The loop calls the SAME api a human drag does — it is not a separate code path. Armed on startup; an
-    exhausted window halts dispatch (heartbeat.budget_exhausted)."""
+    """An asyncio interval task that runs one heartbeat tick (compass → dispatcher) every period. The loop calls
+    the SAME api a human drag does — it is not a separate code path. It runs PERMANENTLY, reading the live
+    HEARTBEAT_ENABLED posture each iteration: it ticks when enabled and idles when not, so resume / a switch to an
+    armed project starts dispatching without a restart. An un-armed or exhausted window halts dispatch
+    (heartbeat.budget_exhausted) — posture is autonomous INTENT; the armed window is the bounded spend it's allowed."""
     import asyncio
     import heartbeat
 
     @app.on_event("startup")
     async def _start_heartbeat():
-        heartbeat.arm(DIR,
-                      deadline_s=int(os.environ.get("DEV_FACTORY_DEADLINE_S", "0")) or None,
-                      max_dispatches=int(os.environ.get("DEV_FACTORY_MAX_DISPATCHES", "0")) or None,
-                      token_ceiling=int(os.environ.get("DEV_FACTORY_TOKEN_CEILING", "0")) or None,
-                      dollar_ceiling=float(os.environ.get("DEV_FACTORY_DOLLAR_CEILING", "0")) or None)
-        tier = int(os.environ.get("DEV_FACTORY_TIER", "1"))
+        if HEARTBEAT_ENABLED:                 # arm the BOOT instance's window iff it boots autonomous; a switch/resume
+            _arm_from_env(DIR)                 # re-arms its own target. An un-armed loop simply idles (never spends).
         conc = int(os.environ.get("DEV_FACTORY_CONCURRENCY", "2"))
         period = int(os.environ.get("DEV_FACTORY_PERIOD", "30"))
         strict = os.environ.get("DEV_FACTORY_TIER1_STRICT") == "1"   # opt-in: Tier-1 waits for human acceptance cell-by-cell
@@ -427,14 +491,18 @@ def _wire_heartbeat(app):
 
         async def loop():
             evloop = asyncio.get_event_loop()
-            while HEARTBEAT_ENABLED:
-                # A headless tick blocks for MINUTES (each `claude -p` worker is a synchronous subprocess). Running
-                # it inline would freeze the event loop — the API + SSE stream would stall and the dashboard would
-                # go dark for the whole dispatch. Offload the tick to a worker thread so the server stays live and
-                # watchable while real workers run. (run_in_executor, not asyncio.to_thread — 3.8 target.)
-                summ = await evloop.run_in_executor(
-                    None, functools.partial(heartbeat.on_tick, DIR, tier=tier, max_concurrency=conc, strict_accept=strict))
-                STREAM.publish("tick", {"summary": summ, "lattice": api.lattice_grid(DIR)})
+            while True:
+                if HEARTBEAT_ENABLED:
+                    # A headless tick blocks for MINUTES (each `claude -p` worker is a synchronous subprocess). Running
+                    # it inline would freeze the event loop — the API + SSE stream would stall and the dashboard would
+                    # go dark for the whole dispatch. Offload the tick to a worker thread so the server stays live and
+                    # watchable while real workers run. (run_in_executor, not asyncio.to_thread — 3.8 target.) The tier
+                    # is read per-tick from the live per-instance posture, so a switch to a differently-armed project
+                    # takes effect without a restart.
+                    summ = await evloop.run_in_executor(
+                        None, functools.partial(heartbeat.on_tick, DIR, tier=_dispatch_tier(),
+                                                max_concurrency=conc, strict_accept=strict))
+                    STREAM.publish("tick", {"summary": summ, "lattice": api.lattice_grid(DIR)})
                 await asyncio.sleep(period)
         asyncio.create_task(loop())
 
@@ -480,6 +548,34 @@ app = build_app()
 def main(argv):
     if argv and argv[0] == "selftest":
         # the transport is thin; the logic is api.py. Here we only assert wiring is importable/consistent.
+        # POSTURE round-trip (pure, runs without FastAPI): the per-instance autonomous posture persists + reads back,
+        # and a never-armed instance reads {} (so a switch to it lands paused — the safe default).
+        import tempfile
+        with tempfile.TemporaryDirectory() as _pt:
+            _pd = os.path.join(_pt, ".factory")
+            if _load_posture(_pd) != {}:
+                print("app selftest: FAIL — a never-armed instance must read an empty posture {}", file=sys.stderr)
+                return 1
+            _save_posture(_pd, True, 2)
+            if _load_posture(_pd) != {"heartbeat": True, "tier": 2}:
+                print("app selftest: FAIL — posture round-trip lost {heartbeat, tier}", file=sys.stderr)
+                return 1
+            _save_posture(_pd, False, 1)
+            if _load_posture(_pd).get("heartbeat") is not False:
+                print("app selftest: FAIL — pause must persist heartbeat:false (durable kill-switch)", file=sys.stderr)
+                return 1
+            # the LIVE-loop autonomy CLAMP (H6): posture tier is a CEILING, never a floor — _dispatch_tier never
+            # exceeds the ledger-EARNED tier (autonomy.tier_for), so an unmeasured family can't be driven lights-out
+            # by setting posture tier 2, and a mechanical demotion re-clamps the next tick.
+            import autonomy as _auto
+            api.init_instance(_pd)
+            _save_posture(_pd, True, 2)                       # operator asks for Tier 2 (lights-out)
+            earned = _auto.tier_for(_pd)                      # a fresh/unmeasured family has NOT earned Tier 2
+            dt = _dispatch_tier(_pd)
+            if not (dt == min(2, earned) and dt < 2):
+                print(f"app selftest: FAIL — posture tier 2 must CLAMP to the earned tier {earned} (got {dt}); "
+                      "posture is a ceiling, never a floor (the earned-autonomy ladder stays load-bearing live)", file=sys.stderr)
+                return 1
         if not _HAVE_FASTAPI:
             print("app selftest: SKIP (FastAPI not installed) — the operations layer is tested by `api.py selftest`. "
                   "Install: pip install fastapi uvicorn")
