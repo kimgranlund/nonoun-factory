@@ -15,10 +15,15 @@ wiring stay denied. The module worker is wired WITHOUT this flag, so it still ca
 
 `--allow-refute` switches to the REFUTE-AUTHOR boundary (REFUTE_AUTHOR): the verify-spec (`coordination/verify-
 spec/*`) becomes writable — for the autonomous refute-author authoring the behavioral oracle — while `verify.mjs`,
-the refuter sidecars, signals/, rubric/, the lattice/ledger, the wiring, AND the product barrel stay denied. The two
-flags are inverses (verify-author writes verify.mjs / refute-author writes verify-spec); passing both is rejected.
+the refuter sidecars, signals/, rubric/, the lattice/ledger, the wiring, AND the product barrel stay denied.
 
-Usage:  gate-verifier [--allow-verify | --allow-refute] --hook | check <path> | selftest
+`--allow-triage` switches to the TRIAGE-AUTHOR boundary (TRIAGE_AUTHOR): the triage proposals dir
+(`coordination/triage/*`) becomes writable — for the autonomous ticket-triager turning a free-text prompt into a
+bound, dispatchable ticket — while verify.mjs, the verify-spec, the refuters, signals/, rubric/, the lattice/ledger,
+the run/ budget+posture perimeter, and the wiring all stay denied (pure judgment, zero authority over state). The
+three flags are mutually exclusive (each producer writes exactly one surface); passing more than one is rejected.
+
+Usage:  gate-verifier [--allow-verify | --allow-refute | --allow-triage] --hook | check <path> | selftest
 Stdlib only; Python 3.8+.
 """
 import os
@@ -30,9 +35,11 @@ import _gates  # noqa: E402
 if __name__ == "__main__":
     argv = sys.argv[1:]
     globs = _gates.VERIFIER
-    if "--allow-verify" in argv and "--allow-refute" in argv:
-        sys.stderr.write("gate-verifier: --allow-verify and --allow-refute are mutually exclusive "
-                         "(a verifier-author writes verify.mjs; a refute-author writes verify-spec — never the same dispatch)\n")
+    _allows = [f for f in ("--allow-verify", "--allow-refute", "--allow-triage") if f in argv]
+    if len(_allows) > 1:
+        sys.stderr.write("gate-verifier: --allow-verify / --allow-refute / --allow-triage are mutually exclusive "
+                         "(each producer writes exactly one surface — verify.mjs / verify-spec / triage proposal — "
+                         "never two in the same dispatch)\n")
         sys.exit(2)
     if "--allow-verify" in argv:                       # the verifier-author may write verify.mjs (it IS the gate)
         globs = _gates.VERIFIER_AUTHOR
@@ -40,4 +47,7 @@ if __name__ == "__main__":
     elif "--allow-refute" in argv:                     # the refute-author may write the verify-spec (the oracle's source)
         globs = _gates.REFUTE_AUTHOR
         argv = [a for a in argv if a != "--allow-refute"]
+    elif "--allow-triage" in argv:                     # the triage-author may write ONLY its proposal (judgment, no authority)
+        globs = _gates.TRIAGE_AUTHOR
+        argv = [a for a in argv if a != "--allow-triage"]
     sys.exit(_gates.run_path_gate("gate-verifier", globs, argv, "verifier/immutable asset"))

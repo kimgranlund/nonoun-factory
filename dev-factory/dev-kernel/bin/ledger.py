@@ -33,7 +33,8 @@ _ROOT = os.environ.get("CLAUDE_PLUGIN_ROOT") or os.path.dirname(os.path.dirname(
 
 EVENTS = ["dispatch", "claim", "transition", "signal", "block", "unblock",
           "demote", "promote", "regenerate", "stale-propagated", "cancel", "incident",
-          "activity-start", "handoff", "activity-complete", "activity-fail"]
+          "activity-start", "handoff", "activity-complete", "activity-fail",
+          "triage-attempt"]   # a failed/parked auto-triage of an intake (anti-livelock counter; dispatch.triage_intake)
 ACTOR_KINDS = ["human", "server", "agent"]
 
 # Crockford base32, ULID alphabet (excludes I, L, O, U).

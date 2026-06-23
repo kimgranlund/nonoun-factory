@@ -172,6 +172,14 @@ def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None, strict_acce
     slots = max_concurrency - count_running(d)
     if slots <= 0:
         return {"halted": False, "reason": "no free slot (backpressure)", "tier": tier, "dispatched": [], "reconciled": reconciled}
+    # AUTO-TRIAGE — the prompt→loop wire (the missing producer): before ranking the batch, turn the oldest untriaged
+    # prompt/issue intake into a BOUND, dispatchable ticket. A gate-blind ticket-triager PROPOSES (target_cell + a legal
+    # transition + a validated rubric); the single-writer server applies it and gate-ticket-ready decides. Headless-only
+    # (binding a free-text prompt is judgment, not a transform — mock cannot) via the SAME gate author_refuters uses, so
+    # on the free mock loop this is a hard no-op. The newly active ticket is ranked by compass on a subsequent tick.
+    triaged = {}
+    if getattr(adapter, "name", "mock") != "mock":
+        triaged = _disp.triage_intake(d, adapter, limit=1)
     batch = _compass.next_batch(d, tier=tier, slots_free=slots)
     # the frontier must never SILENTLY starve: a depends_on CYCLE leaves its cells un-advanceable forever (each
     # waits on another around the loop, so every dispatch is refused by the partial-order gate with no event saying
@@ -215,7 +223,7 @@ def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None, strict_acce
         json.dump(b, open(_budget_path(d), "w"), indent=2)
     return {"halted": False, "reason": None, "tier": tier, "dispatched": dispatched,
             "reconciled": reconciled, "produced": produced, "authored": authored, "refuted": refuted,
-            "distilled": distilled, "cycle": cycle}
+            "distilled": distilled, "cycle": cycle, "triaged": triaged}
 
 
 def run(d, adapter=None, tier=1, max_concurrency=2, period_s=30):
@@ -317,6 +325,38 @@ def selftest():
                    f"on_tick must NAME a dependency cycle that starves the frontier, got {cs.get('cycle')}")
             expect(any((e.get("metrics") or {}).get("cycle") for e in _led.read(cd, event="block")),
                    "the cycle must be ledgered (the operator/arbiter sees the loop to break, not a silent idle)")
+
+        # AUTO-TRIAGE wired into the tick: a free-text prompt is auto-bound + activated on a HEADLESS (non-mock)
+        # adapter, and is a hard NO-OP on mock — so a prompt moves the loop forward with no human triage, but only
+        # where a real worker can do the binding judgment. (The triager-stub stands in for the headless worker.)
+        with tempfile.TemporaryDirectory() as troot2:
+            hd = os.path.join(troot2, "src", "demo", ".factory")
+            _api.init_instance(hd)
+            _api.seed_cell(hd, "rubric", "system", "ship", maturity="validated", signal_refs=["signals/rubric.system.ship/s.json"])
+            _api.seed_cell(hd, "spec", "system", "fx", maturity="instantiated", asset_ref="spec/fx.md")
+            os.makedirs(os.path.join(hd, "spec"), exist_ok=True)
+            open(os.path.join(hd, "spec", "fx.md"), "w").write("# fx\n")
+            prompt = _api.create_ticket(hd, "prompt", "do fx", body="add fx to the spec")
+            arm(hd, max_dispatches=5, deadline_s=3600)
+
+            class _TriageStub:    # stands in for the headless ticket-triager: writes a valid proposal, returns ok
+                name = "triage-stub"
+                def dispatch(self, d, unit):
+                    p = os.path.join(d, "coordination", "triage", f"{unit['ticket']}.json")
+                    os.makedirs(os.path.dirname(p), exist_ok=True)
+                    json.dump({"new_type": "feature", "target_cell": "spec.system.fx",
+                               "target_transition": {"from": "instantiated", "to": "validated"},
+                               "acceptance": {"rubric_cell": "rubric.system.ship"}}, open(p, "w"))
+                    return {"ok": True, "asset_ref": os.path.relpath(p, d), "metrics": {"tokens": 100}}
+
+            sm = on_tick(hd, adapter=_disp.MockAdapter(), tier=2)
+            expect(sm.get("triaged") == {}, f"on_tick must NOT triage on the mock adapter: {sm.get('triaged')}")
+            expect(_api.get_ticket(hd, prompt["id"])["state"] == "draft", "the mock tick left the prompt untriaged")
+            sh = on_tick(hd, adapter=_TriageStub(), tier=2)
+            expect(sh.get("triaged", {}).get(prompt["id"], {}).get("active"),
+                   f"on_tick on a non-mock adapter must auto-triage the prompt to active: {sh.get('triaged')}")
+            expect(_api.get_ticket(hd, prompt["id"])["state"] != "draft",
+                   "the auto-triaged prompt left draft (bound + activated by the tick, no human)")
     if fails:
         sys.stderr.write("heartbeat selftest: FAIL\n")
         for f in fails:
@@ -324,7 +364,8 @@ def selftest():
         return 1
     print("heartbeat selftest: OK (UNARMED fails closed; an armed tick drives a ready slice to done unattended "
           "via the compass+dispatcher; an exhausted window — past deadline — HALTS dispatch rather than burning "
-          "through it; the budget lives under the worker-protected run/ perimeter)")
+          "through it; the budget lives under the worker-protected run/ perimeter; AUTO-TRIAGE binds a free-text "
+          "prompt into an active ticket within the tick on a headless adapter, a hard no-op on mock)")
     return 0
 
 

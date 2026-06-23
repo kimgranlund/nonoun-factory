@@ -3,6 +3,49 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-22 — prompt → autonomous loop: auto-triage + persistent posture + the overwrite guard
+
+The factory was *designed* for "write a prompt, walk away, get working software" — prompt → untriaged intake →
+**triage** (bind cell + transition + validated rubric) → active → compass ranks → heartbeat dispatches → cell
+advances — but two wires were never connected and one footgun made full autonomy on `mock` destructive. Closed all
+three (headless-only for the judgment step; `mock` stays a free, safe no-op for triage):
+
+- **Auto-triage producer (`dispatch.triage_intake` + `triage_frontier` + `_apply_triage_proposal`, wired into
+  `heartbeat.on_tick`).** Each headless tick, the oldest untriaged prompt/issue is dispatched to a **gate-blind
+  ticket-triager** (`HeadlessClaudeAdapter._triage_prompt`, wired `--allow-triage`) that writes ONE file — a
+  proposal under `coordination/triage/<tid>.json` — which the single-writer server reads and applies via
+  `api.triage_issue`, then attempts draft→active (`gate-ticket-ready` decides legality). A prompt now moves the loop
+  with **no human at the triage form**. A prompt the triager cannot bind to one cell, or an illegal binding, parks
+  (a `triage-attempt` is ledgered; `triage_frontier` skips it after two tries).
+- **Persistent autonomous posture + auto-resume on switch (`app.py`).** `run/posture.json` (`{heartbeat, tier}`,
+  server-only write, under the worker-protected `run/*` perimeter) replaces the ephemeral global, so "this project is
+  autonomous" survives navigation: the heartbeat loop is now **always-on** (idles when disabled, ticks when enabled,
+  no restart needed), pause/resume persist the posture, and switching INTO a project **restores** its armed posture +
+  re-arms its bounded window (a never-armed project still lands paused — the safe default). "No steering" now survives
+  navigation, while spend stays bounded by each project's own armed `run/heartbeat.json`.
+- **Overwrite guard (`dispatch_unit`).** An adapter-independent refusal (fires before any worker runs) to re-author a
+  **settled** cell (maturity ∈ `validated`/`operating`) unless the transition is a deliberate un-ship
+  (→`regenerating`) or the operating promotion. So pointing the autonomous loop at a real product can never stub a
+  hand-authored `index.html` over the shipped one (and the lease-reaper re-activation of a validated ticket is no
+  longer a re-clobber path); the ticket blocks and surfaces to the operator.
+
+**Council fixes (harness-council red-team — reward-hacking · autonomy-trajectory · budget-cost):**
+
+- **Autonomy (CRITICAL):** the live loop now dispatches at `app._dispatch_tier()` = `min(posture_tier,
+  autonomy.tier_for(d))` — posture is a **CEILING, never a floor**. An operator (or a stale posture) can run BELOW the
+  ledger-earned tier but never above it, so an *unmeasured* family can't be driven lights-out by setting posture
+  tier 2, and a mechanical demotion re-clamps the very next tick. The earned-autonomy ladder stays load-bearing on the
+  live server, not only in the evals.
+- **Budget (CRITICAL):** the triage dispatch's `cost_usd`/`tokens` are now ledgered on a metrics-bearing event so the
+  window's token/dollar ceiling sees them (the H5-C1 uncounted-spend leak). Same fix applied to the `author_refuters`
+  per-tick dispatch (same class).
+- **Reward-hacking (hardening):** a stale/planted `coordination/triage/<tid>.json` is cleared before each triage
+  dispatch (only THIS dispatch's write is ever applied — closes the cross-ticket laundering vector); `TRIAGE_AUTHOR`
+  denies the product barrel `*/index.mjs` like its sibling producers.
+
+Requires `dev-kernel` 0.2.26 (the `TRIAGE_AUTHOR` gate boundary + the `triage-attempt` ledger event). New selftest
+coverage in `dispatch`/`heartbeat`/`app`/`_gates`; the earned-autonomy + walk-milestone replays stay green.
+
 ## 2026-06-21 — the bootable-shell invariant: a drained app with no shell reads INCOMPLETE, not done
 
 Follow-on to the mock-shell fix, after the same demo showed a deeper gap: a decomposition can silently OMIT the

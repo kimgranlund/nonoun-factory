@@ -242,6 +242,12 @@ class MockAdapter(DispatchAdapter):
             cell_id = unit["target_cell"]
             return {"ok": True, "asset_ref": f"coordination/verify-spec/{cell_id}.json", "mock_no_oracle": True,
                     "metrics": {"tokens": 2000, "iterations": 1}}
+        if unit.get("kind") == "triage":
+            # HONEST no-op: a mock cannot READ a free-text prompt and reason about which lattice cell, transition,
+            # and validated rubric should bind it (judgment, not a deterministic transform) — so it proposes NOTHING.
+            # In practice triage_intake never dispatches on mock (it returns early on the headless gate); this branch
+            # only guards a stray direct call, ensuring the mock never authors a bogus proposal a tick would apply.
+            return {"ok": False, "mock_no_triage": True, "metrics": {"tokens": 0, "iterations": 0}}
         authoring = _authoring_for({"layer": layer, "slug": slug})
         if authoring and authoring.get("mode") == "single-file":
             # the integration shell: a single runnable entry at the product root (e.g. index.html). The mock
@@ -297,7 +303,7 @@ class MockAdapter(DispatchAdapter):
         return {"ok": True, "asset_ref": asset_rel, "metrics": {"tokens": 8000, "iterations": 1}}
 
 
-def wire_gates(worktree, kernel_bin, allow_verify=False, allow_refute=False):
+def wire_gates(worktree, kernel_bin, allow_verify=False, allow_refute=False, allow_triage=False):
     """Make the immutable boundary ACTIVE inside the worker's worktree: write a .claude/settings.json that
     runs the dev-kernel gates as PreToolUse(Write|Edit) hooks. A worker that tries to forge a signal or
     rewrite the lattice/ledger is denied in-process (gate-verifier emits permissionDecision: deny). This is
@@ -307,13 +313,17 @@ def wire_gates(worktree, kernel_bin, allow_verify=False, allow_refute=False):
     authoring a cell's verify.mjs may write it (it IS the gate), while signals/lattice/ledger/rubric stay
     denied. `allow_refute` wires the INVERSE refute-author boundary (`--allow-refute`): the refute-author
     authoring the verify-spec's behavioral oracle may write `coordination/verify-spec/*` while verify.mjs, the
-    refuter sidecars, signals, the lattice/ledger, and the product barrel stay denied. The two are mutually
-    exclusive (gate-verifier rejects both flags). The module worker is wired with NEITHER, so it can write
-    neither the gate it must pass nor the oracle that re-checks it."""
+    refuter sidecars, signals, the lattice/ledger, and the product barrel stay denied. `allow_triage` wires the
+    triage-author boundary (`--allow-triage`): the ticket-triager turning a prompt into a bound ticket may write
+    ONLY `coordination/triage/*` (its proposal) while ALL state — verify.mjs, verify-spec, refuters, signals,
+    rubric, the lattice/ledger, and run/ — stays denied. The three are mutually exclusive (gate-verifier rejects
+    more than one). The module worker is wired with NONE, so it can write neither the gate it must pass, the
+    oracle that re-checks it, nor a triage proposal."""
     cfg_dir = os.path.join(worktree, ".claude")
     os.makedirs(cfg_dir, exist_ok=True)
     gv = f"{os.path.join(kernel_bin, 'gate-verifier')} --hook" + (
-        " --allow-verify" if allow_verify else " --allow-refute" if allow_refute else "")
+        " --allow-verify" if allow_verify else " --allow-refute" if allow_refute
+        else " --allow-triage" if allow_triage else "")
     settings = {"hooks": {"PreToolUse": [
         {"matcher": "Write|Edit|MultiEdit", "hooks": [
             {"type": "command", "command": gv},
@@ -394,6 +404,8 @@ class HeadlessClaudeAdapter(DispatchAdapter):
             return self._verifier_prompt(d, unit, project_root, gtxt, ftxt)
         if unit.get("kind") == "refute-author":
             return self._refute_author_prompt(d, unit, project_root, gtxt, ftxt)
+        if unit.get("kind") == "triage":
+            return self._triage_prompt(d, unit, project_root, gtxt)
 
         authoring = _authoring_for({"layer": unit["layer"], "slug": unit["slug"]})
         # the INTEGRATION SHELL (a single-file root entry): the capability modules are ALREADY separate cells —
@@ -529,6 +541,42 @@ class HeadlessClaudeAdapter(DispatchAdapter):
                 f"must genuinely disagree with a wrong module) — a vacuous or gate-copying set earns nothing and the "
                 f"cell stays at Tier 1.{spec_txt}{gtxt}{ftxt}")
 
+    def _triage_prompt(self, d, unit, project_root, gtxt):
+        """The TICKET-TRIAGER turns a free-text intake (a prompt/issue) into a BOUND, dispatchable ticket — the
+        producer that lets a prompt move the loop forward with no human triage. It is pure JUDGMENT: it reads the
+        intake + the lattice and PROPOSES a binding (target_cell + a legal transition + a VALIDATED rubric_cell),
+        writing ONLY `coordination/triage/<tid>.json`. It has zero authority over state — the single-writer server
+        reads the proposal and applies it, and `gate-ticket-ready` decides legality (an illegal transition or an
+        unvalidated rubric is REFUSED server-side and the ticket parks; the triager never forces anything)."""
+        intake = unit.get("intake") or {}
+        tid = unit["ticket"]
+        title = intake.get("title") or ""
+        body = (intake.get("body") or "")[:2000]
+        proposal_rel = os.path.relpath(os.path.join(d, "coordination", "triage", f"{tid}.json"), project_root)
+        lattice_rel = os.path.relpath(os.path.join(d, "lattice.json"), project_root)
+        return (f"You are the dev-factory TICKET-TRIAGER. Turn this free-text intake into ONE well-formed, "
+                f"dispatchable ticket binding — do NOT write any product code.\n\n"
+                f"INTAKE (ticket {tid}):\n  title: {title}\n  body: {body}\n\n"
+                f"Read the lattice at `{lattice_rel}` (READ-only — your write to it is denied). Pick the SINGLE "
+                f"thinnest EXISTING cell whose advancement satisfies this intake (prefer the cell that already "
+                f"OWNS the asset the intake is about; do not invent a new cell). Choose a LEGAL maturity "
+                f"transition for it: a cell's maturity advances absent->defined->instantiated->validated->"
+                f"operating, plus the rework edge validated->regenerating and the re-validation regenerating->"
+                f"validated. The `from` MUST equal the cell's CURRENT maturity in the lattice. Bind acceptance to "
+                f"an EXISTING rubric cell that is already `validated` (doneness is a validated rubric, never prose). "
+                f"If you cannot bind this intake to ONE cell (it needs decomposition into many), or no validated "
+                f"rubric fits, write a proposal whose `target_cell` is null with a `reason` — it will park for a "
+                f"human rather than bind something wrong.\n\n"
+                f"Write your proposal as JSON to `{proposal_rel}` and NOTHING else (every other write is denied). "
+                f"Shape:\n"
+                f'{{"new_type": "feature"|"task"|"bug", "target_cell": "<layer>.<scope>.<slug>", '
+                f'"target_transition": {{"from": "<current maturity>", "to": "<legal next maturity>"}}, '
+                f'"acceptance": {{"rubric_cell": "rubric.<scope>.<slug>"}}, '
+                f'"budget": {{"iterations": 3, "tokens": 60000}}, '
+                f'"dependencies": {{"cells": []}}, "priority": {{"risk": 0.5, "unlock": 0.5}}}}\n'
+                f"`gate-ticket-ready` will reject an illegal transition, a missing/non-validated rubric, or an "
+                f"unknown cell — so bind something REAL and LEGAL, or park it with target_cell null.{gtxt}")
+
     def dispatch(self, d, unit):
         if shutil.which("claude") is None:
             return {"ok": False, "error": "the `claude` CLI is not on PATH", "metrics": {}}
@@ -537,7 +585,8 @@ class HeadlessClaudeAdapter(DispatchAdapter):
         project_root = os.path.dirname(os.path.dirname(d.rstrip("/")))
         settings = wire_gates(unit["worktree"], _api._store._KERNEL_BIN,
                               allow_verify=(unit.get("kind") == "verifier"),
-                              allow_refute=(unit.get("kind") == "refute-author"))
+                              allow_refute=(unit.get("kind") == "refute-author"),
+                              allow_triage=(unit.get("kind") == "triage"))
         budget = unit.get("budget") or {}
         effort = (unit.get("plan") or {}).get("effort") or {}          # the assembled execution plan's effort ladder
         max_turns = effort.get("max_iterations") or budget.get("iterations", 10)
@@ -607,6 +656,20 @@ class HeadlessClaudeAdapter(DispatchAdapter):
             asset_abs = os.path.join(d, asset_rel)
             produced = os.path.isfile(asset_abs) and os.path.getsize(asset_abs) > 0
             err = None if produced else f"no verify.mjs authored (claude exited {proc.returncode})"
+            return {"ok": produced, "asset_ref": asset_rel, "error": err,
+                    "metrics": {"cost_usd": cost, "tokens": tokens, "exit": proc.returncode}}
+        if unit.get("kind") == "triage":
+            # produced = the triager wrote a parseable proposal carrying a target_cell. The server (triage_intake →
+            # _apply_triage_proposal) still validates + applies it through gate-ticket-ready; producing it is not the
+            # same as it being LEGAL. A `target_cell: null` park-proposal is a valid (ok) outcome — the triager
+            # honestly declined to bind — so `ok` means "a proposal exists to act on", not "a binding was made".
+            asset_rel = os.path.join("coordination", "triage", f"{unit['ticket']}.json")
+            try:
+                prop = json.load(open(os.path.join(d, asset_rel), encoding="utf-8"))
+                produced = isinstance(prop, dict)
+            except (OSError, ValueError):
+                produced = False
+            err = None if produced else f"no triage proposal authored (claude exited {proc.returncode})"
             return {"ok": produced, "asset_ref": asset_rel, "error": err,
                     "metrics": {"cost_usd": cost, "tokens": tokens, "exit": proc.returncode}}
         authoring = _authoring_for({"layer": unit["layer"], "slug": unit["slug"]})
@@ -754,9 +817,15 @@ def author_refuters(d, adapter, repo_root=None, scope="system", limit=None):
         wt, _ = provision_worktree(d, cell_id, "refute-author", repo_root)
         snap = _verify_spec_hashes(d)   # snapshot BEFORE the dispatch, to register what it actually WROTE
         try:
-            author_refuter(d, {**cell, "worktree": wt, "ticket": f"refute-{cell.get('slug')}"}, adapter, repo_root)
+            rr = author_refuter(d, {**cell, "worktree": wt, "ticket": f"refute-{cell.get('slug')}"}, adapter, repo_root) or {}
         finally:
             teardown_worktree(d, wt, repo_root)
+        # COUNT the refute-author dispatch's spend against the armed window — same H5-C1 class as triage / the
+        # verifier-author pass: the adapter returns cost_usd/tokens; ledger them so the token/dollar ceiling sees them
+        # (a real `claude -p` refute-author per tick was otherwise an uncounted spend the budget never saw).
+        if rr.get("metrics"):
+            _led.append(d, "handoff", {"kind": "agent", "id": "refute-author"}, {"cell": cell_id},
+                        "refute-author dispatch spend", metrics={"refute_author": True, **rr["metrics"]})
         # Register EVERY cell whose verify-spec the dispatch CREATED OR CHANGED — NOT just the nominal target. The
         # --allow-refute gate permits writing ANY `coordination/verify-spec/*` (the per-cell scope is prompt-only), so
         # a dispatch targeting X could write a SIBLING Y's verify-spec to LAUNDER a machine-authored oracle onto an
@@ -769,6 +838,105 @@ def author_refuters(d, adapter, repo_root=None, scope="system", limit=None):
         before = _measuring_now(d, cell_id)
         produce_refuter(d, cell_id)   # stamps autonomous:true from the registry if it upgrades to measuring
         results[cell_id] = _measuring_now(d, cell_id) and not before
+    return results
+
+
+def _triage_attempts(d, tid):
+    """How many times the auto-triager has already FAILED to produce a usable/legal binding for this intake —
+    counted from `triage-attempt` ledger entries. The anti-livelock bound: a prompt the triager genuinely cannot
+    bind parks for a human after a couple of tries instead of burning a dispatch every tick."""
+    return sum(1 for e in _led.read(d) if e.get("event") == "triage-attempt"
+               and (e.get("subject") or {}).get("ticket") == tid)
+
+
+def triage_frontier(d):
+    """Oldest-first untriaged INTAKE awaiting auto-triage: type in {issue, prompt} (NOT `instruction` — those fold
+    into operator guidance, not a cell binding), no `target_cell`, still in `draft`. Skips a ticket with >= 2 prior
+    `triage-attempt` entries (it parks for a human). This is the producer frontier the loop's auto-triage consumes —
+    the missing wire that lets a free-text prompt become a dispatchable ticket without a human filling the form."""
+    out = [t for t in _api.list_tickets(d)
+           if t.get("type") in ("issue", "prompt") and not t.get("target_cell")
+           and t.get("state") == "draft" and _triage_attempts(d, t["id"]) < 2]
+    out.sort(key=lambda t: (t.get("timestamps") or {}).get("created") or "")
+    return [t["id"] for t in out]
+
+
+def _apply_triage_proposal(d, tid):
+    """Read the triage-author's PROPOSAL (`coordination/triage/<tid>.json`) and apply it through the single-writer
+    server (`api.triage_issue`), then attempt draft->active. The proposal is JUDGMENT with no authority: a
+    missing/malformed proposal, a `target_cell: null` park, an applier rejection, OR a `gate-ticket-ready` refusal
+    all leave the ticket PARKED and ledger a `triage-attempt` (never a crash, never an in-tick retry). Returns a
+    summary {applied, active, reason}."""
+    p = os.path.join(d, "coordination", "triage", f"{tid}.json")
+    try:
+        prop = json.load(open(p, encoding="utf-8"))
+    except (OSError, ValueError):
+        prop = None
+    def _park(reason):
+        _led.append(d, "triage-attempt", {"kind": "agent", "id": "ticket-triager"}, {"ticket": tid},
+                    f"triage parked: {reason}")
+        return {"applied": False, "active": False, "reason": reason}
+    if not isinstance(prop, dict) or not prop.get("target_cell"):
+        # no proposal, or the triager honestly DECLINED to bind (target_cell null) — park for a human
+        return _park((prop or {}).get("reason") if isinstance(prop, dict) else "no usable proposal authored")
+    t, msg = _api.triage_issue(d, tid, prop.get("new_type", "feature"), prop["target_cell"],
+                               prop.get("target_transition"), prop.get("acceptance"),
+                               budget=prop.get("budget"), dependencies=prop.get("dependencies"),
+                               priority=prop.get("priority"))
+    if t is None:
+        return _park(f"applier rejected the proposal: {msg}")
+    ok, _t, amsg = _api.transition_ticket(d, tid, "active", {"kind": "agent", "id": "ticket-triager"})
+    if not ok:
+        # bound (the type/cell changed, so it leaves the triage frontier) but gate-ticket-ready refused active:
+        # an illegal transition / non-validated rubric. It rests as a typed draft for a human, not re-triaged.
+        _led.append(d, "triage-attempt", {"kind": "agent", "id": "ticket-triager"},
+                    {"ticket": tid, "cell": prop["target_cell"]},
+                    f"triaged but gate-ticket-ready refused active (parked): {amsg}")
+        return {"applied": True, "active": False, "reason": amsg}
+    _led.append(d, "transition", {"kind": "agent", "id": "ticket-triager"},
+                {"ticket": tid, "cell": prop["target_cell"]},
+                f"auto-triaged {tid} -> active, bound to {prop['target_cell']}")
+    return {"applied": True, "active": True, "reason": "active"}
+
+
+def triage_intake(d, adapter, repo_root=None, limit=1):
+    """The AUTO-TRIAGE PASS: run the gate-blind ticket-triager over the oldest untriaged prompt/issue intake
+    (`triage_frontier`), each in its own worktree, to PROPOSE a binding (target_cell + a legal transition + a
+    validated rubric); the server then applies it via `_apply_triage_proposal` (api.triage_issue + draft->active,
+    gate-ticket-ready deciding). This is the producer that makes a free-text prompt MOVE THE LOOP with no human
+    triage. Mock cannot read a prompt and reason about which cell/rubric binds it (judgment, not a transform), so —
+    exactly like `author_refuters` — it is a real-build (headless) step and a HARD no-op on mock. `limit` caps how
+    many intakes are triaged per call (the heartbeat passes 1 — one judgment per tick keeps the loop cheap +
+    budget-bounded). Returns {tid: {applied, active, reason}}."""
+    if getattr(adapter, "name", "mock") == "mock":
+        return {}                       # belt-and-suspenders to the heartbeat call-site headless gate
+    results = {}
+    for tid in triage_frontier(d)[:limit]:
+        t = _api.get_ticket(d, tid)
+        if not t:
+            continue
+        # Only THIS dispatch's write may be applied: clear any stale/planted proposal for tid FIRST, so a triage
+        # dispatch for a SIBLING ticket that wrote coordination/triage/<tid>.json cannot launder a binding onto tid
+        # (the --allow-triage gate permits writing any coordination/triage/*; the per-tid scope is prompt-only, so
+        # this server-side clear is what makes every applied proposal one THIS dispatch authored — the same
+        # provenance discipline author_refuters enforces by diffing what it wrote).
+        prop_path = os.path.join(d, "coordination", "triage", f"{tid}.json")
+        if os.path.exists(prop_path):
+            os.remove(prop_path)
+        wt, _ = provision_worktree(d, f"triage--{tid}", "ticket-triager", repo_root)
+        unit = {"kind": "triage", "ticket": tid, "target_cell": None, "intake": t,
+                "worktree": wt, "dir": d}
+        try:
+            res = adapter.dispatch(d, unit) or {}
+        finally:
+            teardown_worktree(d, wt, repo_root)
+        # COUNT the triage dispatch's spend against the armed window (H5-C1): a `claude -p` triager spends real tokens;
+        # the adapter returns cost_usd/tokens — ledger them on a metrics-bearing event so heartbeat._tokens_since /
+        # _cost_since see them (exactly as the verifier-author pass does). Else triage burned tokens the budget never saw.
+        if res.get("metrics"):
+            _led.append(d, "handoff", {"kind": "agent", "id": "ticket-triager"}, {"ticket": tid},
+                        "triage dispatch spend", metrics={"triage": True, **res["metrics"]})
+        results[tid] = _apply_triage_proposal(d, tid)
     return results
 
 
@@ -889,7 +1057,22 @@ def dispatch_unit(d, ticket, adapter, actor, tier=1, repo_root=None, auto_valida
     cell = _lat.find(_lat.load(d), ticket["target_cell"])
     if cell is None:
         return False, ticket, f"target_cell {ticket['target_cell']} missing"
-    to_mat = ticket.get("target_transition", {}).get("to")
+    to_mat = (ticket.get("target_transition") or {}).get("to")
+    # OVERWRITE GUARD (adapter-independent, fires BEFORE any worker runs): the loop must never silently
+    # re-author a SETTLED cell. Re-dispatching a `validated`/`operating` cell would clobber a hand-authored,
+    # already-shipped asset — e.g. a real `index.html` shell — with a fresh (or mock-stub) author. The ONLY
+    # legal re-author of a settled cell is a deliberate un-ship (-> regenerating) or the operating promotion;
+    # any other target on a settled cell is refused and the ticket is BLOCKED so it drops out of the frontier
+    # and surfaces to the operator (who un-ships the cell to `regenerating` first if a real rework is intended).
+    # This is what lets the autonomous loop be pointed at a real product without destroying it (and it closes
+    # the lease-reaper re-activation of an already-validated ticket as a re-clobber path).
+    if cell.get("maturity") in _lat.SETTLED and to_mat not in ("regenerating", "operating"):
+        _api.transition_ticket(d, tid, "blocked", actor,
+                               reason=f"overwrite guard: {ticket['target_cell']} is {cell['maturity']} — "
+                                      "un-ship it to regenerating before re-authoring")
+        _api._store.rebuild(d)
+        return False, _api.get_ticket(d, tid), (f"refusing to re-author {ticket['target_cell']}: cell is "
+                f"{cell['maturity']} — un-ship it to regenerating to re-author (overwrite guard)")
     policy = policy if policy is not None else resolve_policy(d)
     plan, plan_src = _ep.plan_for(policy, ticket, cell, tier)     # HOW the unit runs — deterministic policy
     agent = agent_for(cell, to_mat)                              # WHO advances it — roster
@@ -2026,6 +2209,106 @@ def selftest():
         expect("pattern.system.pattern-system" not in pats,
                "distill→patterns NEVER distills the pattern layer from itself (no meta-pattern regress)")
 
+    # ── AUTO-TRIAGE (prompt → bound ticket, no human) + the OVERWRITE GUARD ──────────────────────────────────
+    with tempfile.TemporaryDirectory() as troot:
+        td = os.path.join(troot, "src", "demo", ".factory")
+        _api.init_instance(td)
+        tsrv = {"kind": "server", "id": "dev-server"}
+        _api.seed_cell(td, "rubric", "system", "ship", maturity="validated", signal_refs=["signals/rubric.system.ship/s.json"])
+        _api.seed_cell(td, "spec", "system", "feature-x", maturity="instantiated", asset_ref="spec/feature-x.md")
+        os.makedirs(os.path.join(td, "spec"), exist_ok=True)
+        open(os.path.join(td, "spec", "feature-x.md"), "w").write("# feature-x\n")
+
+        # a free-text PROMPT intake lands parked + untriaged, ON the triage frontier
+        pr = _api.create_ticket(td, "prompt", "add feature X", body="please add feature X to the spec")
+        expect(pr["id"].startswith("iss-") and pr["state"] == "draft", "a prompt intake is a parked iss- draft")
+        expect(triage_frontier(td) == [pr["id"]], "the untriaged prompt is on the triage frontier")
+
+        # MOCK is a HARD no-op — the loop cannot triage on mock (binding a prompt is judgment, not a transform)
+        expect(triage_intake(td, MockAdapter()) == {}, "triage_intake must be a hard no-op on mock")
+        expect(_api.get_ticket(td, pr["id"])["state"] == "draft", "mock triage left the intake untriaged")
+
+        # a stub headless adapter writes the triager's PROPOSAL (a valid binding) — the server applies + activates it
+        class _TriageStub(DispatchAdapter):
+            name = "triage-stub"
+            proposal = None
+            def dispatch(self, d, unit):
+                p = os.path.join(d, "coordination", "triage", f"{unit['ticket']}.json")
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+                json.dump(_TriageStub.proposal, open(p, "w"))
+                return {"ok": True, "asset_ref": os.path.relpath(p, d), "metrics": {"tokens": 1000}}
+        _TriageStub.proposal = {"new_type": "feature", "target_cell": "spec.system.feature-x",
+                                "target_transition": {"from": "instantiated", "to": "validated"},
+                                "acceptance": {"rubric_cell": "rubric.system.ship"},
+                                "budget": {"iterations": 2, "tokens": 50000}, "dependencies": {"cells": []}}
+        res = triage_intake(td, _TriageStub(), repo_root=troot)
+        expect(res.get(pr["id"], {}).get("active"), f"a valid proposal must auto-triage the prompt to active: {res}")
+        tt = _api.get_ticket(td, pr["id"])
+        expect(tt["state"] == "active" and tt.get("target_cell") == "spec.system.feature-x",
+               "the auto-triaged ticket is active + bound to the proposed cell (zero human triage)")
+        expect(pr["id"] not in triage_frontier(td), "a triaged ticket leaves the triage frontier")
+        expect(any(e.get("event") == "handoff" and (e.get("metrics") or {}).get("triage")
+                   and (e.get("metrics") or {}).get("tokens") == 1000 for e in _led.read(td)),
+               "the triage dispatch's spend (tokens/cost) must be LEDGERED so the armed window's ceiling sees it (H5-C1)")
+
+        # an ILLEGAL proposal (unvalidated rubric) PARKS (no crash): triage_issue binds it, gate-ticket-ready refuses
+        # active. Run while the frontier holds ONLY pr2 (pr is already active) so triage_intake(limit=1) targets it.
+        _api.seed_cell(td, "rubric", "system", "draftrub", maturity="instantiated")          # NOT validated
+        _api.seed_cell(td, "spec", "system", "feature-y", maturity="instantiated", asset_ref="spec/feature-y.md")
+        open(os.path.join(td, "spec", "feature-y.md"), "w").write("# y\n")
+        pr2 = _api.create_ticket(td, "prompt", "add feature Y", body="...")
+        _TriageStub.proposal = {"new_type": "feature", "target_cell": "spec.system.feature-y",
+                                "target_transition": {"from": "instantiated", "to": "validated"},
+                                "acceptance": {"rubric_cell": "rubric.system.draftrub"}}
+        res2 = triage_intake(td, _TriageStub(), repo_root=troot)
+        expect(res2.get(pr2["id"], {}).get("active") is False, "an unvalidated-rubric proposal must NOT reach active")
+        expect(_api.get_ticket(td, pr2["id"])["state"] != "active", "the illegally-bound ticket parks (not active)")
+        expect(any(e.get("event") == "triage-attempt" and (e.get("subject") or {}).get("ticket") == pr2["id"]
+                   for e in _led.read(td)), "a parked triage ledgers a triage-attempt (anti-livelock)")
+
+        # cross-ticket PROVENANCE: a PLANTED proposal for an intake is cleared before that intake's own triage
+        # dispatch, so a stub that writes nothing leaves it PARKED — only THIS dispatch's write is ever applied
+        # (closes the laundering vector the --allow-triage dir-wide write would otherwise open). pr2 is now a typed
+        # `feature` (off the frontier), so the frontier holds ONLY pr3 and triage_intake(limit=1) targets it.
+        pr3 = _api.create_ticket(td, "prompt", "planted", body="...")
+        os.makedirs(os.path.join(td, "coordination", "triage"), exist_ok=True)
+        json.dump({"new_type": "feature", "target_cell": "spec.system.feature-x",
+                   "target_transition": {"from": "instantiated", "to": "validated"},
+                   "acceptance": {"rubric_cell": "rubric.system.ship"}},
+                  open(os.path.join(td, "coordination", "triage", f"{pr3['id']}.json"), "w"))
+        class _NoWrite(DispatchAdapter):
+            name = "no-write"
+            def dispatch(self, d, unit):
+                return {"ok": False}        # writes nothing — the planted proposal must already have been cleared
+        res3 = triage_intake(td, _NoWrite(), repo_root=troot)
+        expect(res3.get(pr3["id"], {}).get("applied") is False,
+               "a PLANTED proposal must be cleared before the dispatch — a no-write triage leaves it parked (no laundering)")
+        expect(_api.get_ticket(td, pr3["id"])["state"] == "draft", "the planted-but-cleared intake stays an untriaged draft")
+
+        # the OVERWRITE GUARD: a SETTLED cell's hand-authored asset is never re-clobbered by a (re-)dispatch.
+        # Simulate the lease-reaper case: the ticket went active while the cell was instantiated, then the cell
+        # validated; a re-dispatch must refuse rather than stub over the real asset.
+        _api.seed_cell(td, "spec", "system", "shipped", maturity="instantiated", asset_ref="spec/shipped.md")
+        real = os.path.join(td, "spec", "shipped.md")
+        open(real, "w").write("# shipped\n\nHAND-AUTHORED content the loop must NOT clobber.\n")
+        before = open(real, encoding="utf-8").read()
+        og = _api.create_ticket(td, "task", "re-author shipped", target_cell="spec.system.shipped",
+                                target_transition={"from": "instantiated", "to": "validated"},
+                                acceptance={"rubric_cell": "rubric.system.ship"})
+        _api.transition_ticket(td, og["id"], "active", tsrv)                                  # legal while instantiated
+        _api.seed_cell(td, "spec", "system", "shipped", maturity="validated", asset_ref="spec/shipped.md")  # now SETTLED
+        ok_g, _tg, msg_g = dispatch_unit(td, _api.get_ticket(td, og["id"]), MockAdapter(), tsrv, tier=2, repo_root=troot)
+        expect(not ok_g and "overwrite guard" in (msg_g or ""), f"the guard must refuse re-authoring a settled cell: {msg_g}")
+        expect(open(real, encoding="utf-8").read() == before, "the hand-authored asset was NOT clobbered by the guarded dispatch")
+        expect(_api.get_ticket(td, og["id"])["state"] == "blocked", "the guarded ticket is blocked (surfaces to the operator)")
+        # the guard EXEMPTS the deliberate promotion — validated->operating is a legal re-dispatch, not a clobber
+        op = _api.create_ticket(td, "task", "promote", target_cell="spec.system.shipped",
+                                target_transition={"from": "validated", "to": "operating"},
+                                acceptance={"rubric_cell": "rubric.system.ship"})
+        _api.transition_ticket(td, op["id"], "active", tsrv)
+        _okp, _tp2, msg_p = dispatch_unit(td, _api.get_ticket(td, op["id"]), MockAdapter(), tsrv, tier=2, repo_root=troot)
+        expect("overwrite guard" not in (msg_p or ""), f"the guard must NOT fire on a validated->operating promotion: {msg_p}")
+
     if fails:
         sys.stderr.write("dispatch selftest: FAIL\n")
         for f in fails:
@@ -2035,7 +2318,10 @@ def selftest():
           "critic validates -> done, UNATTENDED, with the worktree torn down and the claim cleared; an expired "
           "lease returns a stuck ticket to active — crash recovery without reconciling competing claims; a newly "
           "dispatched worker's prompt folds the operator's recent 5s guidance; a kit that declares multi-file "
-          "authoring routes a code cell to a source DIRECTORY graded by its worker-protected verify.mjs [DF-9])")
+          "authoring routes a code cell to a source DIRECTORY graded by its worker-protected verify.mjs [DF-9]; "
+          "AUTO-TRIAGE turns a free-text prompt into a bound active ticket via a gate-blind proposal — a hard "
+          "no-op on mock, parking on an illegal binding; the OVERWRITE GUARD refuses to re-author a settled cell, "
+          "so a hand-authored asset is never stubbed over)")
     return 0
 
 
