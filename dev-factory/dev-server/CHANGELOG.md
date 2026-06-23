@@ -3,6 +3,15 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-23 — the Ledger feed shows what the agent did + the raw event
+
+"Where can I see what the agent/build is doing, in the UI?" — the **Ledger** tab (≣) was already the live SSE event
+feed, but each row was a one-line summary that DROPPED the `metrics` (which agent, the activity kind, tokens/$),
+and there was no way to see the full event. Now each row carries a **metrics tag** (`agent · kind · N tok · $cost`) —
+on headless this is where the worker's teed tool-stream + spend appears — and **clicking a row reveals the raw event
+JSON** (the full jsonl line: every field, hashes, metrics). So the in-UI feed is a real "what's happening" view, not
+just a summary. Keyboard-accessible (Enter/Space toggles the raw view).
+
 ## 2026-06-23 — surface the silent halt: a spent armed window now reads HALTED, and ▶ Play re-arms it
 
 The recurring "I moved a ticket to Active and nothing happens": the loop was alive and the ticket was *ready*, but
