@@ -1,16 +1,6 @@
 {
+  "_comment": "A plugin's bundled hooks must be ADVISORY (PostToolUse) — they run in a shared user session and must never DENY a tool call. gate-protect.py (the worker-write deny gate) is therefore NOT bundled here; it is consent-wired per worker worktree at runtime by kernel/wire.py (the dev-factory pattern), so it blocks only inside a dispatched worker, never the operator's own edits.",
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/bin/gate-protect.py\" --hook"
-          }
-        ]
-      }
-    ],
     "PostToolUse": [
       {
         "matcher": "Write|Edit",

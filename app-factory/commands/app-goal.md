@@ -11,7 +11,7 @@ The first argument is the goal doc (`prd`, `spec/<name>`); the rest are the same
 
 **Pre-flight — refuse unsafe autonomy, then skip a met goal.** Arm the budget fail-closed exactly as `/app-loop` (`run-budget.py mark` then `start`, both before any write). Then `python3 "${CLAUDE_PLUGIN_ROOT}/kernel/goal.py" status <doc> --dir D` — if already met, there is nothing to do; report and stop.
 
-Then run the `/app-loop` loop with exactly two substitutions:
+Then run the `/app-loop` loop — each ready ticket advanced by the `app-worker` agent, then validated by the independent `app-validator` (the generator/critic split; the worker never grades its own work) — with exactly two substitutions:
 
 - **rank → `goal.py next <doc> --dir D`** instead of `lattice.py rank` — the highest-priority READY ticket *inside* the destination's closure. No ready ticket → **STOP**: `goal.py met <doc> --dir D` true means achieved; otherwise the closure is blocked and `goal.py status` names the unsatisfied prerequisite to fix-and-`unblock` or seed.
 - **after each pass, check `goal.py met <doc> --dir D` FIRST**, before the budget check. **"Met" = every decomposed ticket has reached `validated` by independent signal** — a PRD destination is met *via its decomposed specs*, never by replaying its narrative. This is *not* a re-run; actual acceptance *replay* for the human happens in QA (`/app-qa`).
