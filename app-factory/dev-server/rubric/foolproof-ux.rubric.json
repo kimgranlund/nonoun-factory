@@ -1,0 +1,56 @@
+{
+  "name": "foolproof-ux",
+  "title": "app-factory dev-server — foolproof operator UX",
+  "intent": "At every moment a sloppy user can answer: (a) is it connected, (b) what can I do now and why, (c) is something running and how far along, (d) did it succeed or fail and why, (e) where is the result — without reading a terminal. And the surface can neither mislead about what it does nor corrupt state.",
+  "pass_threshold": 1.0,
+  "dimensions": [
+    {
+      "id": "connection-clarity",
+      "weight": 1,
+      "description": "Liveness, loading, and empty states are explicit — blank is never ambiguous (broken vs. empty).",
+      "gated_by": ["projects-list", "empty-state", "asset-status-pill"]
+    },
+    {
+      "id": "action-clarity",
+      "weight": 1,
+      "description": "The user knows what they can do right now and exactly why an action is unavailable.",
+      "gated_by": ["detail-contract", "asset-why-disabled"]
+    },
+    {
+      "id": "real-time-status",
+      "weight": 1,
+      "description": "A run reports its steps as they happen; status is observable from any tab and survives reload (server-side).",
+      "gated_by": ["validate-run-async", "progress-steps", "asset-progress"]
+    },
+    {
+      "id": "outcome-clarity",
+      "weight": 1,
+      "description": "Success and failure are clear and friendly — a terminal result with counts, a plain-language reason for a block.",
+      "gated_by": ["validate-run-result", "blocked-reason"]
+    },
+    {
+      "id": "results-visibility",
+      "weight": 1,
+      "description": "The user can see what was actually produced — the build artifacts, viewable read-only.",
+      "gated_by": ["builds-listed", "file-view", "asset-results"]
+    },
+    {
+      "id": "concurrency-safety",
+      "weight": 1,
+      "description": "No double-runs and no state corruption — a per-project run lock; reset refused mid-run.",
+      "gated_by": ["run-lock-409", "reset-blocked-while-running"]
+    },
+    {
+      "id": "honest-scope",
+      "weight": 1,
+      "description": "The UI never claims the stdlib server builds with AI; it validates the frontier and routes real building to a Claude Code session.",
+      "gated_by": ["asset-honest-framing", "needs-build-flag"]
+    },
+    {
+      "id": "freshness-and-recovery",
+      "weight": 1,
+      "description": "Edits on disk refresh the view; bad requests return friendly JSON, never a stack; reset re-arms the demo.",
+      "gated_by": ["doc-freshness", "error-json", "reset-rearms", "path-traversal-denied"]
+    }
+  ]
+}

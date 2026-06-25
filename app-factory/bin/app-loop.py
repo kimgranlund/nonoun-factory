@@ -38,15 +38,21 @@ def _flag(argv, name, default=None):
     return argv[argv.index(name) + 1] if name in argv and argv.index(name) + 1 < len(argv) else default
 
 
-def dispatchable(lat):
-    """Ranked READY tickets: capability cells whose verifier rubric is validated and carries a sealed bar."""
+def dispatchable(lat, project=None):
+    """Ranked READY tickets to VALIDATE: capability cells whose verifier rubric is validated and carries a
+    sealed bar — and (when `project` is given) whose build artifact already EXISTS. A ticket with no build
+    is not the validate loop's job; it needs AI building (`/app-loop` in a session), so it is excluded here
+    rather than spun against a missing artifact."""
     out = []
     for p, c, _r in _lat.rank(lat):
         if c.get("layer") != "capability" or not c.get("verifier"):
             continue
         v = _lat.find(lat, c["verifier"])
-        if v and v.get("maturity") == "validated" and v.get("asset_ref"):
-            out.append((p, c))
+        if not (v and v.get("maturity") == "validated" and v.get("asset_ref")):
+            continue
+        if project is not None and not (c.get("asset_ref") and os.path.isfile(os.path.join(project, c["asset_ref"]))):
+            continue
+        out.append((p, c))
     return out
 
 
@@ -73,12 +79,16 @@ def advance(state, project, cell_id):
     if not acc:
         return 2, f"{cell_id}: verifier carries no sealed bar"
     if not build or not os.path.isfile(os.path.join(project, build)):
-        return 1, f"{cell_id}: worker has not produced {build} — cannot validate"
+        _led.append(state, {"operation": "validate", "actor": "app-validator", "cell_id": cell_id, "result": "fail",
+                            "rationale": f"no build artifact at {build} — needs implementation", "cost": {"iterations": 1}})
+        return 1, f"{cell_id}: worker has not produced {build} — cannot validate (needs implementation)"
     r = _k("validate.py", cell_id, "--dir", state, "--harness", "app-loop", "--",
            sys.executable, os.path.join(project, acc), project)
     _led.append(state, {"operation": "validate", "actor": "app-validator", "cell_id": cell_id,
                         "result": "pass" if r.returncode == 0 else "fail",
-                        "rationale": "app-loop: sealed bar via validate.py", "cost": {"iterations": 1}})
+                        "rationale": ("sealed acceptance passed" if r.returncode == 0
+                                      else f"sealed acceptance failed — {(r.stdout or r.stderr).strip()[-160:]}"),
+                        "cost": {"iterations": 1}})
     return (0 if r.returncode == 0 else 1), (r.stdout or r.stderr).strip()
 
 
@@ -118,9 +128,9 @@ def run(state, project, caps, n=3):
     max_cells = int(_flag(caps, "--max-cells", "0")) or None
     advanced = 0
     while True:
-        d = dispatchable(_lat.load(state))
+        d = dispatchable(_lat.load(state), project)
         if not d:
-            out.append("· next → STOP: frontier empty (no dispatchable ticket)")
+            out.append("· next → STOP: frontier empty (nothing to validate — built tickets only)")
             break
         cell = _lat.cid(d[0][1])
         arc, amsg = advance(state, project, cell)
@@ -158,9 +168,9 @@ def main(argv):
         rt = _flag(argv, "--request-tier")
         rc, msg = arm(state, cap_args, int(rt) if rt is not None else None)
     elif op == "next":
-        d = dispatchable(_lat.load(state))
+        d = dispatchable(_lat.load(state), project or os.path.dirname(os.path.dirname(state.rstrip("/"))))
         if not d:
-            print("STOP: frontier empty (no dispatchable ticket)")
+            print("STOP: frontier empty (nothing to validate — built tickets only)")
             return 3
         print(_lat.cid(d[0][1]))
         return 0

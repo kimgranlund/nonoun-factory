@@ -8,12 +8,13 @@
 </head>
 <body>
   <aside id="drawer">
-    <header class="brand"><span class="logo">▣</span> app-factory</header>
+    <header class="brand"><span class="logo">▣</span> app-factory <span id="conn" class="conn connecting">connecting…</span></header>
     <div class="drawer-label">Projects</div>
-    <nav id="projects"></nav>
-    <footer class="drawer-foot">cultivate specs → the loop builds</footer>
+    <nav id="projects"><div class="muted pad">Loading…</div></nav>
+    <footer class="drawer-foot">cultivate specs → validate the frontier</footer>
   </aside>
   <main id="main"><div class="empty">Select a project from the drawer.</div></main>
+  <div id="viewer" class="viewer hidden"></div>
   <script src="/app.js"></script>
 </body>
 </html>
