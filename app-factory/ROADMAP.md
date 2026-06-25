@@ -22,6 +22,12 @@ Installable plugin; vendored spine selftests green; `/app-new` scaffolds a corpu
 ## 0.7.0 (done) — the keystone ENFORCED (M2, part 1)
 - **`bin/gate-protect.py`** — a blocking `PreToolUse(Write|Edit)` hook: every agent is deny-on-write to the `.factory/` verifier substrate (signals · ledger · lattice · budget · sealed bars · wiring). A worker can't forge a pass, launder the ledger, fake maturity, lift the budget, or edit its bar. Bars sealed by copy (writable `spec/bars/` → protected `.factory/acceptance/`). Wired in the plugin `hooks.json` (no per-project `wire.py`). Proven: the four reward-hacking moves are denied (exit 2), legitimate writes allowed.
 
+## 0.8.0 (done) — the dev-server made foolproof
+- Hardened `serve.py` (async locked validate runs streaming progress over SSE; `/run`, `/reset`, read-only `/file`; doc-aware refresh; friendly errors) + a foolproof UI (connection pill, honest "Validate frontier" vs. AI-build framing, live progress + terminal banner, guarded Reset, results viewer, blocked cards) + `bin/app-reset.py`. Verified by an internal eval flow: `dev-server/rubric/foolproof-ux.rubric.json` + `dev-server/evals/run-evals.py` — 21 sloppy-user scenarios, score 1.00.
+
+## 0.9.0 (done) — the outer loop (correctness + compounding)
+- **Regeneration** (`bin/app-regen.py`): a spec edit cascades staleness to its validated tickets, invalidates their signals, and re-opens them against the new hash — the stale-but-trusted Critical, closed. **Distillation** (`bin/app-distill.py`): ledger windows → pattern drafts with provenance. **Context assembly** (`bin/app-context.py`): deterministic build context from spec + knowledge + non-stale patterns (excludes stale + the sealed bar). Agents `app-distiller` + `spec-regenerator`; commands `/app-regenerate` · `/app-distill` · `/app-context`. Eval flow `evals/outer-loop.rubric.json` + `evals/run-outerloop-evals.py` — 14/14, score 1.00.
+
 ## Next (M2 remainder)
 - **Calibrate the verifiers** — vendor/adapt dev-kernel's `evals/calibration` so the entailment-critic's fidelity check and the rubrics are calibrated, not asserted.
 - **Vendor the full dev-kernel authoring rigor** (spec-author discipline, the spec-council lens critics, `gate-ticket-ready`) behind the live deriver/critic/refuter agents.

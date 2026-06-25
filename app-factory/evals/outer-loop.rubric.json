@@ -1,0 +1,44 @@
+{
+  "name": "outer-loop",
+  "title": "app-factory outer loop — regeneration · distillation · context assembly",
+  "intent": "The factory must stay CORRECT over time (a spec change can never leave validated work trusted) and COMPOUND (precedent is captured and feeds later builds, freshly). Verified by an integrated build → validate → distill → regenerate → assemble scenario.",
+  "pass_threshold": 1.0,
+  "dimensions": [
+    {
+      "id": "regeneration-correctness",
+      "weight": 1,
+      "description": "Editing a committed spec re-opens its previously-validated tickets (never stays trusted), stamps the new spec hash, invalidates the old signal, and ledgers the regeneration — the stale-but-trusted Critical, closed.",
+      "gated_by": ["regen-reopens", "regen-new-hash", "regen-signal-invalidated", "regen-ledgered"]
+    },
+    {
+      "id": "distillation-provenance",
+      "weight": 1,
+      "description": "A failure mode recurring across tickets distills to ONE anti-pattern DRAFT carrying its ledger provenance; a one-off stays below threshold; the distiller proposes, never authors canon.",
+      "gated_by": ["distill-recurring", "distill-provenance", "distill-proposes-draft", "distill-one-off-skipped"]
+    },
+    {
+      "id": "context-determinism",
+      "weight": 1,
+      "description": "A ticket's build context is assembled from NAMED corpus sources in a stable order — same corpus → same context.",
+      "gated_by": ["context-named-sources", "context-deterministic"]
+    },
+    {
+      "id": "context-freshness",
+      "weight": 1,
+      "description": "A pattern marked stale (superseded) is EXCLUDED from assembly — frozen knowledge can't leak into a build.",
+      "gated_by": ["context-excludes-stale"]
+    },
+    {
+      "id": "predicate-honesty",
+      "weight": 1,
+      "description": "The assembled context never includes the sealed acceptance bar — the worker builds to intent, not to the test.",
+      "gated_by": ["context-no-bar"]
+    },
+    {
+      "id": "compounding-mechanical",
+      "weight": 1,
+      "description": "The 'better specs/knowledge → cheaper build' leverage is mechanical: the worker's context is sourced from the corpus (spec + knowledge + patterns), so a richer corpus deterministically enriches the build.",
+      "gated_by": ["context-includes-knowledge", "context-includes-pattern"]
+    }
+  ]
+}
