@@ -3,6 +3,35 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-25 — prompt→loop council hardening: bound the auxiliary spend, gate triage on the earned tier
+
+A harness-council red-team of the just-landed autonomous prompt-triage loop (reward-hacking · autonomy-trajectory ·
+budget-cost · verifier-integrity critics). reward-hacking came back CLEAN; the other three surfaced a cluster of
+bounded-autonomy gaps, folded back in and re-reviewed to CLEAN:
+
+- **The dispatch-count ceiling now counts every separate `claude -p`, not just cell-advances (H5).** `_dispatches_since`
+  counted only `dispatch` events, so a count-only window (`max_dispatches`, no token/$ cap) let the per-tick auxiliary
+  spend — triage, refute-author, verifier-author, each a real headless invocation ledgered as a `handoff` — escape the
+  cap. It now counts a `dispatch` OR a `handoff` carrying an auxiliary-spend marker (`triage`/`refute_author`/
+  `verifier_author`) — and crucially NOT the headless adapter's per-tool-turn `handoff` tees (one per stream line of a
+  single run) nor `signal` probe-cost, so one cell-advance still counts as exactly 1 (the re-review caught an over-count
+  in the first cut and it was fixed + regression-guarded).
+- **Auto-triage now sits behind the earned-autonomy ladder, not just a live adapter (H6).** `on_tick` gated triage on
+  `adapter != mock` alone, so a Tier-0 family (nothing earned, no validated rubric to bind) would still spend a futile
+  triager `claude -p` and mutate the board. It now requires the earned `tier >= 1` — the same predicate as dispatch.
+- **`tier_for(family=None)` fails closed on a multi-family ledger (H6).** A latent guard (dev-kernel 0.2.27) so one
+  family can never ride another's measured-clean rate to Tier 2 once two share a ledger.
+- **A crashing or corrupt-intake triage parks instead of aborting the tick (H5).** `triage_intake` wraps each intake so
+  a provision/dispatch/parse crash — or a corrupt `coordination/tickets/<tid>.json` — ledgers a `triage-attempt` (the
+  anti-livelock counter advances) and moves on, rather than propagating and killing the whole tick.
+
+Examined and **declined**: dropping the armed-budget term from the Tier-2 precondition. It is a deliberate, tested
+safety floor ("unattended-IN-budget", TDD §14.2; `earned-autonomy/replay.py` H2c) — the three trust conjuncts cannot be
+manufactured by arming a window, and an un-armed Tier-2 family already fails closed at dispatch. The autonomy-trajectory
+critic agreed on re-review. Separately tracked (NOT in this change): the rubric meta-verifier (`rubric-check.py`) is a
+presence-predicate, so a rubric's `validated` attests shape, not calibration — a verifier-integrity CRITICAL scoped as
+its own next workstream (it gates lights-out Tier 2; attended operation stops every result at in-review regardless).
+
 ## 2026-06-25 — operator-UX overhaul: never silent, never a false "Done", always whose-turn-it-is
 
 A pass over the sloppiest operator scenarios (the ones the operator kept living: "moved to Active, nothing happens";

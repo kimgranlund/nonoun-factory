@@ -85,8 +85,26 @@ def clear(d):
         os.remove(p)
 
 
+_AUX_SPEND_KEYS = ("triage", "refute_author", "verifier_author")
+
+
 def _dispatches_since(d, start_ts):
-    return sum(1 for e in _led.read(d, since=start_ts) if e.get("event") == "dispatch")
+    # COUNT every separate `claude -p` invocation against the window, not just cell-advances. A `dispatch` is one
+    # cell-advance worker; each AUXILIARY spend — triage / refute-author / verifier-author — is a SEPARATE worker run
+    # ledgered as a `handoff` carrying its spend marker. The token/$ ceilings sum metrics from any event, but the
+    # dispatch-COUNT ceiling filtered on `event=="dispatch"` alone, so a count-only window (max_dispatches, no token/$
+    # cap) let that per-tick auxiliary spend escape it (harness-council H5). We must count the auxiliary handoffs but
+    # NOT the headless adapter's per-tool-turn `handoff` tees (dispatch.py streams one handoff per tool_result/assistant
+    # line of a SINGLE run — those carry no spend marker), nor `signal` probe-cost (same run). So: a `dispatch`, OR a
+    # `handoff` that carries an auxiliary-spend marker — one count per real invocation, never per tool turn.
+    n = 0
+    for e in _led.read(d, since=start_ts):
+        ev = e.get("event")
+        if ev == "dispatch":
+            n += 1
+        elif ev == "handoff" and any(k in (e.get("metrics") or {}) for k in _AUX_SPEND_KEYS):
+            n += 1
+    return n
 
 
 def _tokens_since(d, start_ts):
@@ -178,7 +196,12 @@ def on_tick(d, adapter=None, tier=None, max_concurrency=2, now=None, strict_acce
     # (binding a free-text prompt is judgment, not a transform — mock cannot) via the SAME gate author_refuters uses, so
     # on the free mock loop this is a hard no-op. The newly active ticket is ranked by compass on a subsequent tick.
     triaged = {}
-    if getattr(adapter, "name", "mock") != "mock":
+    if tier >= 1 and getattr(adapter, "name", "mock") != "mock":
+        # Gate auto-bind+spend behind the SAME earned-autonomy predicate as dispatch (harness-council H6): a Tier-0
+        # family has no validated verifier, so the triager has no validated rubric to bind — triage could only park,
+        # burning a futile `claude -p`. Requiring the earned Tier >=1 (not just a live adapter) keeps "a free-text prompt
+        # autonomously mutates the board + spends" behind the ladder, never ahead of it. (`tier` here is already the
+        # ledger-EARNED tier — the live loop passes `_dispatch_tier` = min(intent, earned); on_tick defaults to tier_for.)
         triaged = _disp.triage_intake(d, adapter, limit=1)
     batch = _compass.next_batch(d, tier=tier, slots_free=slots)
     # the frontier must never SILENTLY starve: a depends_on CYCLE leaves its cells un-advanceable forever (each
@@ -295,6 +318,23 @@ def selftest():
         ex, why = budget_exhausted(d)
         expect(ex and "dollar ceiling" in (why or ""), f"dollar ceiling did not halt on failure-path spend: {why}")
 
+        # B1: the dispatch-COUNT ceiling must see each separate `claude -p` invocation — the cell-advance `dispatch`
+        # AND every auxiliary `handoff` spend (triage / refute-author / verifier-author) — but NOT the headless adapter's
+        # per-tool-turn `handoff` tees (one per tool_result/assistant line of a SINGLE run, no spend marker) nor `signal`
+        # probe-cost (same run). Else a count-only window either lets auxiliary spend escape OR trips on model verbosity (H5).
+        with tempfile.TemporaryDirectory() as bdir:
+            bd = os.path.join(bdir, ".factory"); _api.init_instance(bd)
+            bts2 = _now().isoformat(timespec="seconds")
+            _led.append(bd, "dispatch", {"kind": "server", "id": "x"}, {"ticket": "t1"}, "a cell-advance")
+            _led.append(bd, "handoff", {"kind": "agent", "id": "headless-claude"}, {"ticket": "t1"},
+                        "tool_result: Write")                                   # a per-tool-turn tee — NO spend marker
+            _led.append(bd, "handoff", {"kind": "agent", "id": "ticket-triager"}, {"ticket": "t2"},
+                        "triage spend", metrics={"triage": True, "tokens": 50})  # a SEPARATE claude -p spend (counts)
+            _led.append(bd, "signal", {"kind": "server", "id": "d"}, {"ticket": "t1"}, "probe cost", metrics={"cost_usd": 1.0})
+            expect(_dispatches_since(bd, bts2) == 2,
+                   "_dispatches_since must count the cell-advance dispatch + the AUXILIARY (triage/refute/verifier) handoff "
+                   f"spend, but NOT per-tool-turn handoff tees or signal probe-cost; got {_dispatches_since(bd, bts2)}")
+
         # an armed window is NEVER unbounded (H5): arming with NO operator ceiling stamps a safety deadline, so the
         # only-the-per-dispatch-$-cap hazard can't exist; an explicit ceiling is left as the sole bound.
         b_default = arm(d)
@@ -352,6 +392,12 @@ def selftest():
             sm = on_tick(hd, adapter=_disp.MockAdapter(), tier=2)
             expect(sm.get("triaged") == {}, f"on_tick must NOT triage on the mock adapter: {sm.get('triaged')}")
             expect(_api.get_ticket(hd, prompt["id"])["state"] == "draft", "the mock tick left the prompt untriaged")
+            # A3: auto-triage is gated on the EARNED tier, not just a live adapter — a Tier-0 family (nothing earned,
+            # no validated rubric to bind) must NOT auto-bind+spend even on a headless adapter (harness-council H6).
+            s0t = on_tick(hd, adapter=_TriageStub(), tier=0)
+            expect(s0t.get("triaged") == {}, f"on_tick must NOT auto-triage at Tier 0 even on a live adapter: {s0t.get('triaged')}")
+            expect(_api.get_ticket(hd, prompt["id"])["state"] == "draft",
+                   "the Tier-0 tick left the prompt untriaged (auto-triage sits behind the earned-autonomy ladder)")
             sh = on_tick(hd, adapter=_TriageStub(), tier=2)
             expect(sh.get("triaged", {}).get(prompt["id"], {}).get("active"),
                    f"on_tick on a non-mock adapter must auto-triage the prompt to active: {sh.get('triaged')}")
@@ -365,7 +411,8 @@ def selftest():
     print("heartbeat selftest: OK (UNARMED fails closed; an armed tick drives a ready slice to done unattended "
           "via the compass+dispatcher; an exhausted window — past deadline — HALTS dispatch rather than burning "
           "through it; the budget lives under the worker-protected run/ perimeter; AUTO-TRIAGE binds a free-text "
-          "prompt into an active ticket within the tick on a headless adapter, a hard no-op on mock)")
+          "prompt into an active ticket within the tick on a headless adapter, a hard no-op on mock, and is gated "
+          "behind the earned tier — Tier 0 does not auto-bind; the dispatch-count ceiling counts auxiliary handoff spend)")
     return 0
 
 
