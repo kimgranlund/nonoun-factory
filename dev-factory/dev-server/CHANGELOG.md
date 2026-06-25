@@ -3,6 +3,52 @@
 The dev-factory runtime (FastAPI/uvicorn over the stdlib ops layer). Not a plugin — it ships in the dev-factory
 marketplace and is versioned with the kernel it serves. Format: [Keep a Changelog](https://keepachangelog.com/).
 
+## 2026-06-25 — operator-UX overhaul: never silent, never a false "Done", always whose-turn-it-is
+
+A pass over the sloppiest operator scenarios (the ones the operator kept living: "moved to Active, nothing happens";
+"In-Review for an hour — is it working?"; "said Done but nothing changed"; "can't tell mock-vs-real / what the agent
+is doing"). Nine principles, then a harness-council + trust-calibration review with one CRITICAL + five Majors folded
+back in.
+
+**P3 — no false "Done" (the trust keystone, hardened to the LIVE loop).** A worker that confirmed an existing asset
+but authored nothing NEW no longer reads as a real Done. `dispatch_unit` fingerprints the asset (content hash) BEFORE
+vs AFTER every dispatch and ledgers `activity-complete noop=true` when it's byte-identical — **adapter-agnostic**, so a
+headless worker that ran, spent tokens, and produced no diff is flagged too (the council CRITICAL: "Done" must be honest
+on the loop you pay for, not only on free mock). `MockAdapter` also reports `noop` directly. The Done card badges
+**"⚠ no change"**. The cell still legitimately re-validates; `noop` is a pure ledger annotation — it never touches the
+gate-signal/validation path (reward-hacking-reviewed: forge-proof, non-weakening).
+
+**P2 — In-Review is YOUR turn.** Lane renamed **"Needs your OK"**; every in-review card gets a **✓ Accept** button
+(`/api/tickets/{tid}/accept`) + a quiet **view** to inspect the asset first; a header **auto-accept** toggle
+(`/api/control/auto-accept` + `api.accept_reviewed`) lets reviewed work flow to Done as your standing sign-off — DISTINCT
+from the earned tier (acceptance still goes through gate-signal; it cannot close an unvalidated ticket). Turning it on
+confirms the immediate bulk-accept (it accepts the current lane sight-unseen, not just future work).
+
+**P1 — every non-moving state names its reason AND the next action.** The headline routes you ("window spent — ▶ re-arm",
+"open a card for why + Retry", "all done · + Ticket", "need your OK — Accept on the card", "loop off — ▶ Play"). Blocked
+cards show the block reason (from the ledger) — clickable to the inspector, not a "see the Ledger" dead end — beside a **↻ Retry**.
+
+**P4 — say the consequence, not the adapter.** The badge is **DRY RUN** (mock — no real changes, no tokens) /
+**LIVE BUILD** (headless — real code, real $); BOTH are visually loud (not realizing you're on a free dry run is as
+costly as not realizing you're live). The intake modal warns on mock.
+
+**P5 — accept sloppy input.** The create modal leads with a plain **"What do you want?"** prompt; the expert
+cell/maturity/rubric form is now **Advanced**.
+
+**P6/P7 — legible progress + one-click results.** Claimed/in-progress cards show a live strip (agent · kind · tokens +
+pulse) from the ledger; Done app cards get **▶ Preview** (opens + reloads the Preview tab).
+
+**P8/P9 — durability + acknowledgment.** A **"Resumed — N done, M need your OK"** toast on load; **"Noted"** when steering
+is submitted.
+
+**Council fixes (trust-calibration):** the no-op honesty made adapter-agnostic (CRITICAL, above); DRY-RUN made as loud as
+LIVE; auto-accept confirms the sight-unseen bulk-accept; a **switch into an armed HEADLESS project lands PAUSED** (a mere
+navigation must not silently resume token spend — mock auto-resumes, headless requires the ▶ Play confirm) with a
+"landed paused" notice; **"view before you accept"** on the card; the dead Checkpoint stub removed.
+
+New selftests: `dispatch` (mock no-op + adapter-agnostic hash no-op + `accept_reviewed`), `api` (factory_state `halted`
+already; `auto_accept` surfaced). The Ledger feed (below) shows the `noop`/metrics inline.
+
 ## 2026-06-23 — the Ledger feed shows what the agent did + the raw event
 
 "Where can I see what the agent/build is doing, in the UI?" — the **Ledger** tab (≣) was already the live SSE event

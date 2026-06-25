@@ -218,6 +218,7 @@ df-app { display: flex; flex-direction: column; min-height: 100vh; }
 .toast { position: fixed; bottom: 1.2rem; left: 50%; transform: translateX(-50%); z-index: 50; max-width: 32rem;
   background: var(--surface-raised); border: 1px solid var(--border); border-left: 3px solid; border-radius: var(--radius); box-shadow: var(--shadow); padding: 0.7rem 1rem; }
 .toast.err { border-left-color: light-dark(oklch(0.55 var(--chroma-vivid) var(--hue-danger)), oklch(0.7 var(--chroma-vivid) var(--hue-danger))); }
+.toast.warn { border-left-color: light-dark(oklch(0.6 var(--chroma-vivid) var(--hue-alert)), oklch(0.74 var(--chroma-vivid) var(--hue-alert))); }
 .toast.ok { border-left-color: light-dark(oklch(0.6 var(--chroma-vivid) var(--hue-positive)), oklch(0.7 var(--chroma-vivid) var(--hue-positive))); }
 .toast .ttl { font-weight: 600; }
 .toast .msg { color: var(--muted); font-size: 13px; margin-top: 0.15rem; }
@@ -419,9 +420,12 @@ table.lattice th.row-h { text-align: right; font-family: var(--mono); text-trans
 .tk-bar .tk-fill[data-k="large"], .tk-bar .tk-fill[data-k="high"] { background: light-dark(oklch(0.55 0.18 var(--hue-alert)), oklch(0.7 0.18 var(--hue-alert))); }
 .tk-bar .tk-v { text-align: right; font-family: var(--mono); color: var(--muted); }
 .worker header .elapsed { color: var(--accent); font-variant-numeric: tabular-nums; }
-/* adapter badge — mock is quiet; headless (LIVE, spends tokens) is loud */
-.adapter { font: 600 10px/1 var(--mono, ui-monospace); letter-spacing: 0.05em; padding: 0.2rem 0.45rem; border-radius: 999px; white-space: nowrap; color: var(--faint); border: 1px solid var(--border); }
+/* adapter badge — BOTH states are loud, because the confusion runs both ways: not realizing you're on a free DRY
+   RUN (nothing you do is real) is as costly as not realizing you're LIVE. DRY RUN = caution; LIVE BUILD = alert+pulse. */
+.adapter { font: 700 10px/1 var(--mono, ui-monospace); letter-spacing: 0.05em; padding: 0.24rem 0.5rem; border-radius: 999px; white-space: nowrap; color: var(--faint); border: 1px solid var(--border); }
 .adapter:empty { display: none; }
+.adapter[data-adapter="mock"] { --_h: var(--hue-caution); color: light-dark(oklch(0.5 var(--chroma-vivid) var(--_h)), oklch(0.84 var(--chroma-vivid) var(--_h)));
+  border-color: light-dark(oklch(0.82 var(--chroma-soft) var(--_h)), oklch(0.5 var(--chroma-soft) var(--_h))); background: light-dark(oklch(0.96 var(--chroma-soft) var(--_h)), oklch(0.3 var(--chroma-soft) var(--_h))); }
 .adapter[data-adapter="headless"] { --_h: var(--hue-alert); color: light-dark(oklch(0.5 var(--chroma-vivid) var(--_h)), oklch(0.82 var(--chroma-vivid) var(--_h))); border-color: transparent; background: light-dark(oklch(0.95 var(--chroma-soft) var(--_h)), oklch(0.32 var(--chroma-soft) var(--_h))); animation: pulse 2s ease-in-out infinite; }
 /* worker orchestration line (the live team) */
 .worker .orch { font: 600 11px/1 var(--mono, ui-monospace); color: var(--muted); margin: 0.3rem 0 0; display: flex; align-items: center; gap: 0.35rem; }
@@ -595,3 +599,47 @@ df-preview { display: block; }
 .triage-btn { font: 11px/1 var(--mono, ui-monospace, monospace); padding: 0.32rem 0.55rem; border-radius: var(--radius-sm);
   cursor: pointer; border: 1px solid var(--border); background: var(--accent-soft); color: var(--accent); }
 .triage-btn:hover { border-color: var(--accent); }
+/* ── per-state card feet (operator-ux pass): what's happening + what to do next ── */
+.card-foot { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; }
+.card-foot.done-foot:empty, .card-foot.blocked-foot:empty { display: none; }
+/* P2 — Needs your OK + Accept */
+.card-foot .needs-ok { font: 600 10px/1 var(--mono); letter-spacing: 0.04em; color: var(--muted); text-transform: uppercase; }
+.accept-btn { margin-left: auto; font: 600 11px/1 var(--mono); padding: 0.34rem 0.6rem; border-radius: var(--radius-sm); cursor: pointer;
+  border: 1px solid transparent; --_h: var(--hue-positive);
+  color: light-dark(oklch(0.42 var(--chroma-vivid) var(--_h)), oklch(0.16 var(--chroma-trace) var(--hue-neutral)));
+  background: light-dark(oklch(0.9 var(--chroma-soft) var(--_h)), oklch(0.8 var(--chroma-vivid) var(--_h))); }
+.accept-btn:hover { filter: brightness(1.05); }
+.accept-btn:disabled { opacity: 0.5; cursor: progress; }
+/* P1 — block reason (clickable → inspector) + Retry */
+.card-foot .block-why { appearance: none; border: 0; background: none; cursor: pointer; text-align: left; padding: 0;
+  font-size: 11px; color: light-dark(oklch(0.5 var(--chroma-vivid) var(--hue-alert)), oklch(0.82 var(--chroma-vivid) var(--hue-alert)));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 68%; text-decoration: underline dotted transparent; }
+.card-foot .block-why:hover { text-decoration-color: currentColor; }
+/* "view" before accept — a quiet link beside the Accept */
+.view-btn { appearance: none; border: 0; background: none; cursor: pointer; font: 11px/1 var(--mono); color: var(--muted); padding: 0.3rem 0.3rem; text-decoration: underline dotted; }
+.view-btn:hover { color: var(--accent); }
+.retry-btn { margin-left: auto; font: 11px/1 var(--mono); padding: 0.3rem 0.5rem; border-radius: var(--radius-sm); cursor: pointer;
+  border: 1px solid var(--border); background: transparent; color: var(--muted); }
+.retry-btn:hover { border-color: var(--accent); color: var(--fg); }
+/* P6 — live progress strip */
+.card-foot .working { display: inline-flex; align-items: center; gap: 0.35rem; font: 11px/1 var(--mono); color: var(--accent); }
+.work-pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+/* P3 — no-op (dry run) badge on a Done card that changed nothing */
+.noop-badge { font: 600 10px/1 var(--mono); letter-spacing: 0.03em; padding: 0.18rem 0.4rem; border-radius: var(--radius-sm); white-space: nowrap;
+  --_h: var(--hue-caution); color: light-dark(oklch(0.5 var(--chroma-vivid) var(--_h)), oklch(0.84 var(--chroma-vivid) var(--_h)));
+  background: light-dark(oklch(0.96 var(--chroma-soft) var(--_h)), oklch(0.3 var(--chroma-soft) var(--_h))); }
+/* P7 — View in Preview */
+.preview-btn { margin-left: auto; font: 11px/1 var(--mono); padding: 0.3rem 0.55rem; border-radius: var(--radius-sm); cursor: pointer;
+  border: 1px solid var(--border); background: var(--accent-soft); color: var(--accent); }
+.preview-btn:hover { border-color: var(--accent); }
+/* P2 — auto-accept header toggle (a quieter sibling of the Play switch) */
+.aa-toggle { font: 600 10px/1 var(--mono); letter-spacing: 0.03em; padding: 0.24rem 0.5rem; }
+.aa-toggle[hidden] { display: none; }
+.aa-toggle[data-on="1"] { --_h: var(--hue-positive); color: light-dark(oklch(0.45 var(--chroma-vivid) var(--_h)), oklch(0.85 var(--chroma-vivid) var(--_h)));
+  border-color: light-dark(oklch(0.82 var(--chroma-soft) var(--_h)), oklch(0.5 var(--chroma-soft) var(--_h)));
+  background: light-dark(oklch(0.95 var(--chroma-soft) var(--_h)), oklch(0.3 var(--chroma-soft) var(--_h))); }
+.aa-toggle[data-on="0"] { color: var(--faint); border: 1px solid var(--border); background: var(--surface); }
+/* P5 — the dry-run warning in the intake modal */
+.modal .modal-warn { margin: 0 0 0.5rem; font-size: 12px; line-height: 1.45; padding: 0.5rem 0.7rem; border-radius: var(--radius-sm);
+  --_h: var(--hue-caution); color: light-dark(oklch(0.42 var(--chroma-vivid) var(--_h)), oklch(0.86 var(--chroma-vivid) var(--_h)));
+  background: light-dark(oklch(0.96 var(--chroma-soft) var(--_h)), oklch(0.3 var(--chroma-trace) var(--_h))); border: 1px solid light-dark(oklch(0.85 var(--chroma-soft) var(--_h)), oklch(0.45 var(--chroma-soft) var(--_h))); }

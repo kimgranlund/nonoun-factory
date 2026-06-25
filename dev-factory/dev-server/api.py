@@ -138,6 +138,22 @@ def cancel_ticket(d, tid, actor, reason="cancelled by human"):
     return transition_ticket(d, tid, "cancelled", actor, reason=reason)
 
 
+def accept_reviewed(d, actor=None):
+    """The operator's ACCEPTANCE of in-review work: transition every `in-review` ticket → `done` through the
+    same gate-signal validation path a manual drag uses (the critic already minted the signal at the in-review
+    hand-off, so a clean Tier-1 ticket closes). The UI's per-card Accept button accepts ONE; this bulk-accepts the
+    lane, and the auto-accept posture calls it each tick so a project the operator has pre-authorized flows to done
+    WITHOUT faking the earned tier (acceptance is the human's sign-off, distinct from the unattended-validation tier).
+    Returns the list of accepted ticket ids."""
+    actor = actor or {"kind": "human", "id": "operator"}
+    accepted = []
+    for t in list_tickets(d, state="in-review"):
+        ok, _t, _m = transition_ticket(d, t["id"], "done", actor)
+        if ok:
+            accepted.append(t["id"])
+    return accepted
+
+
 # ─────────────────────────────────────── lattice + ledger (reads + seeding) ───────────────────────────────────────
 
 def seed_cell(d, layer, scope, slug, maturity="absent", asset_ref=None, depends_on=None,
@@ -491,7 +507,7 @@ def app_completeness(d, kit_dir=None):
     return {"bootable": True, "reason": None}
 
 
-def factory_state(d, heartbeat_enabled=False, paused=False, family=None, halted_reason=None):
+def factory_state(d, heartbeat_enabled=False, paused=False, family=None, halted_reason=None, auto_accept=False):
     """A single 'is the factory working, and what is it doing' headline — what the SSE 'live' dot does NOT
     answer (that only means the socket is connected). Derived from real state (running workers, the heartbeat
     posture, the ready queue) so the UI can say IDLE / RUNNING / ARMED / PAUSED / HALTED instead of leaving an
@@ -527,6 +543,7 @@ def factory_state(d, heartbeat_enabled=False, paused=False, family=None, halted_
             "ready_cells": [t.get("target_cell") for t in ready][:8],
             "bootable": comp["bootable"], "completeness": comp["reason"],
             "halted_reason": halted_reason if state == "halted" else None,
+            "auto_accept": bool(auto_accept),
             "heartbeat_enabled": bool(heartbeat_enabled), "paused": bool(paused)}
 
 

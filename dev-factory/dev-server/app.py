@@ -60,12 +60,21 @@ def _load_posture(d):
         return {}
 
 
+def _write_posture(d, **fields):
+    """MERGE fields into the per-instance posture + persist (server-only write). Merging (not overwrite) so the
+    pause/resume {heartbeat,tier} and the auto-accept toggle each update their own key without clobbering the other."""
+    p = _load_posture(d)
+    p.update(fields)
+    path = _posture_path(d)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    json.dump(p, open(path, "w"), indent=2)
+    return p
+
+
 def _save_posture(d, heartbeat, tier):
-    """Persist the autonomous posture (server-only write). Called by the pause/resume control routes and the project
-    switch — the operator's deliberate 'this project is/ isn't autonomous' act, made durable across navigation + restart."""
-    p = _posture_path(d)
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    json.dump({"heartbeat": bool(heartbeat), "tier": int(tier)}, open(p, "w"), indent=2)
+    """Persist the heartbeat posture (the operator's 'this project is/ isn't autonomous' act, durable across
+    navigation + restart). Preserves any auto_accept already set."""
+    return _write_posture(d, heartbeat=bool(heartbeat), tier=int(tier))
 
 
 def _current_tier(d=None):
@@ -331,7 +340,8 @@ def build_app():
         # nothing happens" was exactly this (the window's wall-clock deadline had passed, invisibly).
         import heartbeat as _hb
         halt = _hb.budget_exhausted(DIR)[1] if HEARTBEAT_ENABLED else None
-        return {**api.status(DIR), "factory": api.factory_state(DIR, HEARTBEAT_ENABLED, halted_reason=halt),
+        return {**api.status(DIR), "factory": api.factory_state(DIR, HEARTBEAT_ENABLED, halted_reason=halt,
+                                                                auto_accept=_load_posture(DIR).get("auto_accept", False)),
                 "milestones": api.milestones(DIR), "adapter": _dispatch.adapter_name(),
                 "run_budget": _run_budget()}
 
@@ -365,11 +375,18 @@ def build_app():
         DIR = target
         api.init_instance(DIR)
         _store.rebuild(DIR)
-        HEARTBEAT_ENABLED = bool(_load_posture(DIR).get("heartbeat", False))   # restore; never-armed → paused (safe default)
+        armed = bool(_load_posture(DIR).get("heartbeat", False))           # the project's persisted autonomous intent
+        live = (os.environ.get("DEV_FACTORY_ADAPTER") or "mock").lower() == "headless"
+        # Auto-resume a switched-to project's posture ONLY on a free DRY RUN (mock). On a LIVE BUILD (headless), a mere
+        # navigation must NOT silently resume token spend (council: the project switch was an unconfirmed-spend surprise,
+        # while ▶ Play has a confirm). So a switched-to armed HEADLESS project lands PAUSED — the operator re-arms it
+        # with the ▶ Play confirm. `resume_held` tells the UI to say so.
+        resume_held = armed and live
+        HEARTBEAT_ENABLED = armed and not live
         if HEARTBEAT_ENABLED:
             _arm_from_env(DIR)               # re-arm THIS instance's bounded window (spend bounded per-project)
         STREAM.publish("lattice", api.lattice_grid(DIR))
-        return {**_project_info(), "switched": True, "paused": not HEARTBEAT_ENABLED}
+        return {**_project_info(), "switched": True, "paused": not HEARTBEAT_ENABLED, "resume_held": resume_held}
 
     @app.get("/preview")
     @app.get("/preview/")
@@ -449,6 +466,30 @@ def build_app():
             _arm_from_env(DIR)                          # token/$): ▶ Play must recover a halted loop, not only a fresh one
         return {"paused": False}
 
+    @app.post("/api/control/auto-accept")
+    async def auto_accept(req: Request):
+        # The operator pre-authorizes acceptance: in-review work flows to done WITHOUT a per-card OK. This is the
+        # human's sign-off made standing — DISTINCT from the earned autonomy tier (which gates unattended VALIDATION,
+        # not acceptance). Persisted in posture; the loop accepts the lane each tick. Accept the current lane now so
+        # the toggle has an immediate effect.
+        b = await req.json()
+        on = bool(b.get("on"))
+        _write_posture(DIR, auto_accept=on)
+        accepted = api.accept_reviewed(DIR, SERVER_ACTOR) if on else []
+        STREAM.publish("lattice", api.lattice_grid(DIR))
+        return {"auto_accept": on, "accepted": accepted}
+
+    @app.post("/api/tickets/{tid}/accept")
+    def accept_one(tid: str):
+        # the per-card Accept button — the human acceptance gate for ONE in-review ticket (in-review → done via the
+        # same validation path a drag uses). Surfaced as a first-class action so "Needs your OK" has a one-click yes.
+        ok, t, msg = api.transition_ticket(DIR, tid, "done", {"kind": "human", "id": "operator"})
+        STREAM.publish("ticket", t)
+        STREAM.publish("lattice", api.lattice_grid(DIR))
+        if not ok:
+            return JSONResponse({"ok": False, "reason": msg, "ticket": t}, status_code=409)
+        return {"ok": True, "ticket": t}
+
     @app.get("/api/stream")
     def stream():
         q = STREAM.subscribe()
@@ -507,6 +548,12 @@ def _wire_heartbeat(app):
                     summ = await evloop.run_in_executor(
                         None, functools.partial(heartbeat.on_tick, DIR, tier=_dispatch_tier(),
                                                 max_concurrency=conc, strict_accept=strict))
+                    # auto-accept (operator opt-in): if pre-authorized, accept in-review work each tick so it flows
+                    # to done — the human's standing sign-off, NOT a faked tier (validation still happened via the critic).
+                    if _load_posture(DIR).get("auto_accept"):
+                        acc = await evloop.run_in_executor(None, functools.partial(api.accept_reviewed, DIR, SERVER_ACTOR))
+                        if acc:
+                            summ = {**(summ or {}), "auto_accepted": acc}
                     STREAM.publish("tick", {"summary": summ, "lattice": api.lattice_grid(DIR)})
                 await asyncio.sleep(period)
         asyncio.create_task(loop())
