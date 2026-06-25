@@ -33,7 +33,14 @@ def _load(name, path):
 REGEN = _load("app_regen", os.path.join(BIN, "app-regen.py"))
 DISTILL = _load("app_distill", os.path.join(BIN, "app-distill.py"))
 CONTEXT = _load("app_context", os.path.join(BIN, "app-context.py"))
+LOOP = _load("app_loop", os.path.join(BIN, "app-loop.py"))
+COMMIT = _load("app_commit", os.path.join(BIN, "app-commit.py"))
+GATEPROTECT = os.path.join(BIN, "gate-protect.py")
+HOOKS = os.path.join(ROOT, "app-factory", "hooks", "hooks.json")
 
+# a real bar WITH TEETH (fails against an empty build) — required by app-commit's calibration floor
+TEETH_BAR = ("import os, sys\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\nimport thing\n"
+             "sys.exit(0 if thing.ok else 1)\n")
 SPEC1 = ('---\nkind: spec\nname: cli\nmaturity: cultivated\n---\n# cli\n```json\n'
          '{"title":"x","cell":"spec.task.cli","acceptance_criteria":[{"id":"a1","check":"ok"}],'
          '"non_goals":["v1"],"decomposition":{"tickets":[{"id":"t1","target_cell":"capability.task.thing",'
@@ -45,14 +52,14 @@ def build(proj):
     state = os.path.join(proj, ".factory", "state")
     subprocess.run([PY, os.path.join(BIN, "app-new.py"), os.path.basename(proj), "--into", os.path.dirname(proj)], capture_output=True)
     os.makedirs(os.path.join(proj, "spec", "bars"), exist_ok=True)
-    open(os.path.join(proj, "spec", "bars", "t1.py"), "w").write("import sys; sys.exit(0)\n")
+    open(os.path.join(proj, "spec", "bars", "t1.py"), "w").write(TEETH_BAR)
     open(os.path.join(proj, "build", "thing.py"), "w").write("ok = True\n")
     open(os.path.join(proj, "spec", "cli.md"), "w").write(SPEC1)
     subprocess.run([PY, os.path.join(BIN, "app-commit.py"), proj, "spec/cli.md"], capture_output=True)
     subprocess.run([PY, os.path.join(KERNEL, "validate.py"), "ontology.task.domain", "--dir", state, "--harness", "x",
                     "--", PY, "-c", "import sys; sys.exit(0)"], capture_output=True)
     subprocess.run([PY, os.path.join(KERNEL, "validate.py"), "capability.task.thing", "--dir", state, "--harness", "x",
-                    "--", PY, os.path.join(proj, "spec", "bars", "t1.py")], capture_output=True)
+                    "--", PY, os.path.join(proj, "spec", "bars", "t1.py"), proj], capture_output=True)
     return state
 
 
@@ -79,6 +86,7 @@ def run_scenarios(tmp):
     sig = os.path.join(state, "signals", "capability.task.thing")
     ok("regen-signal-invalidated", not os.path.isdir(sig) or not os.listdir(sig))
     ok("regen-ledgered", any(e.get("operation") == "regenerate" for e in _led.read(state)))
+    ok("regen-removes-build", not os.path.isfile(os.path.join(proj, "build", "thing.py")))   # old code not re-trusted
 
     # ── distillation ──
     for cid in ("capability.task.aa", "capability.task.bb"):
@@ -86,13 +94,22 @@ def run_scenarios(tmp):
                             "rationale": f"sealed acceptance failed — FAIL {cid} not advanced", "ts": "t"})
     _led.append(state, {"operation": "validate", "actor": "v", "cell_id": "capability.task.cc", "result": "pass",
                         "rationale": "one-off pass", "ts": "t"})
-    written = DISTILL.distill(proj, min_occur=2)
+    written, _aged = DISTILL.distill(proj, min_occur=2)
     anti = [w for w in written if w.startswith("anti-pattern")]
     ok("distill-recurring", bool(anti))
     doc = open(os.path.join(proj, "knowledge", "patterns", anti[0] + ".md")).read() if anti else ""
     ok("distill-provenance", "capability.task.aa" in doc and "capability.task.bb" in doc)
     ok("distill-proposes-draft", "maturity: draft" in doc)
     ok("distill-one-off-skipped", not any(w.startswith("solution") for w in written))
+    # freshness: a pre-existing pattern from a superseded window is AGED to stale (the filter is live, not decorative)
+    os.makedirs(os.path.join(proj, "knowledge", "patterns"), exist_ok=True)
+    open(os.path.join(proj, "knowledge", "patterns", "superseded.md"), "w").write(
+        "---\nkind: knowledge\nname: superseded\nmaturity: draft\ndistilled_window: ledger[-1]@1\n---\n# old\n")
+    for i in range(8):
+        _led.append(state, {"operation": "validate", "actor": "v", "cell_id": "capability.task.zz",
+                            "result": "pass", "rationale": f"distinct run {i}", "ts": f"u{i}"})
+    _w2, aged2 = DISTILL.distill(proj, window=2, min_occur=2)
+    ok("distill-ages-superseded", "superseded" in aged2)
 
     # ── context assembly ──
     open(os.path.join(proj, "knowledge", "conventions.md"), "w").write("# conventions\n")
@@ -107,6 +124,36 @@ def run_scenarios(tmp):
     ok("context-no-bar", not any("bars/" in p or ".factory/acceptance" in p for p in paths))
     ok("context-includes-knowledge", "knowledge/conventions.md" in paths)
     ok("context-includes-pattern", "knowledge/patterns/fresh.md" in paths)
+
+    # ── keystone integrity (the harness-council's three Criticals, verified on the BUILT code) ──
+    # C1 — the deny gate is WIRED always-on in the plugin hooks.json (not merely that is_protected's logic works)
+    hk = json.load(open(HOOKS))
+    ok("keystone-gate-wired", "gate-protect.py" in json.dumps(hk.get("hooks", {}).get("PreToolUse", [])))
+    # C1 — the wired gate actually DENIES a forged write to the .factory verifier substrate (exit 2 via the hook)
+    deny_in = json.dumps({"tool_name": "Write", "tool_input": {
+        "file_path": os.path.join(proj, ".factory", "state", "signals", "x", "forged.json")}})
+    ok("keystone-gate-denies", subprocess.run([PY, GATEPROTECT, "--hook"], input=deny_in,
+                                              capture_output=True, text=True).returncode == 2)
+    # C1 — a legitimate worker write (build/) is ALLOWED (the gate doesn't break the real flow)
+    allow_in = json.dumps({"tool_name": "Write", "tool_input": {"file_path": os.path.join(proj, "build", "thing.py")}})
+    ok("keystone-build-allowed", subprocess.run([PY, GATEPROTECT, "--hook"], input=allow_in,
+                                                capture_output=True, text=True).returncode == 0)
+    # C2 — a tautology bar (passes against an empty build) is REJECTED at commit, not rubber-stamped `validated`
+    kp = os.path.join(tmp, "kteeth")
+    subprocess.run([PY, os.path.join(BIN, "app-new.py"), "kteeth", "--into", tmp], capture_output=True)
+    os.makedirs(os.path.join(kp, "spec", "bars"), exist_ok=True)
+    open(os.path.join(kp, "spec", "bars", "t1.py"), "w").write("import sys; sys.exit(0)\n")   # tautology
+    open(os.path.join(kp, "spec", "cli.md"), "w").write(SPEC1)
+    rct, msgt = COMMIT.crystallize(kp, "spec/cli.md")
+    ok("keystone-bar-teeth", rct == 1 and "TEETH" in msgt.upper())
+    # C3a — editing a committed spec then running the LOOP (NOT /app-regenerate) cascades the ticket stale
+    lp = os.path.join(tmp, "kstale")
+    lstate = build(lp)
+    assert cap(lstate)["maturity"] == "validated", "keystone precondition"
+    open(os.path.join(lp, "spec", "cli.md"), "w").write(SPEC2)        # edit the committed spec out of band
+    LOOP.recompute_staleness(lstate, lp)                             # exactly what /app-loop does FIRST
+    ok("loop-recomputes-staleness", cap(lstate)["maturity"] == "stale")
+    ok("loop-stale-not-dispatchable", not LOOP.dispatchable(_lat.load(lstate), lp))
     return R
 
 

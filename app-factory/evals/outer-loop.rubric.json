@@ -1,14 +1,20 @@
 {
   "name": "outer-loop",
-  "title": "app-factory outer loop — regeneration · distillation · context assembly",
-  "intent": "The factory must stay CORRECT over time (a spec change can never leave validated work trusted) and COMPOUND (precedent is captured and feeds later builds, freshly). Verified by an integrated build → validate → distill → regenerate → assemble scenario.",
+  "title": "app-factory outer loop + keystone integrity — regeneration · distillation · context · enforcement · calibration",
+  "intent": "The factory must stay CORRECT over time (a spec change can never leave validated work trusted — under regeneration AND under the plain loop), COMPOUND (precedent is captured, feeds later builds, and ages out when superseded), and hold its KEYSTONE on the built code (the deny gate is wired and denies; a hollow bar is rejected, not rubber-stamped). Verified by an integrated build → validate → distill → regenerate → assemble scenario plus an adversarial keystone-integrity pass that treats passing selftests as claims to verify.",
   "pass_threshold": 1.0,
   "dimensions": [
     {
       "id": "regeneration-correctness",
       "weight": 1,
-      "description": "Editing a committed spec re-opens its previously-validated tickets (never stays trusted), stamps the new spec hash, invalidates the old signal, and ledgers the regeneration — the stale-but-trusted Critical, closed.",
-      "gated_by": ["regen-reopens", "regen-new-hash", "regen-signal-invalidated", "regen-ledgered"]
+      "description": "Editing a committed spec re-opens its previously-validated tickets (never stays trusted), stamps the new spec hash, invalidates the old signal, REMOVES the stale build artifact (old code can't be re-trusted against the new bar), and ledgers the regeneration.",
+      "gated_by": ["regen-reopens", "regen-new-hash", "regen-signal-invalidated", "regen-removes-build", "regen-ledgered"]
+    },
+    {
+      "id": "loop-staleness-recompute",
+      "weight": 1,
+      "description": "The PLAIN loop closes the hole too: editing a committed spec and running /app-loop (without /app-regenerate) recomputes staleness and cascades the ticket stale, so it is neither trusted nor dispatchable — you don't have to remember to regenerate to AVOID trusting stale work.",
+      "gated_by": ["loop-recomputes-staleness", "loop-stale-not-dispatchable"]
     },
     {
       "id": "distillation-provenance",
@@ -25,8 +31,8 @@
     {
       "id": "context-freshness",
       "weight": 1,
-      "description": "A pattern marked stale (superseded) is EXCLUDED from assembly — frozen knowledge can't leak into a build.",
-      "gated_by": ["context-excludes-stale"]
+      "description": "A pattern marked stale (superseded) is EXCLUDED from assembly, and distillation actually AGES a superseded pattern to stale — the freshness filter is live, not decorative.",
+      "gated_by": ["context-excludes-stale", "distill-ages-superseded"]
     },
     {
       "id": "predicate-honesty",
@@ -39,6 +45,18 @@
       "weight": 1,
       "description": "The 'better specs/knowledge → cheaper build' leverage is mechanical: the worker's context is sourced from the corpus (spec + knowledge + patterns), so a richer corpus deterministically enriches the build.",
       "gated_by": ["context-includes-knowledge", "context-includes-pattern"]
+    },
+    {
+      "id": "keystone-enforcement",
+      "weight": 1,
+      "description": "The deny gate is WIRED always-on in the plugin hooks.json (not just that its logic works), it DENIES a forged write to the .factory verifier substrate (exit 2 via the hook protocol), and it ALLOWS a legitimate worker write to build/ — the keystone holds on the built code, not in prose.",
+      "gated_by": ["keystone-gate-wired", "keystone-gate-denies", "keystone-build-allowed"]
+    },
+    {
+      "id": "verifier-calibration",
+      "weight": 1,
+      "description": "A tautology bar (one that passes against an empty build) is REJECTED at commit by the calibration floor — a hollow bar is never minted `validated`, so the loop can't optimize against a presence-check.",
+      "gated_by": ["keystone-bar-teeth"]
     }
   ]
 }

@@ -96,8 +96,9 @@ def selftest():
         state = os.path.join(proj, ".factory", "state")
         # author a spec + its bar source + a build artifact, commit, validate (ticket → validated)
         os.makedirs(os.path.join(proj, "spec", "bars"), exist_ok=True)
-        with open(os.path.join(proj, "spec", "bars", "t1.py"), "w") as f:
-            f.write("import sys; sys.exit(0)\n")
+        with open(os.path.join(proj, "spec", "bars", "t1.py"), "w") as f:   # real bar w/ teeth (fails w/o a build)
+            f.write("import os, sys\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\nimport thing\n"
+                    "sys.exit(0 if thing.ok else 1)\n")
         with open(os.path.join(proj, "build", "thing.py"), "w") as f:
             f.write("ok = True\n")
         with open(os.path.join(proj, "spec", "cli.md"), "w") as f:
@@ -109,7 +110,8 @@ def selftest():
         subprocess.run([sys.executable, os.path.join(KERNEL, "validate.py"), "ontology.task.domain", "--dir", state,
                         "--harness", "x", "--", sys.executable, "-c", "import sys; sys.exit(0)"], capture_output=True)
         subprocess.run([sys.executable, os.path.join(KERNEL, "validate.py"), "capability.task.thing", "--dir", state,
-                        "--harness", "x", "--", sys.executable, os.path.join(proj, "spec", "bars", "t1.py")], capture_output=True)
+                        "--harness", "x", "--", sys.executable, os.path.join(proj, "spec", "bars", "t1.py"), proj],
+                       capture_output=True)
         cell = next(c for c in json.load(open(os.path.join(state, "lattice.json")))["cells"]
                     if c.get("slug") == "thing" and c["layer"] == "capability")
         expect(cell["maturity"] == "validated", f"precondition: ticket should be validated before reset (got {cell['maturity']})")

@@ -112,7 +112,9 @@ def selftest():
         state = os.path.join(proj, ".factory", "state")
         os.makedirs(os.path.join(proj, "spec", "bars"), exist_ok=True)
         os.makedirs(os.path.join(proj, "knowledge", "patterns"), exist_ok=True)
-        open(os.path.join(proj, "spec", "bars", "t1.py"), "w").write("import sys; sys.exit(0)\n")
+        open(os.path.join(proj, "spec", "bars", "t1.py"), "w").write(   # real bar with teeth (fails w/o a build)
+            "import os, sys\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\nimport thing\n"
+            "sys.exit(0 if thing.ok else 1)\n")
         open(os.path.join(proj, "spec", "cli.md"), "w").write(
             '---\nkind: spec\nname: cli\nmaturity: cultivated\n---\n# cli\n```json\n'
             '{"title":"x","cell":"spec.task.cli","acceptance_criteria":[{"id":"a1","check":"ok"}],'

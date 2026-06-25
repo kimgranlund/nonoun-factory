@@ -10,9 +10,11 @@ crystallizer:
   2. mints the spec cell to `validated` through the REAL signal path — `validate.py` with the gate as the
      verifier — so the spec's own doneness is an independent signal, not an assertion
   3. decomposes the contract into, per ticket: a draft ticket file, a `capability` cell (depends_on the
-     spec, verifier = a per-ticket rubric), a `rubric` cell minted `validated` by a certification signal
-     (standing for the entailment-critic's fidelity certification + the human seal), and the spec→ticket
-     edge stamped with the spec's content hash (so a later spec regeneration cascades staleness)
+     spec, verifier = a per-ticket rubric), a `rubric` cell minted `validated` by a certification signal —
+     gated DETERMINISTICALLY by a bar-teeth check (the sealed bar must FAIL against an empty build, so a
+     tautology / presence-check bar is rejected, not rubber-stamped), and HONEST that the full entailment-
+     to-prose fidelity is certified by the live entailment-critic + human seal, not by this script — and
+     the spec→ticket edge stamped with the spec's content hash (so a later regeneration cascades staleness)
   4. appends a `crystallize` ledger event
 
 The capability cells land READY (deps + verifier validated), so `lattice.py rank` / `goal.py next`
@@ -29,6 +31,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 KERNEL = os.path.join(os.path.dirname(HERE), "kernel")
@@ -57,6 +60,22 @@ def _hash(path):
 def _scope_slug(cell_id):
     parts = cell_id.split(".")
     return (parts[1], parts[2]) if len(parts) == 3 else ("task", parts[-1])
+
+
+def bar_has_teeth(sealed_abs):
+    """A sealed bar must FAIL when run against an EMPTY build — a bar that passes with no implementation
+    present is a tautology / presence-check, not acceptance (the council's "`exit 0` sails through" hole).
+    Run the bar exactly as the loop will (`python3 <bar> <project-root>`) against a throwaway root whose
+    `build/` is empty; the bar has teeth iff it does NOT exit 0. A bar that errors out (can't even run)
+    is not a no-op, so it counts as having teeth. This is the DETERMINISTIC floor — it proves the bar
+    tests something, not that it faithfully entails the spec (that is the entailment-critic's live job)."""
+    with tempfile.TemporaryDirectory() as empty:
+        os.makedirs(os.path.join(empty, "build"), exist_ok=True)
+        try:
+            r = subprocess.run([sys.executable, sealed_abs, empty], capture_output=True, text=True, timeout=30)
+        except Exception:
+            return True
+        return r.returncode != 0
 
 
 def crystallize(project, spec_rel):
@@ -110,14 +129,28 @@ def crystallize(project, spec_rel):
         os.makedirs(os.path.dirname(sealed_abs), exist_ok=True)
         shutil.copyfile(os.path.join(project, bar_src), sealed_abs)
 
-        # the rubric cell IS the sealed bar — minted `validated` by a certification signal
-        # (standing for the entailment-critic's fidelity certification + the human seal)
+        # CALIBRATION FLOOR (deterministic): the sealed bar must have TEETH — fail against an empty build.
+        # A tautology bar (`exit 0`, a presence-check) that passes with no implementation is REJECTED here,
+        # so a hollow bar can never be minted `validated`. This is the mechanical half; the FULL fidelity
+        # certification (does the bar entail the spec prose?) is the entailment-critic + human seal in a
+        # live /app-spec commit — this deterministic crystallize does NOT stand in for that judgement.
+        if not bar_has_teeth(sealed_abs):
+            return 1, (f"ticket {tid}: sealed bar {sealed_rel} has NO TEETH — it PASSES against an empty build, "
+                       f"so it does not test the implementation (a tautology / presence-check, not acceptance). "
+                       f"Author a bar that fails when the build is absent, then commit.")
+
+        # the rubric cell IS the sealed bar — minted `validated` by a certification signal that records
+        # exactly what was verified deterministically (sealed + teeth), and is HONEST that the entailment-
+        # to-prose fidelity is certified by the live entailment-critic + human seal, not by this script.
         ts = datetime.datetime.now().astimezone().isoformat(timespec="seconds").replace(":", "-")
         sigrel = os.path.join("signals", rubric_cell, f"{ts}--cert.json")
         sigabs = os.path.join(state, sigrel)
         os.makedirs(os.path.dirname(sigabs), exist_ok=True)
         json.dump({"cell_id": rubric_cell, "ts": ts, "harness": "entailment-cert", "kind": "gate",
-                   "result": "pass", "evidence": f"acceptance {sealed_rel} certified faithful to {spec_cell} and sealed",
+                   "result": "pass",
+                   "evidence": (f"acceptance {sealed_rel} sealed + teeth-checked (fails against an empty build, so "
+                                f"it tests the implementation, not mere presence); entailment-to-prose fidelity vs "
+                                f"{spec_cell} is certified by the entailment-critic + human seal in a live commit"),
                    "validated_against": {spec_cell: spec_hash}}, open(sigabs, "w"), indent=2)
         if _lat.find(lat, rubric_cell) is None:
             lat["cells"].append({"layer": "rubric", "scope": t_scope, "slug": t_slug, "maturity": "validated",
@@ -180,15 +213,17 @@ def selftest():
                        capture_output=True, text=True)
         proj = os.path.join(tmp, "demo")
         os.makedirs(os.path.join(proj, "spec", "bars"), exist_ok=True)
-        for n in ("t1.sh", "t2.sh"):
+        # real bars WITH TEETH: each imports its build module, so it fails against an empty build
+        for n, mod in (("t1.py", "storage"), ("t2.py", "search")):
             with open(os.path.join(proj, "spec", "bars", n), "w") as f:   # the WRITABLE bar source
-                f.write("#!/bin/sh\nexit 0\n")
+                f.write("import os, sys\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\n"
+                        f"import {mod}\nsys.exit(0)\n")
         with open(os.path.join(proj, "spec", "cli.md"), "w") as f:
-            f.write(GATE.GOOD.replace("acceptance/t1.sh", "spec/bars/t1.sh")
-                    .replace("acceptance/t2.sh", "spec/bars/t2.sh"))
+            f.write(GATE.GOOD.replace("acceptance/t1.sh", "spec/bars/t1.py")
+                    .replace("acceptance/t2.sh", "spec/bars/t2.py"))
         rc, msg = crystallize(proj, "spec/cli.md")
         expect(rc == 0, f"crystallize failed: {msg}")
-        expect(os.path.isfile(os.path.join(proj, ".factory", "acceptance", "t1.sh")),
+        expect(os.path.isfile(os.path.join(proj, ".factory", "acceptance", "t1.py")),
                "bar was not sealed by copy into .factory/acceptance/")
         state = os.path.join(proj, ".factory", "state")
         lat = _lat.load(state)
@@ -205,13 +240,23 @@ def selftest():
             f.write("---\nkind: spec\nname: bad\nmaturity: cultivated\n---\nno contract here\n")
         rc2, _ = crystallize(proj, "spec/bad.md")
         expect(rc2 == 1, "a gate-failing spec must be rejected")
+        # a TAUTOLOGY bar (passes against an empty build) is REJECTED by the teeth gate
+        open(os.path.join(proj, "spec", "bars", "bad.py"), "w").write("import sys; sys.exit(0)\n")
+        with open(os.path.join(proj, "spec", "toothless.md"), "w") as f:
+            f.write(GATE.GOOD.replace("acceptance/t1.sh", "spec/bars/bad.py")
+                    .replace("acceptance/t2.sh", "spec/bars/bad.py")
+                    .replace("spec.task.cli", "spec.task.toothless"))
+        rc3, msg3 = crystallize(proj, "spec/toothless.md")
+        expect(rc3 == 1 and "TEETH" in msg3.upper(),
+               f"a tautology bar (exit 0) must be rejected by the teeth gate (got rc={rc3}: {msg3})")
     if fails:
         sys.stderr.write("app-commit selftest: FAIL\n")
         for f in fails:
             sys.stderr.write(f"  - {f}\n")
         return 1
     print("app-commit selftest: OK (gate → spec cell validated via the real signal path → draft tickets + ready "
-          "capability/rubric cells + stamped spec→ticket edges; the lattice passes check; a gate-failing spec is rejected)")
+          "capability/rubric cells + stamped spec→ticket edges; the lattice passes check; a gate-failing spec is "
+          "rejected; a tautology bar with no teeth is rejected by the calibration floor)")
     return 0
 
 

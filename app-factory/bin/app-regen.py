@@ -86,8 +86,12 @@ def regenerate(project, spec_rel):
                             "rationale": f"spec edited after validation; cascade flipped {len(flipped)} cell(s) stale",
                             "ts": datetime.datetime.now().astimezone().isoformat(timespec="seconds")})
 
-    # 3. RE-CRYSTALLIZE: drop the spec-derived cells + their signals + ticket files, then re-commit fresh.
+    # 3. RE-CRYSTALLIZE: drop the spec-derived cells + their signals + ticket files + the now-suspect BUILD
+    #    artifacts, then re-commit fresh. Removing `build/<slug>.py` is the council's fix: the old code was
+    #    written against the OLD spec, so leaving it would let a re-validate pass outdated code against the
+    #    NEW bar and silently re-trust it. The ticket re-opens needing a genuine rebuild against the new spec.
     derived = {spec_cell}
+    removed_builds = []
     for t in (contract.get("decomposition") or {}).get("tickets", []):
         target = t["target_cell"]
         ts_, sl = _scope_slug(target)
@@ -95,6 +99,10 @@ def regenerate(project, spec_rel):
         tf = os.path.join(project, "tickets", f"{t['id']}.md")
         if os.path.isfile(tf):
             os.remove(tf)
+        ba = os.path.join(project, "build", f"{sl}.py")
+        if os.path.isfile(ba):
+            os.remove(ba)
+            removed_builds.append(f"build/{sl}.py")
     lat = _lat.load(state)
     lat["cells"] = [c for c in lat["cells"] if _lat.cid(c) not in derived]
     _lat.save(state, lat)
@@ -107,8 +115,9 @@ def regenerate(project, spec_rel):
         return 1, f"re-crystallize failed: {(r.stdout or r.stderr).strip()}", flipped
 
     reopened = [t["target_cell"] for t in (contract.get("decomposition") or {}).get("tickets", [])]
-    return 0, (f"regenerated {spec_rel}: cascaded {len(flipped)} cell(s) stale, re-crystallized → "
-               f"{len(reopened)} ticket(s) re-opened as `defined` against the new spec hash"), reopened
+    return 0, (f"regenerated {spec_rel}: cascaded {len(flipped)} cell(s) stale, removed {len(removed_builds)} "
+               f"stale build artifact(s), re-crystallized → {len(reopened)} ticket(s) re-opened as `defined` "
+               f"against the new spec hash (rebuild against the new spec — old code was not re-trusted)"), reopened
 
 
 def main(argv):
@@ -141,14 +150,18 @@ def selftest():
         proj = os.path.join(tmp, "demo")
         state = os.path.join(proj, ".factory", "state")
         os.makedirs(os.path.join(proj, "spec", "bars"), exist_ok=True)
-        open(os.path.join(proj, "spec", "bars", "t1.py"), "w").write("import sys; sys.exit(0)\n")
+        # a real bar WITH TEETH (fails against an empty build) — required by app-commit's calibration floor
+        open(os.path.join(proj, "spec", "bars", "t1.py"), "w").write(
+            "import os, sys\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\nimport thing\n"
+            "sys.exit(0 if thing.ok else 1)\n")
         open(os.path.join(proj, "build", "thing.py"), "w").write("ok = True\n")
         open(os.path.join(proj, "spec", "cli.md"), "w").write(SPEC1)
         subprocess.run([sys.executable, os.path.join(HERE, "app-commit.py"), proj, "spec/cli.md"], capture_output=True)
         subprocess.run([sys.executable, os.path.join(KERNEL, "validate.py"), "ontology.task.domain", "--dir", state,
                         "--harness", "x", "--", sys.executable, "-c", "import sys; sys.exit(0)"], capture_output=True)
         subprocess.run([sys.executable, os.path.join(KERNEL, "validate.py"), "capability.task.thing", "--dir", state,
-                        "--harness", "x", "--", sys.executable, os.path.join(proj, "spec", "bars", "t1.py")], capture_output=True)
+                        "--harness", "x", "--", sys.executable, os.path.join(proj, "spec", "bars", "t1.py"), proj],
+                       capture_output=True)
         cap = lambda: next(c for c in _lat.load(state)["cells"] if c["layer"] == "capability" and c["slug"] == "thing")
         old_hash = cap().get("validated_against", {}).get("spec.task.cli")
         expect(cap()["maturity"] == "validated", "precondition: ticket should be validated before regen")
@@ -161,6 +174,8 @@ def selftest():
         expect(c.get("validated_against", {}).get("spec.task.cli") != old_hash, "the spec→ticket edge must carry the NEW spec hash")
         sig = os.path.join(state, "signals", "capability.task.thing")
         expect(not os.path.isdir(sig) or not os.listdir(sig), "the old signal must be invalidated")
+        expect(not os.path.isfile(os.path.join(proj, "build", "thing.py")),
+               "the stale build artifact must be removed on regen (old code can't be re-trusted against the new bar)")
         evs = _led.read(state)
         expect(any(e.get("operation") == "regenerate" for e in evs), "the regeneration must be ledgered")
     if fails:

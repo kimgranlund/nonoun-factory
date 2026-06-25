@@ -2,6 +2,18 @@
 
 All notable changes to **app-factory** are documented here.
 
+## [0.10.0] — 2026-06-25
+
+Keystone integrity, verified on the BUILT code. A harness-council red-team of v0.9.0 found the keystone was **claimed but not wired** — passing selftests and 1.00 evals had masked it because they tested the gate's *logic* and used *stub bars*. This closes all three Criticals, and the eval now tests wiring, not logic.
+
+### Fixed
+- **The deny gate is now actually WIRED (C1 — reward-hacking Critical).** The red-team found `gate-protect` was bundled by nothing — `hooks.json` excluded it and `kernel/wire.py` never installed it (and would have guarded `.agents/harness`, not the live `.factory/state`) — so a worker had an unobstructed Write/Edit path to forge a pass signal, launder the ledger to manufacture an autonomy tier, and edit the bar it is graded against. It is now an **always-on `PreToolUse(Write|Edit)` deny** in the plugin `hooks.json`, in force in every session: a worker is mechanically deny-on-write to the whole `.factory/` verifier substrate, while `build/`, specs, and the writable bar source stay untouched.
+- **A hollow bar is rejected, not rubber-stamped (C2 — verifier-integrity Critical).** Crystallization minted every rubric `validated` from an `entailment-cert` signal written *unconditionally* — a tautology `exit 0` bar sailed through, and the evals' own fixtures used stub bars. `app-commit.py` now applies a **calibration floor**: the sealed bar must FAIL against an empty build (it must test the implementation, not mere presence), or the commit is rejected. The cert signal is now HONEST that the full entailment-to-prose fidelity is the live `entailment-critic` + human seal, not a deterministic stamp.
+- **The plain loop closes stale-but-trusted too (C3 — staleness Critical).** Regeneration fired only on a manual `/app-regenerate`; editing a committed spec and running `/app-loop` left the old validated tickets trusted. `app-loop.py` now **recomputes staleness first** (the kernel's `propagate_staleness` graph walk): an edited committed spec cascades its tickets `stale`, so they are neither trusted nor dispatchable — you no longer have to remember to regenerate to AVOID trusting stale work. `app-regen.py` now **removes the stale build artifact** (old code can't be re-validated and re-trusted against the new bar), and `app-distill.py` now **ages superseded patterns to `stale`** so app-context's freshness filter is live, not decorative.
+
+### Added
+- **The internal eval flow now tests WIRING, not logic, and rejects stub bars.** `evals/outer-loop.rubric.json` gains `keystone-enforcement` (the gate is wired in `hooks.json` + denies a forged `.factory` write via the hook protocol + allows a `build/` write), `verifier-calibration` (a tautology bar is rejected at commit), and `loop-staleness-recompute` (an edited spec cascades stale under the plain loop). Plus `regen-removes-build` and `distill-ages-superseded`. **22/22 scenarios, score 1.00**, green from a clean checkout. The selftests' tautology fixtures were replaced with real teeth-bearing bars.
+
 ## [0.9.0] — 2026-06-25
 
 The outer loop — the factory stays correct over time and compounds.

@@ -9,16 +9,22 @@ decisions never live in the model:
   app-loop.py arm    --dir D [--max-iterations N --max-cells M --wall-clock-s S] [--request-tier T]
   app-loop.py next   --dir D                 # the top ready DISPATCHABLE ticket, or "STOP: <reason>" (exit 3)
   app-loop.py advance --dir D --project P --cell C   # headless: run the sealed bar via validate.py (worker output assumed)
+  app-loop.py stale-check --dir D --project P   # cascade staleness for any committed spec edited since validation
   app-loop.py check  --dir D [--no-progress-n N]      # block stuck cells; "CONTINUE" or "STOP: <reason>" (exit 3)
   app-loop.py stop   --dir D                 # end the run + report
   app-loop.py run    --dir D --project P [caps] [--no-progress-n N]   # headless: drive the whole loop to a stop
   app-loop.py selftest
+
+`run`/`next` recompute staleness FIRST (the kernel's `propagate_staleness` graph walk): a committed spec
+edited after its tickets validated cascades them `stale`, so the plain loop never trusts work against an
+outdated definition without a separate `/app-regenerate` — regenerate is how you re-open + rebuild.
 
 A "dispatchable ticket" is a READY `capability` cell whose verifier rubric is `validated` and carries a
 sealed acceptance (`asset_ref`) — exactly what crystallization produces, so the loop ignores non-ticket
 cells. Doneness is the validated signal, never the worker's claim; autonomy above attended is gated by the
 earned trust tier. Stdlib, Python 3.8+.
 """
+import hashlib
 import os
 import subprocess
 import sys
@@ -36,6 +42,49 @@ def _k(script, *args):
 
 def _flag(argv, name, default=None):
     return argv[argv.index(name) + 1] if name in argv and argv.index(name) + 1 < len(argv) else default
+
+
+def _hash(path):
+    try:
+        return "sha256:" + hashlib.sha256(open(path, "rb").read()).hexdigest()[:16]
+    except OSError:
+        return ""
+
+
+def recompute_staleness(state, project):
+    """Before dispatching, detect committed specs EDITED since their tickets validated and cascade staleness,
+    using the kernel's own `propagate_staleness` graph walk. This closes the council's hole: the plain
+    `/app-loop` can no longer trust work validated against an outdated definition — you do NOT have to remember
+    to run `/app-regenerate` to AVOID trusting stale work (regenerate is how you RE-OPEN + rebuild). A spec
+    whose current content hash no longer matches what a dependent was `validated_against` flips that dependent
+    (and its verifier) `stale`, so `dispatchable` stops surfacing it and `stop` stops counting it validated.
+    Returns the cells flipped stale."""
+    if project is None:
+        return []
+    lat = _lat.load(state)
+    flipped, changed = [], False
+    for c in list(lat["cells"]):
+        if c.get("layer") != "spec" or not c.get("asset_ref"):
+            continue
+        cur = _hash(os.path.join(project, c["asset_ref"]))
+        if not cur:
+            continue
+        cid = _lat.cid(c)
+        edited = any(dep.get("validated_against", {}).get(cid) not in (None, cur) for dep in lat["cells"])
+        if not edited:
+            continue
+        if c.get("maturity") in _lat.SETTLED:
+            c["maturity"] = "stale"
+            flipped.append(cid)
+        flipped += _lat.propagate_staleness(lat, cid, cur)
+        changed = True
+    if changed:
+        _lat.save(state, lat)
+        _led.append(state, {"operation": "regenerate", "actor": "app-loop", "cell_id": "frontier", "result": "stale",
+                            "rationale": (f"spec edit detected at loop time — cascaded {len(set(flipped))} cell(s) "
+                                          f"stale; run /app-regenerate to rebuild against the new spec"),
+                            "cost": {"iterations": 1}})
+    return flipped
 
 
 def dispatchable(lat, project=None):
@@ -125,6 +174,10 @@ def run(state, project, caps, n=3):
     out = [f"armed: {msg}"]
     if rc != 0:
         return rc, "\n".join(out)
+    stale = recompute_staleness(state, project)
+    if stale:
+        out.append(f"· staleness recompute → cascaded {len(set(stale))} cell(s) stale "
+                   f"(a committed spec was edited; /app-regenerate to rebuild against it)")
     max_cells = int(_flag(caps, "--max-cells", "0")) or None
     advanced = 0
     while True:
@@ -168,7 +221,9 @@ def main(argv):
         rt = _flag(argv, "--request-tier")
         rc, msg = arm(state, cap_args, int(rt) if rt is not None else None)
     elif op == "next":
-        d = dispatchable(_lat.load(state), project or os.path.dirname(os.path.dirname(state.rstrip("/"))))
+        proj = project or os.path.dirname(os.path.dirname(state.rstrip("/")))
+        recompute_staleness(state, proj)   # never surface a ticket validated against an edited spec
+        d = dispatchable(_lat.load(state), proj)
         if not d:
             print("STOP: frontier empty (nothing to validate — built tickets only)")
             return 3
@@ -176,6 +231,12 @@ def main(argv):
         return 0
     elif op == "advance":
         rc, msg = advance(state, project, _flag(argv, "--cell"))
+    elif op == "stale-check":
+        proj = project or os.path.dirname(os.path.dirname(state.rstrip("/")))
+        flipped = recompute_staleness(state, proj)
+        rc, msg = 0, (f"recomputed staleness — cascaded {len(set(flipped))} cell(s) stale: "
+                      f"{', '.join(sorted(set(flipped)))}; run /app-regenerate to rebuild" if flipped
+                      else "recomputed staleness — every committed spec is current; nothing stale")
     elif op == "check":
         rc, msg = check(state, n)
     elif op == "stop":
@@ -236,13 +297,36 @@ def selftest():
                f"a repeatedly-failing ticket must be blocked:\n{msg}")
         expect("blocked:           1" in msg, f"report should show 1 blocked:\n{msg}")
         expect(msg.count("· advance") == 3, f"no-progress should block after exactly 3 fails:\n{msg}")
+    # staleness recompute: an edited committed spec cascades its validated ticket stale AT LOOP TIME
+    with tempfile.TemporaryDirectory() as root:
+        state = os.path.join(root, ".factory", "state")
+        os.makedirs(os.path.join(state, "ledger"))
+        proj = os.path.dirname(os.path.dirname(state))
+        with open(os.path.join(proj, "spec.md"), "w") as f:
+            f.write("CURRENT-CONTENT\n")
+        lat = {"version": "1", "project": "t", "frontier_scope": "task", "produced_by": "app-factory", "cells": [
+            {"layer": "spec", "scope": "task", "slug": "s", "maturity": "validated", "depends_on": [],
+             "asset_ref": "spec.md", "signal_refs": ["x"]},
+            {"layer": "rubric", "scope": "task", "slug": "a", "maturity": "validated", "depends_on": ["spec.task.s"],
+             "asset_ref": "acc.py", "signal_refs": ["x"], "validated_against": {"spec.task.s": "sha256:staleoldhash"}},
+            {"layer": "capability", "scope": "task", "slug": "a", "maturity": "validated", "depends_on": ["spec.task.s"],
+             "verifier": "rubric.task.a", "asset_ref": "build/a.py", "validated_against": {"spec.task.s": "sha256:staleoldhash"}},
+        ]}
+        _lat.save(state, lat)
+        flipped = recompute_staleness(state, proj)
+        expect("spec.task.s" in flipped, f"an edited committed spec must cascade stale at loop time: {flipped}")
+        cap2 = _lat.find(_lat.load(state), "capability.task.a")
+        expect(cap2["maturity"] == "stale",
+               f"the ticket validated against the OLD spec hash must go stale, not stay trusted (got {cap2['maturity']})")
+        expect(not dispatchable(_lat.load(state), proj), "a stale ticket must NOT be dispatchable (its verifier is stale)")
     if fails:
         sys.stderr.write("app-loop selftest: FAIL\n")
         for f in fails:
             sys.stderr.write(f"  - {f}\n")
         return 1
     print("app-loop selftest: OK (drives a ready ticket to validated then stops frontier-empty; a repeatedly-"
-          "failing ticket is blocked after the no-progress threshold and the loop halts — bounded, not infinite)")
+          "failing ticket is blocked after the no-progress threshold and the loop halts — bounded, not infinite; "
+          "an edited committed spec cascades its ticket stale at loop time, so stale work is never trusted)")
     return 0
 
 

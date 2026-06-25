@@ -28,10 +28,16 @@ Installable plugin; vendored spine selftests green; `/app-new` scaffolds a corpu
 ## 0.9.0 (done) — the outer loop (correctness + compounding)
 - **Regeneration** (`bin/app-regen.py`): a spec edit cascades staleness to its validated tickets, invalidates their signals, and re-opens them against the new hash — the stale-but-trusted Critical, closed. **Distillation** (`bin/app-distill.py`): ledger windows → pattern drafts with provenance. **Context assembly** (`bin/app-context.py`): deterministic build context from spec + knowledge + non-stale patterns (excludes stale + the sealed bar). Agents `app-distiller` + `spec-regenerator`; commands `/app-regenerate` · `/app-distill` · `/app-context`. Eval flow `evals/outer-loop.rubric.json` + `evals/run-outerloop-evals.py` — 14/14, score 1.00.
 
+## 0.10.0 (done) — keystone integrity, verified on the BUILT code
+- **Re-ran the harness-council on the built v0.9.0** (the reward-hacking · verifier-integrity · staleness critics, on the code, not the specs). It found the keystone was **claimed but not wired** — three Criticals — which v0.9.0's passing selftests/evals had masked. All three are now closed:
+- **C1 — the deny gate is wired.** `gate-protect` is an always-on `PreToolUse(Write|Edit)` deny in `hooks.json`; a worker is mechanically deny-on-write to the whole `.factory/` substrate (it had been bundled by nothing).
+- **C2 — a hollow bar is rejected.** `app-commit.py` has a calibration floor: a sealed bar must FAIL against an empty build or the commit is rejected (no more `exit 0` rubber-stamp); the cert is honest that full entailment is the live critic's job.
+- **C3 — the plain loop closes stale-but-trusted.** `app-loop.py` recomputes staleness first (edited spec → tickets cascade `stale`, un-dispatchable); `app-regen.py` removes the stale build artifact; `app-distill.py` ages superseded patterns to `stale`.
+- The eval now tests WIRING (gate wired + denies), CALIBRATION (tautology bar rejected), and the loop's staleness recompute — `evals/run-outerloop-evals.py` **22/22, 1.00**.
+
 ## Next (M2 remainder)
-- **Calibrate the verifiers** — vendor/adapt dev-kernel's `evals/calibration` so the entailment-critic's fidelity check and the rubrics are calibrated, not asserted.
+- **Calibrate the verifiers further** — vendor/adapt dev-kernel's `evals/calibration` so the entailment-critic's fidelity check and the rubrics are calibrated (the bar-teeth floor is the deterministic half; agreement-calibration is the rest).
 - **Vendor the full dev-kernel authoring rigor** (spec-author discipline, the spec-council lens critics, `gate-ticket-ready`) behind the live deriver/critic/refuter agents.
-- **Re-run the harness-council on the BUILT system** to confirm the keystone holds in code.
 
 ## Later
 - Skills layer (cultivation · decompose · execute · distill).
