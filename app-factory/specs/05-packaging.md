@@ -45,14 +45,14 @@ the lattice machinery is present-but-hidden beneath the prose surface.
 
 | Primitive | File |
 |-----------|------|
-| Bounded loop + goal | `bin/goal.py`, `agents/harness-builder.md` |
-| Budget / caps (fail-closed arm) | `bin/run-budget.py`, `gate-budget` |
-| Ledger (append-only) | `bin/ledger.py` |
-| Signal minting + generator/critic gate | `bin/validate.py`, `gate-signal` |
-| Frontier ranking | `bin/lattice.py` (`rank`) |
-| Trust-tier **gauge** | `bin/ledger.py` (`false_pass_rate`, `trust_tier`) |
-| Staleness cascade | `bin/propagate-staleness` |
-| Read-only query surface | `bin/lattice-mcp.py` pattern |
+| Bounded loop + goal | `harness-forge/bin/goal.py`, `harness-forge/agents/harness-builder.md` |
+| Budget / caps (fail-closed arm) | `harness-forge/bin/run-budget.py`, `gate-budget` |
+| Ledger (append-only) | `harness-forge/bin/ledger.py` |
+| Signal minting + generator/critic gate | `harness-forge/bin/validate.py`, `gate-signal` |
+| Frontier ranking | `harness-forge/bin/lattice.py` (`rank`) |
+| Trust-tier **gauge** | `harness-forge/bin/ledger.py` (`false_pass_rate`, `trust_tier`) |
+| Staleness cascade | `harness-forge/bin/propagate-staleness` |
+| Read-only query surface | `harness-forge/bin/lattice-mcp.py` pattern |
 
 **From `dev-kernel` / `dev-kit-corpus` (the authoring + verification rigor) —
 *this is the half the earlier draft wrongly attributed to harness-forge*:**
@@ -61,7 +61,7 @@ the lattice machinery is present-but-hidden beneath the prose surface.
 |-----------|------|
 | Spec authoring discipline + format | `dev-kernel/skills/spec-author/` |
 | Spec review council + lens critics | `dev-kernel` `spec-council`, `critic-spec-*` |
-| Ticket contract + lifecycle gates | `dev-kernel/schemas/ticket.schema.json`, `bin/lifecycle.py` (`gate-ticket-ready`) |
+| Ticket contract + lifecycle gates | `dev-kernel/schemas/ticket.schema.json`, `dev-kernel/bin/lifecycle.py` (`gate-ticket-ready`) |
 | Mechanical spec/PRD gates | `dev-kit-corpus/rubric/{spec-quality,prd-quality}.rubric.json` |
 | Rubric **calibration** (entailment + determinism) | `harness-forge/evals/calibration/` discipline applied to derived acceptance |
 | Independent **refuter** (the trust sensor) | `dev-kernel` refute-author dispatch + `--allow-refute`; `dev-server/dispatch.py` |
