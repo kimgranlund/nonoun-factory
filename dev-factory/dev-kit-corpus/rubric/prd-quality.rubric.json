@@ -7,6 +7,22 @@
   "binds_to_layer": "spec",
   "facing": "outside-in",
   "maturity_precondition": "This rubric cell must be validated (deterministic on fixed input; calibrated) before it gates any PRD.",
+  "calibration": {
+    "exemplars_ref": "rubric/exemplars/prd-quality/",
+    "critic_model": "an independent critic tier, NOT the PRD-authoring agent",
+    "agreement_record": "rubric/exemplars/prd-quality/manifest.json",
+    "recalibration_triggers": [
+      "a false-pass observed in the ledger",
+      "the spec/intent schema changes"
+    ],
+    "note": "A PRD's [gate] dimensions are the mechanical spec-format gates (schema-valid, user-acceptance-checkable=criteria-checkable, non-goals-present) run by bin/spec-quality-check.py; the labeled exemplar set proves THAT gate discriminates — it rejects a prose-only / non-goals-less / wrong-layer artifact and passes a gate-clean one. The outside-in product judgment (jobs, UX, outside-in acceptance) is the [review] half a calibrated critic applies, not the mechanical gate."
+  },
+  "pristine_reference": {
+    "field": "exemplar_labels",
+    "writable_by_worker": false,
+    "enforced_by": "the exemplar set is PLUGIN-STATIC (rubric/exemplars/, resolved relative to the kit), never instance state — the PRD-authoring worker cannot reach or edit the answer key it is graded against",
+    "note": "rubric-check.py runs the gate against the labeled exemplars and requires the verdicts to MATCH the labels; the labels live with the kit, not the worktree."
+  },
   "dimensions": [
     {
       "id": "schema-valid",

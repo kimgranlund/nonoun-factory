@@ -2,6 +2,22 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.28] — 2026-06-25
+
+### Changed (the bound KIT is read-only to a worker — harness-council reward-hacking CRITICAL)
+
+- **`_gates.py` now denies a worker write to the bound KIT verifier substrate.** The kit (gate scripts in
+  `bin/`, the rubrics + their calibration exemplars, `kit.json`, the schemas) is `--add-dir`'d to a worker so
+  it can RUN its real gates instead of self-attesting (DF-4) — but under `--permission-mode acceptEdits`, and
+  the protective globs were `.factory`-anchored, so nothing stopped a worker `Edit`-ing `${DEV_FACTORY_KIT}/
+  bin/rubric-check.py` (or any gate script / exemplar manifest) to `sys.exit(0)` and forging every signal that
+  gate mints. `path_gate_verdict` now denies — universally (every worker boundary), checked first — any
+  Write/Edit (and a Bash-write heuristic) whose target resolves INSIDE a bound kit root (`_under_kit`, realpath
+  containment). Keyed on `DEV_FACTORY_KIT`, the same env that gates the worker's `--add-dir`, so the deny is
+  active exactly when the kit is reachable and inert (harmlessly) when no kit is bound. The verifier substrate
+  the meta-verifiers (rubric-check / spec-quality-check / pattern-check) rely on can no longer be filed down by
+  the worker they constrain. Native (no `KERNEL_VERSION` change). plugin.json 0.2.27 → 0.2.28.
+
 ## [0.2.27] — 2026-06-25
 
 ### Added (the multi-family tier guard — harness-council H6, autonomy-trajectory)
