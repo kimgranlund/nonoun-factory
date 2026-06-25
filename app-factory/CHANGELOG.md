@@ -2,6 +2,17 @@
 
 All notable changes to **app-factory** are documented here.
 
+## [0.9.0] — 2026-06-25
+
+The outer loop — the factory stays correct over time and compounds.
+
+### Added
+- **`bin/app-regen.py` — regeneration.** Editing a committed spec cascades staleness (via the kernel's `propagate_staleness` graph walk) to every ticket validated against the old spec hash, invalidates their signals, ledgers the flip, and re-crystallizes so the frontier re-opens as `defined` against the new hash. Closes the harness-council's stale-but-trusted Critical: no validated work survives an outdated definition.
+- **`bin/app-distill.py` — distillation.** Windows the ledger and compresses recurring precedent into `knowledge/patterns/` DRAFT docs (recurring failure → anti-pattern; recurring shape → pattern), each carrying its ledger provenance. Distills, never authors canon.
+- **`bin/app-context.py` — context assembly.** Assembles a ticket's build context deterministically from named corpus sources (spec + knowledge + non-stale patterns); excludes stale patterns (freshness) and the sealed bar (predicate-honesty). The "better specs → cheaper build" mechanic, made mechanical.
+- **Agents** `app-distiller` + `spec-regenerator` (propose, never author/merge); **commands** `/app-regenerate`, `/app-distill`, `/app-context`.
+- **An internal eval flow** — `evals/outer-loop.rubric.json` (6 dimensions) + `evals/run-outerloop-evals.py` drives an integrated build → validate → distill → regenerate → assemble scenario. **14/14 scenarios, score 1.00.**
+
 ## [0.8.0] — 2026-06-25
 
 The dev-server made foolproof — hardened against sloppy use, verified by an internal eval flow.
