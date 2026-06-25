@@ -158,7 +158,7 @@ let _toastTimer = null;
 function toast(title, msg, kind = "ok") {
   store.toast.value = { title, msg, kind, t: Date.now() };
   clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(() => (store.toast.value = null), kind === "err" ? 7000 : 3500);
+  _toastTimer = setTimeout(() => (store.toast.value = null), (kind === "err" || kind === "warn") ? 7000 : 3500);
 }
 
 async function jget(path) {
@@ -195,7 +195,22 @@ async function loadAll() {
     try { store[key].value = await jget(path); }
     catch { /* leave prior/empty value; views render an empty state */ }
   }));
-  refreshStatus();
+  await refreshStatus();
+  // P8 — durability reassurance: on the FIRST load (a fresh page / after a restart), confirm what survived, so a
+  // refresh reads as "resumed where you left off", not a blank reset.
+  if (!loadAll._greeted) {
+    loadAll._greeted = true;
+    const held = sessionStorage.getItem("df-resume-held");
+    if (held) {
+      sessionStorage.removeItem("df-resume-held");
+      toast("Landed paused", `“${held}” was armed as a LIVE build — it stays paused so it doesn't spend on a switch. ▶ Play to resume.`, "warn");
+    } else {
+      const ts = store.tickets.value || [], done = ts.filter((t) => t.state === "done").length;
+      const review = ts.filter((t) => t.state === "in-review").length, act = ts.filter((t) => t.state === "active").length;
+      const bits = [done ? `${done} done` : null, review ? `${review} need your OK` : null, act ? `${act} active` : null].filter(Boolean);
+      if (ts.length) toast("Resumed", bits.length ? bits.join(" · ") : "state restored", "ok");
+    }
+  }
 }
 
 // UI-3: the factory-state headline (is it working, what is it doing) — distinct from the SSE socket dot.
@@ -377,6 +392,7 @@ const SHELL_HTML = (() => {
         <span class="spacer"></span>
         <span class="factory-state" title="the factory's work state"></span>
         ${switchControl({ label: "", on: false, cls: "hb-toggle", ariaLabel: "Start or pause the autonomous loop", attrs: "data-hb-toggle hidden" })}
+        ${switchControl({ label: "auto-accept", on: false, cls: "aa-toggle", ariaLabel: "Auto-accept reviewed work", attrs: "data-auto-accept hidden" })}
         <span class="adapter" title="dispatch adapter — mock is free, headless spends real tokens"></span>
         ${iconBtn("◐", { cls: "theme-toggle", title: "App theme", ariaLabel: "App theme", attrs: "data-theme-toggle" })}
       </header>
@@ -451,6 +467,17 @@ class DfApp extends UIElement {
       try { await jsend("POST", `/api/control/${action}`); await refreshStatus(); }
       finally { hb.disabled = false; }
     };
+    const aa = this.querySelector("[data-auto-accept]");
+    if (aa) aa.onclick = async () => {
+      const on = !(store.factory.peek() || {}).auto_accept;
+      // turning it ON does TWO things: accept the CURRENT in-review lane now (sight-unseen) AND stand for future work.
+      // Confirm the immediate bulk-accept so the label doesn't undersell the effect (council).
+      const waiting = (store.factory.peek() || {}).awaiting_review || 0;
+      if (on && waiting && !confirm(`Auto-accept ON will accept the ${waiting} ticket${waiting === 1 ? "" : "s"} now waiting for your OK — without you reviewing them — and keep accepting future ones automatically. Continue?`)) return;
+      aa.disabled = true;
+      try { const r = await jsend("POST", "/api/control/auto-accept", { on }); if (r.ok && r.data && (r.data.accepted || []).length) toast("Accepted", `${r.data.accepted.length} reviewed → Done`, "ok"); await loadAll(); }
+      finally { aa.disabled = false; }
+    };
     this.querySelectorAll("[data-zoom]").forEach((b) => (b.onclick = () => {
       const z = store.zoom.peek();
       store.zoom.value = b.dataset.zoom === "in" ? Math.min(2, z + 0.1) : b.dataset.zoom === "out" ? Math.max(0.4, z - 0.1) : 1;
@@ -507,7 +534,12 @@ class DfApp extends UIElement {
           psel.disabled = true;
           try {
             const r = await fetch("/api/project", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: next }) });
-            if (r.ok) { location.reload(); return; }   // re-fetch the whole board + Preview against the new instance
+            if (r.ok) {
+              // a switched-to armed LIVE project lands PAUSED (no silent token spend) — note it across the reload (P5/#5)
+              const d = await r.json().catch(() => ({}));
+              if (d.resume_held) sessionStorage.setItem("df-resume-held", next);
+              location.reload(); return;             // re-fetch the whole board + Preview against the new instance
+            }
             const e = await r.json().catch(() => ({}));
             toast("Couldn't switch project", e.detail || `Switching to “${next}” failed (${r.status}).`, "err");
           } catch (err) {
@@ -523,14 +555,16 @@ class DfApp extends UIElement {
     if (fel) {
       if (fs && fs.state) {
         const a = fs.active_tickets ?? 0;
-        const detail = fs.state === "running" ? `${fs.running_agents} worker${fs.running_agents === 1 ? "" : "s"}`
-          : fs.state === "paused" ? "heartbeat paused"
+        // every non-moving state names its reason AND the next action — no silent dead-ends (P1)
+        const detail = fs.state === "running" ? `${fs.running_agents} worker${fs.running_agents === 1 ? "" : "s"} building`
+          : fs.state === "paused" ? "paused — ▶ Play to resume"
           : fs.state === "halted" ? `${fs.ready_to_dispatch} ready · window spent — ▶ re-arm`
-          : fs.state === "armed" ? `${fs.ready_to_dispatch} ready`
-          : fs.state === "blocked" ? `${a} queued · deps unmet`
-          : fs.state === "awaiting-review" ? `${fs.awaiting_review ?? 0} awaiting your sign-off`
-          : fs.state === "drained" ? "queue empty"
-          : (a ? `${a} queued · heartbeat off` : "no work queued");
+          : fs.state === "armed" ? `${fs.ready_to_dispatch} ready · dispatching…`
+          : fs.state === "blocked" ? `${a} blocked · open a card for why + Retry`
+          : fs.state === "awaiting-review" ? `${fs.awaiting_review ?? 0} need your OK — Accept on the card`
+          : fs.state === "drained" ? "all done · + Ticket to add work"
+          : fs.state === "incomplete" ? "no bootable app yet — seed a shell"
+          : (a ? `${a} queued · loop off — ▶ Play` : "loop off — ▶ Play, or + Ticket");
         fel.dataset.state = fs.state;
         fel.title = fs.state === "halted" ? `dispatch halted — ${fs.halted_reason || "the armed window is spent"}; ▶ re-arm to resume` : "the factory's work state";
         fel.textContent = `${fs.state.toUpperCase()} · ${detail}`;
@@ -572,15 +606,31 @@ class DfApp extends UIElement {
         mel.dataset.shipped = ms.shipped ? "1" : "0";
       } else { mel.innerHTML = ""; mel.removeAttribute("data-shipped"); }
     }
-    // adapter badge — mock (free) vs ● LIVE (headless, spends real tokens)
+    // adapter badge — say the CONSEQUENCE, not the adapter name (P4): mock = a DRY RUN that makes nothing real;
+    // headless = a LIVE BUILD that writes real code + spends $.
     const adapter = store.adapter.value || "mock";
     const ael = this.querySelector(".adapter");
     if (ael) {
-      ael.textContent = adapter === "headless" ? "● LIVE" : "mock";
+      ael.textContent = adapter === "headless" ? "● LIVE BUILD" : "DRY RUN";
       ael.dataset.adapter = adapter;
       ael.title = adapter === "headless"
-        ? "headless adapter — the heartbeat dispatches real claude workers (spends tokens)"
-        : "mock adapter — the free deterministic loop (no tokens)";
+        ? "LIVE BUILD (headless) — dispatches real Claude workers that write real code and spend tokens"
+        : "DRY RUN (mock) — exercises the loop for free but makes NO real changes (no code written, no tokens). Switch to a live build to actually make software.";
+    }
+    // auto-accept toggle — the operator's standing sign-off so in-review work flows to Done without a per-card OK
+    const fs2 = store.factory.value || {};
+    const ae = this.querySelector("[data-auto-accept]");
+    if (ae) {
+      if (fs2.state) {
+        const on = !!fs2.auto_accept;
+        ae.hidden = false;
+        ae.dataset.on = on ? "1" : "0";
+        ae.setAttribute("aria-checked", on ? "true" : "false");
+        ae.textContent = on ? "✓ auto-accept" : "auto-accept";
+        ae.title = on
+          ? "auto-accept ON — critic-validated work flows straight to Done (your standing sign-off). Click to require a per-card OK."
+          : "auto-accept OFF — work parks at 'Needs your OK' for you to accept. Click to let it flow to Done automatically.";
+      } else { ae.hidden = true; }
     }
   }
   #renderCanvasSwap() {
@@ -832,6 +882,36 @@ function selectInspector(kind, id) {
   if (store.inspectorTab.peek() === "steer") store.inspectorTab.value = "cell";
 }
 
+// friendlier lane labels — "in-review" reads as a system state; the operator needs to know it's THEIR turn.
+const STATE_LABEL = { "in-review": "Needs your OK", "in-progress": "In Progress" };
+const laneLabel = (s) => STATE_LABEL[s] || s;
+
+// the most recent agent activity for a ticket, read from the LIVE ledger — drives the per-card progress strip
+// (what's happening to THIS ticket right now) and the no-op badge (did the worker actually change anything).
+function ticketActivity(tid) {
+  const evs = store.ledger.value || [];
+  for (let i = evs.length - 1; i >= 0; i--) {
+    const e = evs[i];
+    if ((e.subject || {}).ticket === tid && (e.event === "activity-start" || e.event === "activity-complete" || e.event === "activity-fail")) return e;
+  }
+  return null;
+}
+// the reason a ticket is blocked — surfaced ON the card with a Retry, so a stuck card says why + what to do (P1).
+function ticketBlockReason(tid) {
+  const evs = store.ledger.value || [];
+  for (let i = evs.length - 1; i >= 0; i--) {
+    const e = evs[i];
+    if ((e.subject || {}).ticket === tid && (e.event === "block" || (e.event === "transition" && e.to === "blocked")))
+      return e.rationale || "blocked";
+  }
+  return "blocked — see the Ledger";
+}
+// open the built app in the Preview tab + force its iframe to reload (P7: "results are one click from Done")
+function openPreview() {
+  location.hash = "preview";
+  setTimeout(() => { const f = document.querySelector("df-preview iframe"); if (f) f.src = f.src; }, 60);
+}
+
 // ═══════════════════ VIEW 1 · Kanban (two lenses) ═══════════════════
 class DfKanban extends UIElement {
   static template = () => {
@@ -873,6 +953,19 @@ class DfKanban extends UIElement {
       (b.onclick = (e) => { e.stopPropagation();
         const t = store.tickets.value.find((x) => x.id === b.dataset.triage);
         store.modal.value = { kind: "create-ticket", mode: "structured", triageId: b.dataset.triage, title: (t && t.title) || "" }; }));
+    // per-card Accept (in-review → done, the human OK), Retry (blocked → active), and View-in-Preview (done app)
+    body.querySelectorAll("[data-accept]").forEach((b) =>
+      (b.onclick = async (e) => { e.stopPropagation(); b.disabled = true;
+        const r = await jsend("POST", `/api/tickets/${b.dataset.accept}/accept`);
+        if (!r.ok) { toast("Couldn't accept", (r.data && r.data.reason) || "the gate refused", "warn"); b.disabled = false; }
+        await loadAll(); }));
+    body.querySelectorAll("[data-retry]").forEach((b) =>
+      (b.onclick = (e) => { e.stopPropagation(); requestTransition(b.dataset.retry, "active"); }));
+    body.querySelectorAll("[data-preview]").forEach((b) =>
+      (b.onclick = (e) => { e.stopPropagation(); openPreview(); }));
+    // "see before you accept" / inspect a blocked ticket — open the inspector on the asset tab
+    body.querySelectorAll("[data-view]").forEach((b) =>
+      (b.onclick = (e) => { e.stopPropagation(); selectInspector("ticket", b.dataset.view); store.inspectorTab.value = "asset"; }));
   }
 
   #column(state, items) {
@@ -881,7 +974,7 @@ class DfKanban extends UIElement {
       <section class="col st ${h}" data-state="${state}" role="listitem" aria-label="${state} (${items.length})" style="background:var(--surface-sunken)">
         <header class="st ${h}">
           <span class="dot" aria-hidden="true"></span>
-          <span class="name">${state}</span>
+          <span class="name">${laneLabel(state)}</span>
           <span class="count">${items.length}</span>
           <button class="add" data-add="${state}" title="Create ticket in ${state}" aria-label="Create ticket in ${state}">+</button>
         </header>
@@ -907,11 +1000,42 @@ class DfKanban extends UIElement {
         </div>
         ${t.from_maturity && t.to_maturity ? html`<div class="cell" style="margin-top:.25rem">${t.from_maturity} → ${t.to_maturity}</div>` : ""}
         ${frac > 0 ? html`<div class="budget ${frac > 0.85 ? "hot" : frac > 0.6 ? "warn" : ""}"><span style="width:${Math.round(frac * 100)}%"></span></div>` : ""}
-        ${intake
-          ? html`<div class="card-foot"><button class="triage-btn" type="button" draggable="false" data-triage="${t.id}"
-              title="Bind this intake to a target cell + a validated rubric so it can move to Active">Triage →</button></div>`
-          : html`<div class="move-hint">← → move · Enter drop · Esc cancel</div>`}
+        ${raw(this.#foot(t, intake))}
       </article>`;
+  }
+
+  // the per-state card foot — what's happening + what to do next, so no card is a silent dead-end (P1/P2/P3/P6/P7).
+  #foot(t, intake) {
+    if (intake)
+      return html`<div class="card-foot"><button class="triage-btn" type="button" draggable="false" data-triage="${t.id}"
+        title="Bind this intake to a target cell + a validated rubric so it can move to Active">Triage →</button></div>`;
+    if (t.state === "in-review")
+      // "see before you accept": a one-click view of the asset, beside the Accept (council: friction was on the wrong action)
+      return html`<div class="card-foot"><span class="needs-ok">needs your OK</span><button class="view-btn" type="button"
+        draggable="false" data-view="${t.id}" title="Inspect the authored asset before accepting">view</button><button class="accept-btn" type="button"
+        draggable="false" data-accept="${t.id}" title="Accept this critic-validated work → Done">✓ Accept</button></div>`;
+    if (t.state === "blocked") {
+      const why = ticketBlockReason(t.id);
+      // the reason is clickable → opens this ticket's inspector (signals/ledger) instead of a "see the Ledger" dead end
+      return html`<div class="card-foot blocked-foot"><button class="block-why" type="button" draggable="false" data-view="${t.id}"
+        title="${why} — click to inspect this ticket's signals + ledger">⚠ ${why}</button><button class="retry-btn"
+        type="button" draggable="false" data-retry="${t.id}" title="Return to Active to retry">↻ Retry</button></div>`;
+    }
+    if (t.state === "claimed" || t.state === "in-progress") {
+      const a = ticketActivity(t.id), m = (a && a.metrics) || {};
+      const bits = [m.agent, m.kind, m.tokens ? `${(+m.tokens).toLocaleString()} tok` : null].filter(Boolean);
+      return html`<div class="card-foot"><span class="working"><span class="work-pulse" aria-hidden="true"></span>${bits.length ? bits.join(" · ") : "working…"}</span></div>`;
+    }
+    if (t.state === "done") {
+      const a = ticketActivity(t.id);
+      const noop = a && a.event === "activity-complete" && (a.metrics || {}).noop;
+      const isApp = (t.target_cell || "").includes("capability.");
+      if (!noop && !isApp) return "";   // a plain done card needs no foot
+      // "no change" is honest for BOTH adapters: the asset is byte-identical to before — the worker authored nothing
+      // new (a mock skipping a file, OR a live worker that ran, spent tokens, and produced no diff).
+      return html`<div class="card-foot done-foot">${noop ? html`<span class="noop-badge" title="no new work was authored — the asset is byte-identical to before. For a real change, run a live build or edit the file directly.">⚠ no change</span>` : ""}${isApp ? html`<button class="preview-btn" type="button" draggable="false" data-preview="1" title="Open the built app in the Preview tab">▶ Preview</button>` : ""}</div>`;
+    }
+    return html`<div class="move-hint">← → move · Enter drop · Esc cancel</div>`;
   }
 
   // Drag-and-drop + full keyboard accessibility. A drop = POST transition request.
@@ -1226,7 +1350,6 @@ class DfMonitor extends UIElement {
     body.className = "monitor-grid";
     body.innerHTML = live.map((w) => this.#worker(w)).join("");
     body.querySelectorAll("[data-cancel]").forEach((b) => (b.onclick = () => control(`/api/tickets/${b.dataset.cancel}`, "DELETE", "Cancel requested")));
-    body.querySelectorAll("[data-checkpoint]").forEach((b) => (b.onclick = () => toast("Checkpoint", "checkpoint() is a dispatcher control stub (Walk)", "ok")));
   }
   #worker(w) {
     // w is either an /api/agents/running record or a flat ticket row
@@ -1271,7 +1394,6 @@ class DfMonitor extends UIElement {
         </div>
         <div class="controls">
           <button class="btn sm danger" data-cancel="${w.ticket || id}">Cancel</button>
-          <button class="btn sm" data-checkpoint="${w.ticket || id}">Checkpoint</button>
         </div>
       </div>`;
   }
@@ -1519,7 +1641,7 @@ class DfModal extends UIElement {
     const m = store.modal.value;
     if (!m) return "";
     const triage = !!m.triageId;                                   // triage mode: bind an existing intake, no new ticket
-    const mode = triage ? "structured" : (m.mode || "structured");
+    const mode = triage ? "structured" : (m.mode || "prompt");   // P5: lead with the plain-language prompt, not the expert form
     const tab = (id, label) => `<button type="button" data-mode="${id}" aria-pressed="${mode === id}">${label}</button>`;
     const structured = html`
       <div class="field"><div class="row">
@@ -1540,9 +1662,11 @@ class DfModal extends UIElement {
           empty: "no validated rubric cells yet — get a rubric cell to validated first",
         }))}</select></div>
       <div class="field"><label for="ct-body">Body</label><textarea id="ct-body" name="body" rows="3"></textarea></div>`;
+    const onMock = (store.adapter.value || "mock") !== "headless";
     const prompt = html`
-      <p class="modal-hint">A free-form brief. The cold-start planner triages it into a spec, hydrated lattice cells, and structured build tickets.</p>
-      <div class="field"><label for="ct-body">Brief</label><textarea id="ct-body" name="body" rows="6" required
+      <p class="modal-hint">Just say what you want. The factory triages it into a spec + build tickets and builds it — no need to know the lattice.</p>
+      ${onMock ? html`<p class="modal-warn">⚠ You're on a <strong>DRY RUN</strong> (mock): triage + real building need a live worker. Switch to a live build, or use <strong>Advanced</strong> to bind a cell yourself.</p>` : ""}
+      <div class="field"><label for="ct-body">What do you want?</label><textarea id="ct-body" name="body" rows="6" required
         placeholder="e.g. A playable solitaire card game with drag-and-drop, score keeping, and a leaderboard."></textarea></div>`;
     const instruction = html`
       <p class="modal-hint">Literal steps — dispatched closer to verbatim and folded into the loop's guidance for the next worker.</p>
@@ -1556,7 +1680,7 @@ class DfModal extends UIElement {
           <header><h3>${heading}${triage
             ? html` <span style="color:var(--faint);font-weight:400">→ bind it so it can move to Active</span>`
             : (m.state && m.state !== "draft" && mode === "structured" ? html` <span style="color:var(--faint);font-weight:400">(will request → ${m.state})</span>` : "")}</h3></header>
-          ${triage ? "" : html`<div class="seg modal-tabs" role="group" aria-label="Intake mode">${raw(tab("structured", "Structured") + tab("prompt", "Prompt") + tab("instruction", "Instruction"))}</div>`}
+          ${triage ? "" : html`<div class="seg modal-tabs" role="group" aria-label="Intake mode">${raw(tab("prompt", "Prompt") + tab("instruction", "Instruction") + tab("structured", "Advanced"))}</div>`}
           <form id="ct-form">
             <div class="field"><label for="ct-title">${titleLabel}</label><input id="ct-title" name="title" required autocomplete="off"${triage ? " readonly" : ""} /></div>
             ${mode === "prompt" ? prompt : mode === "instruction" ? instruction : structured}
@@ -1751,6 +1875,7 @@ class DfSteer extends UIElement {
     const res = await jsend("POST", "/api/input", { text });
     if (!res.ok) { toast("Steer failed", res.data?.detail || `HTTP ${res.status}`, "err"); return; }
     input.value = "";
+    toast("Noted", "your steering will be folded into the next worker dispatched", "ok");   // P9: acknowledge it landed
     refreshGuidance();                              // the server drains + streams "guidance"; refetch in case SSE is down
   }
 }

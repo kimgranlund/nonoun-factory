@@ -108,6 +108,35 @@ def _now():
     return datetime.datetime.now().astimezone()
 
 
+def _asset_fingerprint(d, asset_ref):
+    """A content hash of a cell's asset (one file, or every non-verifier file in a multi-file dir) — used to detect a
+    NO-OP dispatch (a worker that ran but changed nothing) adapter-agnostically, so 'Done — no change' is honest on
+    the headless loop (real tokens, no diff), not only on mock. Returns None if the asset is absent/unreadable (so a
+    fresh cell with no prior asset reads as 'changed', never a false no-op)."""
+    if not asset_ref:
+        return None
+    import hashlib
+    p = os.path.join(d, asset_ref)
+    h = hashlib.md5()
+    try:
+        if os.path.isdir(p):
+            seen = False
+            for root, _dirs, files in os.walk(p):
+                for fn in sorted(files):
+                    if fn == "verify.mjs" or fn.startswith("."):   # the critic harness isn't the worker's product
+                        continue
+                    seen = True
+                    h.update(fn.encode())
+                    h.update(open(os.path.join(root, fn), "rb").read())
+            return h.hexdigest() if seen else None
+        if os.path.isfile(p):
+            h.update(open(p, "rb").read())
+            return h.hexdigest()
+    except OSError:
+        return None
+    return None
+
+
 def _iso(dt):
     return dt.isoformat(timespec="seconds")
 
@@ -257,7 +286,8 @@ class MockAdapter(DispatchAdapter):
             asset_rel = _asset_rel(layer, slug, authoring)
             asset_abs = os.path.join(d, asset_rel)
             os.makedirs(os.path.dirname(asset_abs), exist_ok=True)
-            if not os.path.exists(asset_abs) or os.path.getsize(asset_abs) == 0:
+            wrote = not os.path.exists(asset_abs) or os.path.getsize(asset_abs) == 0  # noop iff a real asset already exists
+            if wrote:
                 # Import an ACTUAL built sibling module (the first product dir with an index.mjs), NOT a hardcoded
                 # `./core/` — that only resolves for a decomposition that happens to name a module `core`, so a mock
                 # shell over any other module set (e.g. osc-303/viz-renderer/…) produced an import that the static +
@@ -272,7 +302,9 @@ class MockAdapter(DispatchAdapter):
                     + (f"  import './{sib}/index.mjs';\n" if sib else "") +
                     "  document.getElementById('app').appendChild(document.createElement('div'));\n"
                     "</script>\n")
-            return {"ok": True, "asset_ref": asset_rel, "metrics": {"tokens": 6000, "iterations": 1}}
+            # noop = the mock did NOT author new content (a real hand-authored asset was already there) — the honest
+            # signal so the board never claims fresh work it didn't do (P3): "Done — no change" not implied success.
+            return {"ok": True, "asset_ref": asset_rel, "noop": not wrote, "metrics": {"tokens": 6000, "iterations": 1}}
         if authoring and authoring.get("mode") == "multi-file":
             # multi-file CODE authoring (the worker's GENERATOR side): author source files into the cell's dir
             # (the kit's output_root may re-root it OUT of .factory/ to the product tree — _asset_rel resolves it).
@@ -282,11 +314,12 @@ class MockAdapter(DispatchAdapter):
             asset_abs = os.path.join(d, asset_rel)
             os.makedirs(asset_abs, exist_ok=True)
             src = os.path.join(asset_abs, "index.mjs")
-            if not os.path.exists(src):
+            wrote = not os.path.exists(src)
+            if wrote:
                 open(src, "w", encoding="utf-8").write(
                     f"// {layer}.{unit['scope']}.{slug} — authored by the {self.name} worker for {unit['ticket']}\n"
                     "export const ready = true;\n")
-            return {"ok": True, "asset_ref": asset_rel, "metrics": {"tokens": 9000, "iterations": 1}}
+            return {"ok": True, "asset_ref": asset_rel, "noop": not wrote, "metrics": {"tokens": 9000, "iterations": 1}}
         asset_dir = os.path.join(d, layer)
         os.makedirs(asset_dir, exist_ok=True)
         asset_rel = os.path.join(layer, f"{slug}.md")
@@ -295,7 +328,7 @@ class MockAdapter(DispatchAdapter):
         # a STRUCTURED asset (JSON / a ```json block) is already authored — confirm it, don't clobber it
         # (so a kit's structured-asset verifier still validates after the worker runs).
         if existing.lstrip()[:1] == "{" or "```json" in existing:
-            return {"ok": True, "asset_ref": asset_rel, "metrics": {"tokens": 3000, "iterations": 1}}
+            return {"ok": True, "asset_ref": asset_rel, "noop": True, "metrics": {"tokens": 3000, "iterations": 1}}
         # else the worker authors prose (rewritable side — gate-verifier permits spec/ etc.)
         body = f"# {layer}.{unit['scope']}.{slug}\n\nAuthored by the {self.name} worker for {unit['ticket']}.\n"
         with open(asset_abs, "a" if existing else "w", encoding="utf-8") as f:
@@ -1128,7 +1161,10 @@ def dispatch_unit(d, ticket, adapter, actor, tier=1, repo_root=None, auto_valida
         finally:
             teardown_worktree(d, vwt, repo_root)
 
-    # worker starts → authors the asset
+    # worker starts → authors the asset. Fingerprint the asset BEFORE so a no-op is detected ADAPTER-AGNOSTICALLY
+    # (council CRITICAL: "Done — no change" must be honest on the LIVE loop too — a headless worker can burn tokens
+    # and produce no diff; the mock-only file-exists check missed that). before_fp is the cell's current asset hash.
+    before_fp = _asset_fingerprint(d, cell.get("asset_ref"))
     _api.transition_ticket(d, tid, "in-progress", actor)
     result = adapter.dispatch(d, unit)
     if not result.get("ok"):
@@ -1168,8 +1204,18 @@ def dispatch_unit(d, ticket, adapter, actor, tier=1, repo_root=None, auto_valida
     # carry the model tier + effort with the spend metrics so token burn can be charted per model + effort
     _spend = {"model_tier": _eff.get("model_tier"), "reasoning_effort": _eff.get("reasoning_effort"),
               **(result.get("metrics") or {})}
+    # P3 — NO-OP HONESTY: the worker confirmed an existing asset but authored no NEW content. The cell legitimately
+    # re-validates, but the board must NOT imply fresh work was done. A no-op is whichever of (a) the adapter said so
+    # (mock skipping an existing file) OR (b) the asset's content is BYTE-IDENTICAL before vs after the dispatch — the
+    # adapter-agnostic check, so a HEADLESS worker that ran, spent tokens, and produced no diff is ledgered honestly
+    # too (the council CRITICAL: "Done" must be honest on the loop the operator pays for, not only on free mock).
+    after_fp = _asset_fingerprint(d, result.get("asset_ref"))
+    unchanged = before_fp is not None and after_fp is not None and before_fp == after_fp
+    noop = bool(result.get("noop")) or unchanged
     _led.append(d, "activity-complete", {"kind": "agent", "id": agent}, {"ticket": tid, "cell": ticket["target_cell"]},
-                f"{agent} produced the artifact", metrics={"activity": act_id, "budget_fraction": 1.0, **_spend})
+                (f"{agent}: no change — the asset is byte-identical to before (no new work authored; run a live "
+                 f"build or edit the file for a real change)" if noop else f"{agent} produced the artifact"),
+                metrics={"activity": act_id, "budget_fraction": 1.0, "noop": noop, **_spend})
 
     if not auto_validate:
         # Tier 1 gates only ACCEPTANCE, never verification. The critic STILL runs here, so the lattice gets its
@@ -1890,6 +1936,39 @@ def selftest():
         expect(not os.path.isdir(os.path.join(d, "run", "worktrees")) or
                not os.listdir(os.path.join(d, "run", "worktrees")), "worktree not torn down")
 
+        # P3 — NO-OP HONESTY: a mock dispatch over an asset that ALREADY exists authors nothing new; the cell
+        # legitimately re-validates, but the completion must be ledgered noop=true so the board reads "no change",
+        # never a false "Done" implying fresh work (the richer-colors / add-808 trust trap).
+        _api.seed_cell(d, "spec", "task", "exists", maturity="instantiated", asset_ref="spec/exists.md")
+        open(os.path.join(d, "spec", "exists.md"), "w").write('{"already":"authored"}\n')  # structured → mock confirms, never clobbers
+        te = _api.create_ticket(d, "task", "noop", target_cell="spec.task.exists",
+                                target_transition={"from": "instantiated", "to": "validated"},
+                                acceptance={"rubric_cell": "rubric.task.r"}, budget={"iterations": 1, "tokens": 1000})
+        _api.transition_ticket(d, te["id"], "active", srv)
+        okn, _tn, _mn = dispatch_unit(d, _api.get_ticket(d, te["id"]), MockAdapter(), srv, tier=2, repo_root=root)
+        expect(okn, f"a no-op dispatch should still complete (the cell re-validates): {_mn}")
+        expect(any(e.get("event") == "activity-complete" and (e.get("metrics") or {}).get("noop") is True
+                   and (e.get("subject") or {}).get("ticket") == te["id"] for e in _led.read(d)),
+               "a mock dispatch over an EXISTING asset must ledger activity-complete noop=true (no false 'Done')")
+        expect(any(e.get("event") == "activity-complete" and (e.get("metrics") or {}).get("noop") is False
+                   and (e.get("subject") or {}).get("ticket") == t["id"] for e in _led.read(d)),
+               "a real authoring dispatch (the slice) must ledger noop=false — the honest signal discriminates")
+        # ADAPTER-AGNOSTIC (the council CRITICAL): a NON-mock worker that runs but writes NOTHING (byte-identical
+        # asset before/after) is also a no-op — so "Done — no change" is honest on the headless loop too, not only mock.
+        class _NoWriteOk(DispatchAdapter):
+            name = "nowrite-ok"
+            def dispatch(self, d, unit):
+                return {"ok": True, "asset_ref": "spec/exists.md", "metrics": {"tokens": 5000}}  # ran, wrote nothing
+        _api.seed_cell(d, "spec", "task", "exists", maturity="instantiated", asset_ref="spec/exists.md")  # re-arm to instantiated
+        tw2 = _api.create_ticket(d, "task", "headless-noop", target_cell="spec.task.exists",
+                                 target_transition={"from": "instantiated", "to": "validated"},
+                                 acceptance={"rubric_cell": "rubric.task.r"}, budget={"iterations": 1, "tokens": 1000})
+        _api.transition_ticket(d, tw2["id"], "active", srv)
+        dispatch_unit(d, _api.get_ticket(d, tw2["id"]), _NoWriteOk(), srv, tier=2, repo_root=root)
+        expect(any(e.get("event") == "activity-complete" and (e.get("metrics") or {}).get("noop") is True
+                   and (e.get("subject") or {}).get("ticket") == tw2["id"] for e in _led.read(d)),
+               "a NON-mock worker that wrote nothing (byte-identical asset) must ledger noop=true — Done is honest on headless too")
+
         # lease reconciliation: a claimed ticket with an EXPIRED lease returns to active
         t2 = _api.create_ticket(d, "task", "stuck", target_cell="spec.task.slice",
                                 target_transition={"from": "validated", "to": "operating"},
@@ -1923,6 +2002,11 @@ def selftest():
         expect(tr["id"] not in reclaimed2, "in-review ticket awaiting human sign-off was wrongly reaped")
         expect(_api.get_ticket(d, tr["id"])["state"] == "in-review",
                "awaiting-human ticket bounced off in-review by the lease reaper")
+        # P2 — ACCEPTANCE: the operator's accept_reviewed transitions the critic-validated in-review ticket to done
+        # through the same gate-signal path a manual drag uses (the human sign-off; auto-accept calls this each tick).
+        accepted = _api.accept_reviewed(d, srv)
+        expect(tr["id"] in accepted and _api.get_ticket(d, tr["id"])["state"] == "done",
+               "accept_reviewed must close a critic-validated in-review ticket to done (the human-acceptance gate)")
 
         # WEDGE FIX: a CLAIMED ticket with NO lease (an empty/missing claim — the dispatch died after the claimed
         # transition but before establishing the lease) is a permanent wedge the reaper could never expire (observed
