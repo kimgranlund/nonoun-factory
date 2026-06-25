@@ -2,6 +2,12 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.27] — 2026-06-25
+
+### Added (the multi-family tier guard — harness-council H6, autonomy-trajectory)
+
+- **`autonomy.tier_for(d, family=None)` now fails CLOSED on a multi-family ledger.** A `None`-family query aggregates every family's incidents + refuter checks into one false-pass rate — correct only while a ledger holds a single kit family (every instance today). The new `_ledger_families(d)` helper enumerates the distinct `metrics.family` tags, and `tier_for` returns Tier 0 when `family is None and len(_ledger_families(d)) > 1` — so a second family sharing a ledger can never ride the first's measured-clean rate to unattended Tier 2 (the "UNMEASURED read as earned" hazard). Single-family / all-`None` ledgers are unchanged (the guard never fires). Surfaced by the council's red-team of the autonomous prompt-triage loop; a latent guard until a multi-family instance exists. Native (not vendored): no `KERNEL_VERSION` change. plugin.json 0.2.26 → 0.2.27.
+
 ## [0.2.26] — 2026-06-22
 
 ### Added (the TRIAGE-AUTHOR boundary — kernel support for autonomous prompt triage)

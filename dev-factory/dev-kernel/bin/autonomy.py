@@ -59,6 +59,19 @@ def _family_match(e, family):
     return (e.get("metrics") or {}).get("family") == family
 
 
+def _ledger_families(d):
+    """The distinct family tags (`metrics.family`) appearing anywhere in the ledger. A `None`-family `tier_for`
+    AGGREGATES every family's incidents + refuter checks into one rate; >1 distinct family means that blend is
+    ambiguous and the None query must fail closed. Single-family / all-None ledgers return <=1, so behavior is
+    unchanged (today every instance binds exactly one kit family)."""
+    fams = set()
+    for e in _led.read(d):
+        f = (e.get("metrics") or {}).get("family")
+        if f:
+            fams.add(f)
+    return fams
+
+
 def _has_validated_verifier(d, family=None):
     """A family is at least Tier 1 only once it has a validated rubric (a verifier) to score against."""
     for c in _lat.load(d).get("cells", []):
@@ -105,6 +118,12 @@ def tier_for(d, family=None, now=None, hermetic=False, tamper_evident=None):
     (ledger.verify_chain) — a real audit-integrity check, not a flag; `hermetic` stays an operator-declared
     deploy property (true network/process isolation isn't introspectable from here)."""
     now = now or _now()
+    # A None-family query AGGREGATES every family's incidents + refuter checks into ONE rate — correct only while a
+    # ledger holds a single family (today: one kit per instance). The moment two families share a ledger, that blend
+    # is unsafe: family A could ride family B's measured-clean rate to unattended Tier 2 (UNMEASURED read as earned,
+    # harness-council H6). Fail CLOSED to attended until the caller disambiguates with `family=`.
+    if family is None and len(_ledger_families(d)) > 1:
+        return 0
     if tamper_evident is None:
         tamper_evident = _led.verify_chain(d)[0]      # the audit trail's hash-chain is intact
     tier = 0
@@ -263,6 +282,24 @@ def selftest():
             json.dump({"start_ts": n0.isoformat(timespec="seconds")}, open(os.path.join(d2, "run", "heartbeat.json"), "w"))
             expect(tier_for(d2, now=n0) == 1, "an unmeasured family must NOT reach Tier 2 even with a budget — honest scope")
 
+        # A2: a None-family tier_for AGGREGATES across families. One family → normal; TWO families sharing a ledger →
+        # the None query fails CLOSED (family A must not ride family B's clean rate to Tier 2), while a per-FAMILY
+        # query still resolves on the disambiguated path (harness-council H6).
+        with tempfile.TemporaryDirectory() as rmf:
+            dmf = os.path.join(rmf, ".factory"); _lat.scaffold(dmf)
+            _lat.save(dmf, {"cells": [{"layer": "rubric", "scope": "task", "slug": "r", "maturity": "validated", "depends_on": [], "signal_refs": ["x"]}]})
+            os.makedirs(os.path.join(dmf, "run"), exist_ok=True)
+            json.dump({"start_ts": n0.isoformat(timespec="seconds")}, open(os.path.join(dmf, "run", "heartbeat.json"), "w"))
+            record_refuter_check(dmf, "spec.task.s", agreed=True, family="alpha", now=n0, measuring=True)
+            expect(len(_ledger_families(dmf)) == 1 and tier_for(dmf, now=n0) >= 1,
+                   "a single-family ledger must NOT trip the multi-family guard")
+            record_refuter_check(dmf, "spec.task.s", agreed=True, family="beta", now=n0, measuring=True)
+            expect(len(_ledger_families(dmf)) == 2, "two distinct family tags must be visible in the ledger")
+            expect(tier_for(dmf, now=n0) == 0,
+                   f"a None-family tier_for over a MULTI-family ledger must fail closed to Tier 0; got {tier_for(dmf, now=n0)}")
+            expect(tier_for(dmf, family="alpha", now=n0) >= 1,
+                   "a per-FAMILY query still resolves on a multi-family ledger (the disambiguated path)")
+
         # MECHANICAL DEMOTION: a refuter that DISAGREES (a caught false pass) drops the tier with no human
         t_before = tier_for(d, now=n0)
         new_tier = record_refuter_check(d, "spec.task.s", agreed=False, now=n0)
@@ -286,7 +323,8 @@ def selftest():
     print("autonomy selftest: OK (new family=Tier 0; a validated verifier=Tier 1; false-pass is 'unmeasured' "
           "until an independent refuter checks, so an unmeasured family CANNOT reach Tier 2 even with a budget; "
           "a measured-clean family reaches Tier 2; a caught false pass MECHANICALLY demotes it to <=1 AND stales "
-          "the verifier, re-derived from the ledger with no human in the demotion path)")
+          "the verifier, re-derived from the ledger with no human in the demotion path; a None-family tier query over "
+          "a MULTI-family ledger fails closed to Tier 0, while a per-family query still resolves)")
     return 0
 
 

@@ -945,31 +945,40 @@ def triage_intake(d, adapter, repo_root=None, limit=1):
         return {}                       # belt-and-suspenders to the heartbeat call-site headless gate
     results = {}
     for tid in triage_frontier(d)[:limit]:
-        t = _api.get_ticket(d, tid)
-        if not t:
-            continue
-        # Only THIS dispatch's write may be applied: clear any stale/planted proposal for tid FIRST, so a triage
-        # dispatch for a SIBLING ticket that wrote coordination/triage/<tid>.json cannot launder a binding onto tid
-        # (the --allow-triage gate permits writing any coordination/triage/*; the per-tid scope is prompt-only, so
-        # this server-side clear is what makes every applied proposal one THIS dispatch authored — the same
-        # provenance discipline author_refuters enforces by diffing what it wrote).
-        prop_path = os.path.join(d, "coordination", "triage", f"{tid}.json")
-        if os.path.exists(prop_path):
-            os.remove(prop_path)
-        wt, _ = provision_worktree(d, f"triage--{tid}", "ticket-triager", repo_root)
-        unit = {"kind": "triage", "ticket": tid, "target_cell": None, "intake": t,
-                "worktree": wt, "dir": d}
         try:
-            res = adapter.dispatch(d, unit) or {}
-        finally:
-            teardown_worktree(d, wt, repo_root)
-        # COUNT the triage dispatch's spend against the armed window (H5-C1): a `claude -p` triager spends real tokens;
-        # the adapter returns cost_usd/tokens — ledger them on a metrics-bearing event so heartbeat._tokens_since /
-        # _cost_since see them (exactly as the verifier-author pass does). Else triage burned tokens the budget never saw.
-        if res.get("metrics"):
-            _led.append(d, "handoff", {"kind": "agent", "id": "ticket-triager"}, {"ticket": tid},
-                        "triage dispatch spend", metrics={"triage": True, **res["metrics"]})
-        results[tid] = _apply_triage_proposal(d, tid)
+            t = _api.get_ticket(d, tid)   # inside the try: a corrupt intake JSON must park this tid, not abort the tick
+            if not t:
+                continue
+            # Only THIS dispatch's write may be applied: clear any stale/planted proposal for tid FIRST, so a triage
+            # dispatch for a SIBLING ticket that wrote coordination/triage/<tid>.json cannot launder a binding onto tid
+            # (the --allow-triage gate permits writing any coordination/triage/*; the per-tid scope is prompt-only, so
+            # this server-side clear is what makes every applied proposal one THIS dispatch authored — the same
+            # provenance discipline author_refuters enforces by diffing what it wrote).
+            prop_path = os.path.join(d, "coordination", "triage", f"{tid}.json")
+            if os.path.exists(prop_path):
+                os.remove(prop_path)
+            wt, _ = provision_worktree(d, f"triage--{tid}", "ticket-triager", repo_root)
+            unit = {"kind": "triage", "ticket": tid, "target_cell": None, "intake": t,
+                    "worktree": wt, "dir": d}
+            try:
+                res = adapter.dispatch(d, unit) or {}
+            finally:
+                teardown_worktree(d, wt, repo_root)
+            # COUNT the triage dispatch's spend against the armed window (H5-C1): a `claude -p` triager spends real tokens;
+            # the adapter returns cost_usd/tokens — ledger them on a metrics-bearing event so heartbeat._tokens_since /
+            # _cost_since see them (exactly as the verifier-author pass does). Else triage burned tokens the budget never saw.
+            if res.get("metrics"):
+                _led.append(d, "handoff", {"kind": "agent", "id": "ticket-triager"}, {"ticket": tid},
+                            "triage dispatch spend", metrics={"triage": True, **res["metrics"]})
+            results[tid] = _apply_triage_proposal(d, tid)
+        except Exception as e:
+            # A crash on ONE intake (provision / dispatch / parse) must not abort the whole tick or starve the
+            # anti-livelock counter (harness-council H5): ledger a triage-attempt for THIS tid — so triage_frontier's
+            # `>=2 attempts` skip still fires and the intake parks rather than re-selecting forever — and move to the
+            # next intake. The inner try/finally already tore the worktree down on the dispatch path, so no leak.
+            _led.append(d, "triage-attempt", {"kind": "server", "id": "ticket-triager"}, {"ticket": tid},
+                        f"triage raised, parked this intake: {e}")
+            results[tid] = {"applied": False, "active": False, "reason": f"error: {e}"}
     return results
 
 
@@ -2402,6 +2411,35 @@ def selftest():
                "a PLANTED proposal must be cleared before the dispatch — a no-write triage leaves it parked (no laundering)")
         expect(_api.get_ticket(td, pr3["id"])["state"] == "draft", "the planted-but-cleared intake stays an untriaged draft")
 
+        # a triage adapter that RAISES (provision / dispatch / parse crash) must NOT abort the whole tick: triage_intake
+        # CATCHES it, ledgers a triage-attempt for the intake (so the >=2-attempt park still fires), and returns an error
+        # result rather than propagating (harness-council H5 — anti-livelock + tick survival).
+        head = triage_frontier(td)[0]
+        before_n = _triage_attempts(td, head)
+        class _Boom(DispatchAdapter):
+            name = "boom"
+            def dispatch(self, d, unit):
+                raise RuntimeError("triager crashed")
+        resb = triage_intake(td, _Boom(), repo_root=troot)
+        expect("error" in (resb.get(head, {}).get("reason") or ""),
+               f"a raising triage adapter must be caught + reported, not propagated: {resb}")
+        expect(_triage_attempts(td, head) == before_n + 1,
+               "a crashed triage must ledger a triage-attempt (the anti-livelock counter advances, the tick is not aborted)")
+        if _triage_attempts(td, head) >= 2:
+            expect(head not in triage_frontier(td), "after >=2 attempts (a crash counts) the intake parks — anti-livelock bound holds")
+
+        # a CORRUPT intake ticket JSON must park, not abort the tick: the frontier reads SQLite (resilient), and
+        # get_ticket — which json.loads the per-ticket file — sits INSIDE the per-intake try, so a malformed
+        # coordination/tickets/<tid>.json is caught + ledgered, never propagated (harness-council H5, NEW-2).
+        with tempfile.TemporaryDirectory() as croot:
+            cd = os.path.join(croot, ".factory"); _api.init_instance(cd)
+            cpr = _api.create_ticket(cd, "prompt", "corrupt", body="...")
+            open(os.path.join(cd, "coordination", "tickets", f"{cpr['id']}.json"), "w").write("{ not valid json")
+            rc = triage_intake(cd, _NoWrite(), repo_root=croot)        # must NOT raise
+            expect("error" in (rc.get(cpr["id"], {}).get("reason") or ""),
+                   f"a corrupt intake ticket must park with an error, not abort the tick: {rc}")
+            expect(_triage_attempts(cd, cpr["id"]) >= 1, "a corrupt-intake park ledgers a triage-attempt (anti-livelock)")
+
         # the OVERWRITE GUARD: a SETTLED cell's hand-authored asset is never re-clobbered by a (re-)dispatch.
         # Simulate the lease-reaper case: the ticket went active while the cell was instantiated, then the cell
         # validated; a re-dispatch must refuse rather than stub over the real asset.
@@ -2437,8 +2475,9 @@ def selftest():
           "dispatched worker's prompt folds the operator's recent 5s guidance; a kit that declares multi-file "
           "authoring routes a code cell to a source DIRECTORY graded by its worker-protected verify.mjs [DF-9]; "
           "AUTO-TRIAGE turns a free-text prompt into a bound active ticket via a gate-blind proposal — a hard "
-          "no-op on mock, parking on an illegal binding; the OVERWRITE GUARD refuses to re-author a settled cell, "
-          "so a hand-authored asset is never stubbed over)")
+          "no-op on mock, parking on an illegal binding, and SURVIVING a worker crash (caught + ledgered, the "
+          "anti-livelock counter advances, the tick is not aborted); the OVERWRITE GUARD refuses to re-author a "
+          "settled cell, so a hand-authored asset is never stubbed over)")
     return 0
 
 
