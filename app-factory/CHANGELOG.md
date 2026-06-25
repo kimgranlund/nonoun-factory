@@ -2,6 +2,19 @@
 
 All notable changes to **app-factory** are documented here.
 
+## [0.8.0] — 2026-06-25
+
+The dev-server made foolproof — hardened against sloppy use, verified by an internal eval flow.
+
+### Added
+- **`bin/app-reset.py`** — re-arm a project to ready-to-validate (preserve the authored corpus; rebuild `.factory` + tickets). Powers the UI's ↻ Reset and an eval. Selftested.
+- **Hardened `dev-server/serve.py`** — async, per-project-locked `POST /loop` that streams step progress over SSE (reload-safe; `409` on concurrent); `GET /run` state; `POST /reset`; `GET /file` (read-only, allowlisted, traversal-guarded); doc-aware change detection; friendly JSON errors (never a stack); `dispatchable`/`built`/blocked-reason in the detail contract.
+- **Foolproof UI** (`dev-server/ui/`) — a connection pill (live/reconnecting/disconnected) + offline banner; loading/empty states; **honest framing** ("Validate frontier" vs. "build with AI → `/app-loop` in a Claude Code session"); a live progress strip + clean terminal banner; an inline why-disabled hint; a guarded ↻ Reset; a results viewer (read-only build/spec files); friendly blocked cards with the reason + the fix.
+- **An internal eval flow** — `rubric/foolproof-ux.rubric.json` (8 dimensions) + `evals/run-evals.py` boots the server on fixtures and asserts 21 sloppy-user scenarios, scoring against the rubric. **21/21 scenarios, score 1.00.**
+
+### Fixed
+- The validate loop now dispatches only **built** tickets (unbuilt ones need AI building) and records a fail for a missing build, so it can no longer silently spin to its cap. `serve.py` reads the kernel's `block` object via `is_blocked`/`block_reason` (it had checked a non-existent `blocked` flag, so blocks were invisible).
+
 ## [0.7.0] — 2026-06-23
 
 M2: the keystone is **enforced**, not declared — a deny-on-write gate.
