@@ -88,7 +88,9 @@ jobs:
             python3 $PF/validate_plugin.py plugin dev-factory/$p
             python3 $PF/reference-lint.py dev-factory/$p
             python3 $PF/check-trust-boundary.py plugin dev-factory/$p
-            python3 $PF/check-integration-contract.py plugin dev-factory/$p
+            # --trusted-source: run the BEHAVIORAL hook check too — a bundled deny-capable hook (a narrow-perimeter
+            # gate) is only certified once its narrowness is EXECUTED, never on the static declared-namespace alone
+            python3 $PF/check-integration-contract.py plugin dev-factory/$p --trusted-source
             python3 $PF/check-manifest-sync.py dev-factory/$p          # version↔CHANGELOG + declared-count drift
             python3 $PF/context-cost.py plugin dev-factory/$p          # always-on context tax (the 0.2.0 council's ask)
           done

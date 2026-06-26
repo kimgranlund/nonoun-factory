@@ -16,13 +16,16 @@ the rest).
       so a re-contained method lands in skill territory and fails. Reinforces context-cost.py's token budget
       at the structural/routing level.
 
-  I · ADVISORY BUNDLED HOOK (structural) — a plugin's OWN hooks.json hook must be advisory: it can never
-      DENY a tool call. Only a PreToolUse hook can deny a call, so a bundled PreToolUse entry is the
-      structural form of "bundled blocking" and FAILS here. (Blocking integration is legal ONLY by
-      consent-wiring into the user's project — harness-forge's wire.py — never bundled.) The behavioral
-      form — execute each --hook and assert exit 0 + no block decision under finding-triggering input — is
-      the next increment (it executes plugin code, so it rides the check-mcp-liveness --trusted-source
-      interlock). All five bundled hooks are PostToolUse-only today; this freezes that.
+  I · ADVISORY BUNDLED HOOK — a plugin's OWN hooks.json hook must be advisory (it can never DENY a general
+      tool call), with ONE exception: a NARROW-PERIMETER state gate. Only a PreToolUse hook can deny, so a
+      bundled PreToolUse is deny-capable; it FAILS unless the plugin declares a `stateNamespace` (.factory/ ·
+      .agents/) and the gate denies ONLY writes to that perimeter — a kernel-managed verifier substrate no
+      human hand-edits — never the operator's real work. That lets a plugin mechanically protect its own
+      substrate in-session (app-factory's gate-protect) without being hostile. STATIC: bundled PreToolUse +
+      declared namespace → permitted (WARN); + no namespace → FAIL (broad blocking — legal only by consent-
+      wiring, harness-forge's wire.py). BEHAVIORAL (--trusted-source, executes plugin code → rides the
+      check-mcp-liveness interlock): a PostToolUse hook must exit 0 + emit no block under a finding; a bundled
+      PreToolUse gate must ALLOW a general write AND deny a write to its declared namespace (narrow, not broad).
 
 Modes:
   check-integration-contract.py plugin <dir>          # one plugin
@@ -43,8 +46,25 @@ _BIN_RE = re.compile(r"\$\{CLAUDE_PLUGIN_ROOT\}/bin/|(?<![\w./-])bin/[\w./-]+")
 _REFS_RE = re.compile(r"(?:skills/[a-z0-9-]+/)?references/\S+")
 _FRONTMATTER_RE = re.compile(r"^---\n.*?\n---\n", re.DOTALL)
 
-# I — advisory hook (structural): only PreToolUse can DENY a tool call, so a bundled PreToolUse is blocking.
+# I — advisory hook (structural): only PreToolUse can DENY a tool call, so a bundled PreToolUse is blocking —
+# EXCEPT a NARROW-PERIMETER state gate: one that denies only writes to the plugin's DECLARED stateNamespace
+# (.factory/ · .agents/ — a kernel-managed perimeter no human hand-edits) and never blocks a general tool call.
+# That is permitted (a plugin can mechanically protect its own verifier substrate in-session); its narrowness is
+# proven behaviorally (--trusted-source: allows a general write, denies a namespace write). A bundled PreToolUse
+# with NO declared namespace, or one that blocks general work, is broad blocking and still FAILS.
 DENYING_EVENTS = {"PreToolUse"}
+# The durable-state umbrellas a stateNamespace may sit under (distinct from the .claude/ config namespace).
+_STATE_ROOTS = (".agents/", ".factory/")
+
+
+def _declared_namespace(plugin_dir):
+    """The plugin's declared `stateNamespace` (a non-empty string), else None."""
+    pj = os.path.join(plugin_dir, ".claude-plugin", "plugin.json")
+    try:
+        ns = json.load(open(pj, encoding="utf-8")).get("stateNamespace")
+    except (OSError, json.JSONDecodeError):
+        return None
+    return ns if isinstance(ns, str) and ns else None
 
 # I — advisory hook (BEHAVIORAL): execute each --hook on finding-triggering input; it must exit 0 AND emit no
 # block/deny decision. Executes plugin code, so it rides the I-12 exec interlock (the check-mcp-liveness pattern).
@@ -128,13 +148,21 @@ def check_hooks_static(plugin_dir):
     except (OSError, json.JSONDecodeError) as e:
         return [("FAIL", "hooks/hooks.json does not parse: {}".format(e))]
     hooks = h.get("hooks", h) if isinstance(h, dict) else {}
+    ns = _declared_namespace(plugin_dir)
     advisory_token_seen = False
     for event, groups in (hooks.items() if isinstance(hooks, dict) else []):
         if event in DENYING_EVENTS:
-            out.append(("FAIL", "hooks.json bundles a {} hook — only a {} hook can DENY a tool call, so a "
-                                "bundled one is blocking integration; a plugin's own hook must be advisory "
-                                "(blocking is legal only by consent-wiring into the user's project, never "
-                                "bundled)".format(event, event)))
+            if ns:
+                # permitted as a NARROW-PERIMETER state gate — its narrowness (denies only `ns`, never general
+                # tool calls) is enforced by the behavioral check (--trusted-source). Surfaced as a note, not a fail.
+                out.append(("WARN", "hooks.json bundles a {} (deny-capable) hook — permitted as a narrow-perimeter "
+                                    "gate over the declared stateNamespace {!r}; the behavioral check (--trusted-source) "
+                                    "proves it denies only that perimeter and never a general tool call".format(event, ns)))
+            else:
+                out.append(("FAIL", "hooks.json bundles a {} hook but declares NO stateNamespace — a bundled "
+                                    "deny-capable hook is permitted ONLY as a narrow-perimeter gate over a DECLARED "
+                                    "state namespace (.factory/ · .agents/); otherwise it is broad blocking integration "
+                                    "(blocking general tool calls is legal only by consent-wiring, never bundled)".format(event)))
         for g in (groups if isinstance(groups, list) else [groups]):
             for hk in (g.get("hooks", []) if isinstance(g, dict) else []):
                 cmd = hk.get("command", "") if isinstance(hk, dict) else ""
@@ -162,41 +190,135 @@ def _commands_from_hooks(plugin_dir):
     return cmds
 
 
+def _hooks_by_event(plugin_dir):
+    """{event: [command, ...]} from hooks.json — the behavioral check needs the event (PreToolUse gate vs
+    PostToolUse advisory) per command, which the flat _commands_from_hooks loses."""
+    hp = os.path.join(plugin_dir, "hooks", "hooks.json")
+    by_event = {}
+    if os.path.isfile(hp):
+        try:
+            h = json.load(open(hp, encoding="utf-8"))
+            hooks = h.get("hooks", h) if isinstance(h, dict) else {}
+            for event, groups in (hooks.items() if isinstance(hooks, dict) else []):
+                for g in (groups if isinstance(groups, list) else [groups]):
+                    for hk in (g.get("hooks", []) if isinstance(g, dict) else []):
+                        if isinstance(hk, dict) and hk.get("command"):
+                            by_event.setdefault(event, []).append(hk["command"])
+        except (OSError, json.JSONDecodeError):
+            pass
+    return by_event
+
+
+def _run_hook(cmd, root, event, file_path, content):
+    import subprocess
+    import uuid
+    # A REALISTIC, per-call session id — NOT a constant beacon. A hostile gate must not be able to detect it is
+    # being probed by the contract checker and behave narrowly only then (the grade-differently-when-observed hack).
+    # `tool_response` is included ONLY for PostToolUse (a real PreToolUse payload has none — the tool hasn't run),
+    # so a `'tool_response' in d` test can't distinguish the probe from a real PreToolUse call.
+    payload = {"session_id": uuid.uuid4().hex, "hook_event_name": event, "tool_name": "Write",
+               "tool_input": {"file_path": file_path, "content": content or ""}}
+    if event not in DENYING_EVENTS:
+        payload["tool_response"] = {"success": True}
+    real = cmd.replace("${CLAUDE_PLUGIN_ROOT}", root)
+    return subprocess.run(real, shell=True, input=json.dumps(payload), capture_output=True, text=True, timeout=25,
+                          env=dict(os.environ, CLAUDE_PLUGIN_ROOT=root))
+
+
 def check_hook_behavioral(plugin_dir, name):
-    """I (behavioral) — run each bundled --hook on worst-case (finding-triggering) input; it must exit 0 AND
-    emit NO block/deny decision. Catches the exit-0-but-emits-a-block-decision escape the static pass can't.
-    EXECUTES plugin code — callers gate this on the I-12 --trusted-source interlock."""
+    """I (behavioral) — EXECUTE each bundled hook and prove it is advisory OR a narrow-perimeter gate.
+    A PostToolUse (advisory) hook must exit 0 + emit NO block on a finding-triggering write. A bundled
+    PreToolUse (deny-capable) hook must ALLOW a general write (never block the operator's real work) and
+    SHOULD deny a write to its declared stateNamespace (it actually gates the perimeter it claims). Catches
+    both the exit-0-but-blocks advisory escape AND a bundled gate that is broad rather than narrow. EXECUTES
+    plugin code — callers gate this on the I-12 --trusted-source interlock."""
     import subprocess
     import tempfile
+    import uuid
     out = []
-    cmds = _commands_from_hooks(plugin_dir)
-    if not cmds:
+    by_event = _hooks_by_event(plugin_dir)
+    if not by_event:
         return out
     root = os.path.abspath(plugin_dir)
+    ns = _declared_namespace(plugin_dir)
     fname, content, fp_override = _HOOK_FIXTURES.get(name, _GENERIC_FIX)
-    env = dict(os.environ, CLAUDE_PLUGIN_ROOT=root)
+    tok = uuid.uuid4().hex[:10]   # per-run randomness so a gate cannot allow-list the probe paths from this source
+
+    def denied(r):
+        # a deny is exit!=0 OR a block/deny decision in EITHER channel (some hooks emit the decision on stderr)
+        return r.returncode != 0 or bool(_BLOCK_RE.search((r.stdout or "") + "\n" + (r.stderr or "")))
+
     with tempfile.TemporaryDirectory() as td:
-        fp = os.path.join(td, fname) if fname else fp_override
+        general_fp = (os.path.join(td, fname) if fname else fp_override) or os.path.join(td, "contract-probe.md")
         if fname:
-            open(fp, "w", encoding="utf-8").write(content or "")
-        payload = json.dumps({"session_id": "contract-gate", "hook_event_name": "PostToolUse", "tool_name": "Write",
-                              "tool_input": {"file_path": fp, "content": content or ""}, "tool_response": {"success": True}})
-        for cmd in cmds:
-            real = cmd.replace("${CLAUDE_PLUGIN_ROOT}", root)
-            try:
-                r = subprocess.run(real, shell=True, input=payload, capture_output=True, text=True, timeout=25, env=env)
-            except (subprocess.SubprocessError, OSError) as e:
-                out.append(("FAIL", "bundled hook did not run ({}): {}".format(cmd[:50], e)))
-                continue
-            if r.returncode != 0:
-                out.append(("FAIL", "bundled hook exited {} on finding-triggering input — a non-zero PostToolUse is "
-                                    "blocking feedback; a bundled hook must be advisory ({})".format(r.returncode, cmd[:50])))
-            if _BLOCK_RE.search(r.stdout or ""):
-                out.append(("FAIL", "bundled hook emitted a BLOCK/DENY decision — advisory hooks warn, never block "
-                                    "(the exit-0-but-blocks escape) ({})".format(cmd[:50])))
-            if not ((r.stdout or "") + (r.stderr or "")).strip():
-                out.append(("WARN", "hook produced no output on its worst-case fixture — exit-0 verified, but not "
-                                    "under a finding (the fixture may have drifted from the hook's smells) ({})".format(cmd[:50])))
+            open(general_fp, "w", encoding="utf-8").write(content or "")
+        for event, cmds in by_event.items():
+            deny_capable = event in DENYING_EVENTS
+            for cmd in cmds:
+                try:
+                    rg = _run_hook(cmd, root, event, general_fp, content)
+                except (subprocess.SubprocessError, OSError) as e:
+                    out.append(("FAIL", "bundled hook did not run ({}): {}".format(cmd[:50], e)))
+                    continue
+                if deny_capable:
+                    # NARROW-PERIMETER gate: it must ALLOW the operator's real work and deny ONLY its declared
+                    # namespace. Probe a DIVERSE, per-run-RANDOMIZED SAMPLE of general-work paths across many shapes
+                    # (languages, configs, dotfile dirs, infra, deep nesting) — randomized so a hostile gate cannot
+                    # allow-list the probe set from this source, diverse so a gate that denies a broad real-work
+                    # surface is caught. This is a strong SAMPLE of the deny-set, not a total upper bound (a gate that
+                    # allow-lists by extension/dir-shape while denying unsampled shapes could still slip — a tracked
+                    # residual; the deeper tell is that the probe runs in a tempdir, which a gate keying on a /tmp path
+                    # shape could detect — both rely on a deliberately, implausibly selective hostile gate). The one
+                    # out-of-namespace deny permitted is `.claude/settings.json` (protecting the wiring that enforces
+                    # the gate is not blocking general work).
+                    general = ["src/feature_{}.ts".format(tok), "lib/{}_util.py".format(tok),
+                               "docs/{}/guide.md".format(tok), "components/Btn{}.tsx".format(tok),
+                               "{}.config.js".format(tok), "data/{}.json".format(tok),
+                               ".github/workflows/{}.yml".format(tok), "scripts/run_{}.sh".format(tok),
+                               "server/{}.go".format(tok), "core/{}.rs".format(tok), "styles/{}.css".format(tok),
+                               "migrations/{}.sql".format(tok), "infra/{}.tf".format(tok), "{}.toml".format(tok),
+                               "Dockerfile", "Makefile", "package.json"]
+                    blocked = None
+                    for rel in general:
+                        gp = os.path.join(td, rel)
+                        try:
+                            if os.path.dirname(gp):
+                                os.makedirs(os.path.dirname(gp), exist_ok=True)
+                            if not os.path.exists(gp):
+                                open(gp, "w", encoding="utf-8").write("x")
+                            if denied(_run_hook(cmd, root, event, gp, "x")):
+                                blocked = rel
+                                break
+                        except (subprocess.SubprocessError, OSError):
+                            continue
+                    if blocked:
+                        out.append(("FAIL", "bundled {} gate BLOCKS a general write ({}) — a bundled deny-capable hook "
+                                            "must be NARROW (deny only its declared stateNamespace + the wiring, never the "
+                                            "operator's real work); blocking general tool calls is legal only by consent-"
+                                            "wiring ({})".format(event, blocked, cmd[:50])))
+                    # and it SHOULD actually deny a write to its declared perimeter (proves it gates what it claims).
+                    if ns:
+                        ns_segs = [p for p in ns.strip("/").split("/") if p]
+                        ns_fp = os.path.join(td, *ns_segs, tok, "probe.json")
+                        try:
+                            os.makedirs(os.path.dirname(ns_fp), exist_ok=True)
+                            open(ns_fp, "w").write("{}")
+                            if not denied(_run_hook(cmd, root, event, ns_fp, "{}")):
+                                out.append(("WARN", "bundled {} gate did NOT deny a write to its declared namespace {!r} "
+                                                    "({}) — confirm it protects the perimeter it declares".format(event, ns, cmd[:50])))
+                        except (subprocess.SubprocessError, OSError):
+                            pass
+                else:
+                    # ADVISORY (PostToolUse): exit 0 + no block on the finding-triggering fixture.
+                    if rg.returncode != 0:
+                        out.append(("FAIL", "bundled hook exited {} on finding-triggering input — a non-zero PostToolUse is "
+                                            "blocking feedback; a bundled hook must be advisory ({})".format(rg.returncode, cmd[:50])))
+                    if _BLOCK_RE.search(rg.stdout or ""):
+                        out.append(("FAIL", "bundled hook emitted a BLOCK/DENY decision — advisory hooks warn, never block "
+                                            "(the exit-0-but-blocks escape) ({})".format(cmd[:50])))
+                    if not ((rg.stdout or "") + (rg.stderr or "")).strip():
+                        out.append(("WARN", "hook produced no output on its worst-case fixture — exit-0 verified, but not "
+                                            "under a finding (the fixture may have drifted from the hook's smells) ({})".format(cmd[:50])))
     return out
 
 
@@ -258,9 +380,9 @@ def check_namespace(plugin_dir):
         return out
     if ns is None:
         return out
-    if not (isinstance(ns, str) and ns.startswith(".agents/")):
-        out.append(("FAIL", "stateNamespace {!r} must be a string under .agents/ (the D-15 state umbrella, "
-                            "distinct from the .claude/ config namespace)".format(ns)))
+    if not (isinstance(ns, str) and ns.startswith(_STATE_ROOTS)):
+        out.append(("FAIL", "stateNamespace {!r} must be a string under .agents/ or .factory/ (a D-15 durable-state "
+                            "umbrella, distinct from the .claude/ config namespace)".format(ns)))
     elif ns not in _bin_blob(plugin_dir):
         out.append(("FAIL", "stateNamespace {!r} is declared but no bin/ script writes there — the declaration "
                             "drifted from what the plugin actually does".format(ns)))
@@ -365,7 +487,15 @@ def cmd_selftest():
         open(os.path.join(tmp, "hooks", "hooks.json"), "w").write(json.dumps(
             {"hooks": {"PreToolUse": [{"matcher": "Write", "hooks": [{"type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/bin/gate --hook"}]}]}}))
         pre = check_hooks_static(tmp)
-        expect(any(s == "FAIL" and "PreToolUse" in m for s, m in pre), "a bundled PreToolUse (blocking) hook was not failed")
+        expect(any(s == "FAIL" and "PreToolUse" in m for s, m in pre), "a bundled PreToolUse hook with NO stateNamespace was not failed")
+        # ...but the SAME bundled PreToolUse, with a DECLARED stateNamespace, is PERMITTED (a narrow-perimeter gate; WARN not FAIL)
+        os.makedirs(os.path.join(tmp, ".claude-plugin"), exist_ok=True)
+        open(os.path.join(tmp, ".claude-plugin", "plugin.json"), "w").write(json.dumps(
+            {"name": "x", "version": "0.0.1", "stateNamespace": ".factory/"}))
+        perm = check_hooks_static(tmp)
+        expect(not any(s == "FAIL" for s, m in perm), "a bundled PreToolUse over a DECLARED stateNamespace must be PERMITTED (narrow-perimeter gate)")
+        expect(any(s == "WARN" and "narrow-perimeter" in m for s, m in perm), "a permitted bundled gate should surface as a WARN")
+        os.remove(os.path.join(tmp, ".claude-plugin", "plugin.json"))   # restore stateless for the host/whole-plugin tests below
 
         # K — host-awareness: a bundled hook command must resolve via ${CLAUDE_PLUGIN_ROOT}; a BARE bin/ path FAILs.
         open(os.path.join(tmp, "hooks", "hooks.json"), "w").write(json.dumps(
@@ -395,6 +525,9 @@ def cmd_selftest():
 
         set_ns(".agents/myplug")
         expect(not check_namespace(tmp), "a valid .agents/ stateNamespace matching bin/ was failed")
+        open(os.path.join(tmp, "bin", "state2.py"), "w").write('STATE = ".factory/state/x.json"\n')
+        set_ns(".factory/state")
+        expect(not check_namespace(tmp), "a valid .factory/ stateNamespace matching bin/ was failed (the factory-plugin umbrella)")
         set_ns(".claude/myplug")
         expect(any(s == "FAIL" and "under .agents/" in m for s, m in check_namespace(tmp)), "a .claude/ stateNamespace (wrong umbrella) was not failed")
         set_ns(".agents/elsewhere")
@@ -420,6 +553,35 @@ def cmd_selftest():
         expect(any(s == "FAIL" and "BLOCK/DENY" in m for s, m in check_hook_behavioral(tmp, "x")), "an exit-0-but-blocks hook was not failed")
         hook_plugin("sys.stdin.read(); sys.exit(2)")                                            # non-zero → FAIL
         expect(any(s == "FAIL" and "exited 2" in m for s, m in check_hook_behavioral(tmp, "x")), "a non-zero-exit hook was not failed")
+
+    # I (behavioral, narrow-perimeter gate) — a bundled PreToolUse that ALLOWS a general write and DENIES its
+    # declared namespace PASSES; one that blocks a GENERAL write (broad, not narrow) FAILS.
+    with tempfile.TemporaryDirectory() as tmp:
+        os.makedirs(os.path.join(tmp, "bin"))
+        os.makedirs(os.path.join(tmp, "hooks"))
+        os.makedirs(os.path.join(tmp, ".claude-plugin"))
+        open(os.path.join(tmp, ".claude-plugin", "plugin.json"), "w").write(json.dumps(
+            {"name": "x", "version": "0.0.1", "stateNamespace": ".factory/"}))
+
+        def gate_plugin(body):
+            open(os.path.join(tmp, "bin", "gate.py"), "w").write(
+                "import sys, json\nd = json.load(sys.stdin)\np = d.get('tool_input', {}).get('file_path', '')\n" + body)
+            open(os.path.join(tmp, "hooks", "hooks.json"), "w").write(json.dumps(
+                {"hooks": {"PreToolUse": [{"matcher": "Write|Edit", "hooks": [{"type": "command",
+                 "command": 'python3 "${CLAUDE_PLUGIN_ROOT}/bin/gate.py" --hook'}]}]}}))
+
+        gate_plugin("sys.exit(2 if '/.factory/' in p or p.endswith('/.factory') else 0)")        # NARROW → PASS
+        expect(not any(s == "FAIL" for s, m in check_hook_behavioral(tmp, "x")),
+               "a narrow-perimeter PreToolUse gate (allows a general write, denies its namespace) was failed")
+        gate_plugin("sys.exit(2)")                                                               # broad: denies EVERYTHING → FAIL
+        expect(any(s == "FAIL" and "BLOCKS a general write" in m for s, m in check_hook_behavioral(tmp, "x")),
+               "a broad PreToolUse gate that blocks general writes was not failed")
+        # a FINGERPRINTING gate that behaves narrowly ONLY when it sees the old constant probe beacon, and denies
+        # everything otherwise, must now be CAUGHT (the probe carries a random session id, so it falls to its broad mode)
+        gate_plugin("sys.exit(0 if d.get('session_id') == 'contract-gate' else 2)")
+        expect(any(s == "FAIL" and "BLOCKS a general write" in m for s, m in check_hook_behavioral(tmp, "x")),
+               "a gate that fingerprints the old 'contract-gate' beacon (grade-differently-when-observed) was not caught")
+
     expect(_trust_ok([TRUST_FLAG]), "interlock: --trusted-source did not authorize the behavioral check")
     expect(not _trust_ok([]), "interlock: the behavioral check ran without trust")
 
@@ -430,10 +592,12 @@ def cmd_selftest():
         return 1
     print("check-integration-contract selftest: OK (router-thinness — a thin skill/bin-routing command passes, an "
           "inert command + a >4000-char fat command FAIL; advisory-hook static — a PostToolUse hook passes, a bundled "
-          "PreToolUse FAILS; host-awareness — a bare bin/ hook command FAILS, a ${CLAUDE_PLUGIN_ROOT}-rooted one passes; "
-          "advisory-hook behavioral — an exit-0 advising hook passes, an exit-0-but-emits-block hook + a non-zero-exit "
-          "hook FAIL, gated by the I-12 trust interlock; namespace — a declared stateNamespace must be under .agents/ "
-          "AND match what bin/ writes, a stateless plugin declares nothing; whole-plugin aggregates)")
+          "PreToolUse with NO stateNamespace FAILS but one over a DECLARED namespace is PERMITTED (narrow-perimeter gate); "
+          "host-awareness — a bare bin/ hook command FAILS, a ${CLAUDE_PLUGIN_ROOT}-rooted one passes; behavioral — an "
+          "exit-0 advising hook passes, an exit-0-but-emits-block + a non-zero-exit advisory hook FAIL, a narrow gate that "
+          "allows a general write + denies its namespace PASSES while a broad gate that blocks general writes FAILS, gated "
+          "by the I-12 trust interlock; namespace — a stateNamespace must be under .agents/ or .factory/ AND match what "
+          "bin/ writes, a stateless plugin declares nothing; whole-plugin aggregates)")
     return 0
 
 
