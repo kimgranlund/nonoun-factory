@@ -1,0 +1,9 @@
+{
+  "note": "The labeled exemplar set rubric-check.py runs the pattern-quality gate (bin/pattern-check.py) against, to PROVE the gate discriminates. One gate-clean pattern (a context + transferable solution shape + consequences + two ledger refs + a refutation condition) the gate must PASS, and three planted defects it must REJECT — each removing exactly one load-bearing property (provenance, falsifiability, structured shape). A hollow gate that waved any of these through would FAIL this meta-verification.",
+  "exemplars": [
+    { "file": "good/fail-closed-arming.md", "expect": "pass" },
+    { "file": "defect/no-provenance.md", "expect": "fail", "dimension": "provenance-present" },
+    { "file": "defect/not-falsifiable.md", "expect": "fail", "dimension": "falsifiable" },
+    { "file": "defect/prose-only.md", "expect": "fail", "dimension": "schema-valid" }
+  ]
+}

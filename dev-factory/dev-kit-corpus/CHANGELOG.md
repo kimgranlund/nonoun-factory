@@ -2,6 +2,32 @@
 
 All notable changes to **dev-kit-corpus** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.3.1] — 2026-06-25
+
+### Changed (the rubric meta-verifier earns its teeth — harness-council verifier-integrity CRITICAL)
+
+- **`bin/rubric-check.py` rewritten from a substring scan to a demonstrated-teeth check.** A rubric cell's
+  `validated` signal is minted from this meta-verifier's exit status, so the loop's legitimacy rests on it.
+  The old cut string-matched for `[gate]`/`pristine`/`calibration` ANYWHERE in the rubric JSON, so a rubric
+  with the *words* and no real gate passed — a presence-predicate posing as calibration (promoted from latent
+  to blocking once the autonomous triager began binding rubrics unattended). It now **runs the rubric's
+  mechanized gate against a labeled exemplar set** and requires it to DISCRIMINATE: reject the planted-defect
+  exemplars (on their named dimension), pass the gate-clean ones, deterministically (run-twice), spanning both
+  outcomes. Labels are checked against real gate behavior, never trusted — a hollow gate that passes everything
+  fails the `fail` exemplars; an all-`pass` set fails the span requirement.
+- **Reward-hacking hardening (council H3):** the exemplar set is bound to the rubric's own cell-id slug (no
+  borrowing another rubric's proven set), exemplar paths are plugin-root-contained (no `..`/absolute escape to
+  worker-writable instance state), and the gate must resolve to a real plugin `bin/` script (no arbitrary
+  command). The exemplar sets are plugin-static — combined with the kernel's kit write-protection (dev-kernel
+  0.2.28), a runtime worker cannot author a rubric AND forge its own passing calibration.
+- **New labeled exemplar sets** under `rubric/exemplars/{spec,prd,pattern}-quality/`: spec/prd reference the
+  `spec-review-calibration` fixtures (the gate is `spec-quality-check.py`); pattern uses authored good/defect
+  exemplars (each defect removes one load-bearing property: provenance, falsifiability, structured shape).
+  prd-quality gains a `calibration` block + `pristine_reference`.
+- **New eval `evals/rubric-teeth/`** (CI-wired): every shipped rubric PASSES its meta-verifier with demonstrated
+  teeth, and a shape-only rubric is REJECTED — the falsifiable proof the presence-predicate hole stays closed.
+- Native (no kernel edit; `check-kit-conform` clean). plugin.json 0.3.0 → 0.3.1.
+
 ## [0.3.0] — 2026-06-15
 
 ### Added

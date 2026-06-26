@@ -1,0 +1,12 @@
+{
+  "note": "The labeled exemplar set rubric-check.py runs the spec-quality gate (bin/spec-quality-check.py) against, to PROVE the gate discriminates. The planted-defect specs (expect: fail) are the same fixtures the spec-review-calibration eval uses to prove the gate has teeth on each named dimension; the gate-clean specs (expect: pass) are that eval's council fixtures (mechanically sound; only a judgment defect a critic catches). Referenced by relative path — not copied — so the rubric's calibration and the eval's teeth proof can never drift. A hollow gate that waved a defect through would FAIL this meta-verification.",
+  "exemplars": [
+    { "file": "../../../evals/spec-review-calibration/fixtures/gate/prose-only-criterion.md", "expect": "fail", "dimension": "criteria-checkable" },
+    { "file": "../../../evals/spec-review-calibration/fixtures/gate/no-non-goals.md", "expect": "fail", "dimension": "non-goals-present" },
+    { "file": "../../../evals/spec-review-calibration/fixtures/gate/wrong-layer.md", "expect": "fail", "dimension": "not a spec" },
+    { "file": "../../../evals/spec-review-calibration/fixtures/gate/unsound-decomposition.md", "expect": "fail", "dimension": "decomposition-entailment" },
+    { "file": "../../../evals/spec-review-calibration/fixtures/council/hackable-criterion.md", "expect": "pass" },
+    { "file": "../../../evals/spec-review-calibration/fixtures/council/incomplete-coverage.md", "expect": "pass" },
+    { "file": "../../../evals/spec-review-calibration/fixtures/council/weak-entailment.md", "expect": "pass" }
+  ]
+}

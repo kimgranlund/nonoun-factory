@@ -1,0 +1,10 @@
+{
+  "note": "The labeled exemplar set rubric-check.py runs the prd-quality gate (bin/spec-quality-check.py — a PRD is a contract-bearing spec artifact) against, to PROVE the gate discriminates on the dimensions a PRD relies on: schema-valid, user-acceptance-checkable (= criteria-checkable), non-goals-present. Reuses the spec-review-calibration fixtures that exercise exactly those mechanical gates (referenced, not copied — no drift); the unsound-decomposition fixture is omitted as a PRD declares no decomposition. The outside-in product judgment is the [review] half, not the mechanical gate proven here.",
+  "exemplars": [
+    { "file": "../../../evals/spec-review-calibration/fixtures/gate/prose-only-criterion.md", "expect": "fail", "dimension": "criteria-checkable" },
+    { "file": "../../../evals/spec-review-calibration/fixtures/gate/no-non-goals.md", "expect": "fail", "dimension": "non-goals-present" },
+    { "file": "../../../evals/spec-review-calibration/fixtures/gate/wrong-layer.md", "expect": "fail", "dimension": "not a spec" },
+    { "file": "../../../evals/spec-review-calibration/fixtures/council/hackable-criterion.md", "expect": "pass" },
+    { "file": "../../../evals/spec-review-calibration/fixtures/council/incomplete-coverage.md", "expect": "pass" }
+  ]
+}

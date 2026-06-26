@@ -81,6 +81,35 @@ REFUTE_AUTHOR = [g for g in VERIFIER if g != f"{NS}/coordination/verify-spec/*"]
 TRIAGE_AUTHOR = [g for g in VERIFIER if g != f"{NS}/coordination/triage/*"] + ["*/index.mjs"]
 
 
+def _kit_roots():
+    """The bound KIT source tree(s), RAW as the worker references them — the verifier SUBSTRATE (gate scripts in
+    bin/, the rubrics + their calibration exemplars, kit.json, the schemas) a worker READS to RUN its gates but
+    must never WRITE. From DEV_FACTORY_KIT, the same env that gates the worker's `--add-dir <kit>` (dispatch) — so
+    this deny is active exactly when the kit is reachable, and absent (harmlessly) when no kit is bound. Raw (not
+    realpath'd) so command substring matching sees the path as the worker wrote it; _under_kit realpaths for
+    containment. May be os.pathsep-joined."""
+    raw = os.environ.get("DEV_FACTORY_KIT") or ""
+    return [k for k in raw.split(os.pathsep) if k.strip()]
+
+
+def _under_kit(path):
+    """True iff a write target resolves INSIDE a bound kit tree. The kit is `--add-dir`'d to the worker for READ
+    (DF-4: run the real gate, don't self-attest) under `acceptEdits`, but no worker authors the kit — so a write
+    there is a worker filing the teeth off its own verifier (rubric-check.py / the gate scripts / the exemplars).
+    Resolved against cwd (the worker runs in project_root); both sides realpath'd so a symlinked root matches."""
+    if not path:
+        return False
+    ap = os.path.realpath(path if os.path.isabs(path) else os.path.join(os.getcwd(), path))
+    for root in _kit_roots():
+        try:
+            rroot = os.path.realpath(root)
+            if os.path.commonpath([rroot, ap]) == rroot:
+                return True
+        except ValueError:        # different drives / mixed abs+rel
+            continue
+    return False
+
+
 def is_protected(path, globs):
     """True if `path` matches a protected glob at a path-segment boundary (root-relative or after any
     `/`) — never on a bare basename, so a user's own docs/lattice.json stays writable."""
@@ -145,10 +174,18 @@ def path_gate_verdict(tool, path, command, globs, what):
     inspect."""
     if tool is None:
         return False, "unparseable PreToolUse payload; failing closed (the gate cannot verify the write target, so it must not allow)"
+    # The bound KIT is read-only to every worker boundary (it RUNS the gates, never edits them) — checked first +
+    # universally, so a worker cannot neuter rubric-check.py / a gate script / an exemplar manifest to forge a pass.
+    if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit") and _under_kit(path):
+        return False, (f"{path} is inside the bound KIT verifier substrate (gate scripts, rubrics, calibration "
+                       f"exemplars, schemas). The kit is read-only to a worker — it runs the gates, never edits them")
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit") and is_protected(path, globs):
         return False, (f"{path} is a protected {what} (immutable boundary). "
                        f"Only the validation path / single-writer server may write it")
     if tool == "Bash" and command:
+        for root in _kit_roots():
+            if root in command and any(v in command for v in _BASH_WRITE_VERBS):
+                return False, f"shell command writes inside the bound KIT ({root}) — the verifier substrate is read-only"
         for g in globs:
             base = g.replace("/*", "").replace("*", "")
             if base and base in command and any(v in command for v in _BASH_WRITE_VERBS):
@@ -222,10 +259,35 @@ def _selftest_path_gate(name, globs, what):
             fails.append("REFUTE_AUTHOR must ALLOW the verify-spec and DENY verify.mjs (it writes the oracle source, never the gate)")
         if not (is_protected(barrel, globs) and is_protected(refsc, globs) and is_protected(sig, globs)):
             fails.append("REFUTE_AUTHOR must still deny the barrel, the refuter sidecars, and signals")
+    # the bound KIT is read-only to a worker — a write under DEV_FACTORY_KIT is denied (the verifier substrate
+    # can't be tampered to forge a pass), while a write OUTSIDE it (and with no kit bound) is unaffected.
+    import tempfile
+    saved_kit = os.environ.get("DEV_FACTORY_KIT")
+    try:
+        with tempfile.TemporaryDirectory() as kit:
+            os.environ["DEV_FACTORY_KIT"] = kit
+            if path_gate_verdict("Edit", os.path.join(kit, "bin", "rubric-check.py"), "", globs, what)[0]:
+                fails.append("a worker Edit INSIDE the bound kit (a verifier script) was allowed — the kit must be read-only")
+            if path_gate_verdict("Bash", None, f"sed -i s/x/y/ {os.path.join(kit, 'bin', 'g.py')}", globs, what)[0]:
+                fails.append("a Bash write inside the bound kit was allowed")
+            if not path_gate_verdict("Edit", os.path.join(os.path.dirname(kit), "outside.py"), "", globs, what)[0] \
+                    and not is_protected(os.path.join(os.path.dirname(kit), "outside.py"), globs):
+                fails.append("a write OUTSIDE the kit (and not otherwise protected) was wrongly denied as kit")
+        os.environ.pop("DEV_FACTORY_KIT", None)
+        if not path_gate_verdict("Edit", "/some/plugin/bin/x.py", "", globs, what)[0] \
+                and not is_protected("/some/plugin/bin/x.py", globs):
+            fails.append("with NO kit bound, a non-protected path was wrongly denied (kit deny must be inert)")
+    finally:
+        if saved_kit is None:
+            os.environ.pop("DEV_FACTORY_KIT", None)
+        else:
+            os.environ["DEV_FACTORY_KIT"] = saved_kit
+
     if fails:
         sys.stderr.write(f"{name} selftest: FAIL\n")
         for f in fails:
             sys.stderr.write(f"  - {f}\n")
         return 1
-    print(f"{name} selftest: OK (denies a worker write to a protected {what}; leaves user paths writable)")
+    print(f"{name} selftest: OK (denies a worker write to a protected {what} AND to the bound kit verifier substrate; "
+          "leaves user paths writable)")
     return 0
