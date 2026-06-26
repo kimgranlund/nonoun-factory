@@ -35,8 +35,17 @@ Installable plugin; vendored spine selftests green; `/app-new` scaffolds a corpu
 - **C3 — the plain loop closes stale-but-trusted.** `app-loop.py` recomputes staleness first (edited spec → tickets cascade `stale`, un-dispatchable); `app-regen.py` removes the stale build artifact; `app-distill.py` ages superseded patterns to `stale`.
 - The eval now tests WIRING (gate wired + denies), CALIBRATION (tautology bar rejected), and the loop's staleness recompute — `evals/run-outerloop-evals.py` **22/22, 1.00**.
 
+## 0.11.0 (done) — keystone integrity, hardened (the confirmation pass)
+- **Re-ran the same three critics on the FIXED v0.10.0** (the discipline: don't trust a fix on its author's own green eval). They found the closures were partial. Hardened:
+- **C2 deeper** — teeth catches `exit 0` but not `import thing; exit 0`. The rubric now mints **`instantiated`** (teeth-checked, non-trivial), and only an explicit **`--seal`** (entailment-critic + human) promotes it to `validated`; the loop refuses a teeth-only verifier. This enforces the documented human-seal instead of rubber-stamping it.
+- **C1 honesty** — the `Write|Edit` gate binds the executor (`app-worker`, no Bash); the Bash-carrying critics are trusted-by-role, not gated. The claim is narrowed to match (hooks.json, eval, docs).
+- **C3** — a vanished committed spec now cascades stale.
+- Eval hardened: `keystone-teeth-not-validated` · `keystone-teeth-undispatchable` · `keystone-seal-validates` → **25/25, 1.00**.
+- **Named, not hidden:** the QA plan isn't yet a lattice cell (manual re-emit); transitive staleness is caught at rebuild by `check()`, not at edit time; mechanical Bash-write protection awaits a kernel change (the kernel is drift-checked against harness-forge).
+
 ## Next (M2 remainder)
-- **Calibrate the verifiers further** — vendor/adapt dev-kernel's `evals/calibration` so the entailment-critic's fidelity check and the rubrics are calibrated (the bar-teeth floor is the deterministic half; agreement-calibration is the rest).
+- **Calibrate the verifiers further** — vendor/adapt dev-kernel's `evals/calibration` so the entailment-critic's fidelity check and the rubrics are calibrated (the bar-teeth floor + the human seal are the deterministic/judgement halves; agreement-calibration is the rest).
+- **Make the QA plan a tracked cell** so a spec edit cascades staleness to it (closes the named limitation).
 - **Vendor the full dev-kernel authoring rigor** (spec-author discipline, the spec-council lens critics, `gate-ticket-ready`) behind the live deriver/critic/refuter agents.
 
 ## Later

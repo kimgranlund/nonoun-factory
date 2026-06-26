@@ -55,7 +55,8 @@ def build(proj):
     open(os.path.join(proj, "spec", "bars", "t1.py"), "w").write(TEETH_BAR)
     open(os.path.join(proj, "build", "thing.py"), "w").write("ok = True\n")
     open(os.path.join(proj, "spec", "cli.md"), "w").write(SPEC1)
-    subprocess.run([PY, os.path.join(BIN, "app-commit.py"), proj, "spec/cli.md"], capture_output=True)
+    # --seal: simulate the entailment-critic + human seal so the rubric is `validated` and the loop can run
+    subprocess.run([PY, os.path.join(BIN, "app-commit.py"), proj, "spec/cli.md", "--seal"], capture_output=True)
     subprocess.run([PY, os.path.join(KERNEL, "validate.py"), "ontology.task.domain", "--dir", state, "--harness", "x",
                     "--", PY, "-c", "import sys; sys.exit(0)"], capture_output=True)
     subprocess.run([PY, os.path.join(KERNEL, "validate.py"), "capability.task.thing", "--dir", state, "--harness", "x",
@@ -146,6 +147,22 @@ def run_scenarios(tmp):
     open(os.path.join(kp, "spec", "cli.md"), "w").write(SPEC1)
     rct, msgt = COMMIT.crystallize(kp, "spec/cli.md")
     ok("keystone-bar-teeth", rct == 1 and "TEETH" in msgt.upper())
+    # C2 (deeper) — an import-only bar (has teeth via ImportError, but asserts NO behaviour) must mint the
+    # rubric `instantiated`, NOT `validated`: the loop can't auto-trust a bar that merely imports the build.
+    kp2 = os.path.join(tmp, "kteeth2")
+    subprocess.run([PY, os.path.join(BIN, "app-new.py"), "kteeth2", "--into", tmp], capture_output=True)
+    os.makedirs(os.path.join(kp2, "spec", "bars"), exist_ok=True)
+    open(os.path.join(kp2, "spec", "bars", "t1.py"), "w").write(   # import-only: teeth, tests nothing
+        "import os, sys\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\nimport thing\nsys.exit(0)\n")
+    open(os.path.join(kp2, "spec", "cli.md"), "w").write(SPEC1)
+    COMMIT.crystallize(kp2, "spec/cli.md")                          # NO --seal
+    kp2_state = os.path.join(kp2, ".factory", "state")
+    rub = next((c for c in _lat.load(kp2_state)["cells"] if c["layer"] == "rubric" and c["slug"] == "thing"), None)
+    ok("keystone-teeth-not-validated", rub is not None and rub["maturity"] == "instantiated")
+    ok("keystone-teeth-undispatchable", not LOOP.dispatchable(_lat.load(kp2_state), kp2))   # loop won't run it
+    COMMIT.crystallize(kp2, "spec/cli.md", seal=True)              # the entailment seal
+    rub2 = next((c for c in _lat.load(kp2_state)["cells"] if c["layer"] == "rubric" and c["slug"] == "thing"), None)
+    ok("keystone-seal-validates", rub2 is not None and rub2["maturity"] == "validated")
     # C3a — editing a committed spec then running the LOOP (NOT /app-regenerate) cascades the ticket stale
     lp = os.path.join(tmp, "kstale")
     lstate = build(lp)

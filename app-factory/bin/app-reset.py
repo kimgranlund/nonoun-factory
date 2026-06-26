@@ -58,7 +58,9 @@ def reset(project):
     specdir = os.path.join(project, "spec")
     for f in sorted(os.listdir(specdir)) if os.path.isdir(specdir) else []:
         if f.endswith(".md") and os.path.isfile(os.path.join(specdir, f)):
-            c = subprocess.run([sys.executable, os.path.join(HERE, "app-commit.py"), project, f"spec/{f}"],
+            # --seal: reset RESTORES a previously committed+sealed project to loop-ready, so it re-applies
+            # the entailment seal the human had already given (not a fresh certification — a restore).
+            c = subprocess.run([sys.executable, os.path.join(HERE, "app-commit.py"), project, f"spec/{f}", "--seal"],
                                capture_output=True, text=True)
             if c.returncode == 0:
                 committed.append(f)

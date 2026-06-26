@@ -49,14 +49,14 @@
     {
       "id": "keystone-enforcement",
       "weight": 1,
-      "description": "The deny gate is WIRED always-on in the plugin hooks.json (not just that its logic works), it DENIES a forged write to the .factory verifier substrate (exit 2 via the hook protocol), and it ALLOWS a legitimate worker write to build/ — the keystone holds on the built code, not in prose.",
+      "description": "The deny gate is WIRED always-on in the plugin hooks.json (not just that its logic works), DENIES a forged Write/Edit to the .factory verifier substrate (exit 2 via the hook protocol), and ALLOWS a legitimate worker write to build/. SCOPE (honest): this gate covers the Write/Edit-only EXECUTOR (app-worker); the independent Bash-carrying critics (validator/refuter/distiller) are constrained by role-separation + the validate path, not by this Write/Edit hook — the keystone is mechanical for the executor and trusted-by-role for the critics.",
       "gated_by": ["keystone-gate-wired", "keystone-gate-denies", "keystone-build-allowed"]
     },
     {
       "id": "verifier-calibration",
       "weight": 1,
-      "description": "A tautology bar (one that passes against an empty build) is REJECTED at commit by the calibration floor — a hollow bar is never minted `validated`, so the loop can't optimize against a presence-check.",
-      "gated_by": ["keystone-bar-teeth"]
+      "description": "Honest verifier minting: a tautology bar (passes against an empty build) is REJECTED at commit by the teeth floor; a teeth-passing-but-unsealed bar (import-only — has teeth, asserts no behaviour) is minted `instantiated` NOT `validated`, so the loop won't auto-trust it (un-dispatchable); only the explicit entailment seal (--seal: entailment-critic + human) promotes it to `validated`. The deterministic path never claims more than teeth.",
+      "gated_by": ["keystone-bar-teeth", "keystone-teeth-not-validated", "keystone-teeth-undispatchable", "keystone-seal-validates"]
     }
   ]
 }

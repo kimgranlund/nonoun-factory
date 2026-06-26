@@ -48,7 +48,9 @@ def fixture(root, name, built=True, commit=True, ok=True):
         open(os.path.join(proj, "spec", "cli.md"), "w").write(SPEC)
         if built:
             open(os.path.join(proj, "build", "thing.py"), "w").write(f"ok = {ok}\n")
-        sh(PY, os.path.join(BIN, "app-commit.py"), proj, "spec/cli.md")
+        # --seal: these fixtures simulate a committed+sealed project (entailment-critic + human seal done),
+        # so the rubrics are `validated` and the loop can dispatch them; an unsealed rubric is `instantiated`.
+        sh(PY, os.path.join(BIN, "app-commit.py"), proj, "spec/cli.md", "--seal")
         state = os.path.join(proj, ".factory", "state")
         sh(PY, os.path.join(KERNEL, "validate.py"), "ontology.task.domain", "--dir", state,
            "--harness", "x", "--", PY, "-c", "import sys; sys.exit(0)")

@@ -10,12 +10,17 @@ crystallizer:
   2. mints the spec cell to `validated` through the REAL signal path — `validate.py` with the gate as the
      verifier — so the spec's own doneness is an independent signal, not an assertion
   3. decomposes the contract into, per ticket: a draft ticket file, a `capability` cell (depends_on the
-     spec, verifier = a per-ticket rubric), a `rubric` cell minted `validated` by a certification signal —
-     gated DETERMINISTICALLY by a bar-teeth check (the sealed bar must FAIL against an empty build, so a
-     tautology / presence-check bar is rejected, not rubber-stamped), and HONEST that the full entailment-
-     to-prose fidelity is certified by the live entailment-critic + human seal, not by this script — and
-     the spec→ticket edge stamped with the spec's content hash (so a later regeneration cascades staleness)
+     spec, verifier = a per-ticket rubric), and a `rubric` cell. The rubric is gated DETERMINISTICALLY by a
+     bar-teeth check (the sealed bar must FAIL against an empty build, so a tautology / presence-check is
+     rejected) and minted `instantiated` — structurally present + non-trivial, but NOT yet trusted: teeth
+     alone can't prove the bar faithfully entails the spec. Only `--seal` (the live entailment-critic's
+     fidelity certification + a human seal — `seal_rubric`) promotes it to `validated`. The loop's
+     `dispatchable` requires a `validated` verifier, so it will not auto-run a teeth-only ticket until it
+     is sealed. The spec→ticket edge is stamped with the spec hash (so regeneration cascades staleness).
   4. appends a `crystallize` ledger event
+
+  app-commit.py <project> <spec-relpath> [--seal]   # --seal = entailment-critic + human seal (promotes
+                                                    #   rubrics instantiated → validated, loop-ready)
 
 The capability cells land READY (deps + verifier validated), so `lattice.py rank` / `goal.py next`
 surface them and `/app-loop` can execute them. Stdlib, Python 3.8+.
@@ -78,7 +83,31 @@ def bar_has_teeth(sealed_abs):
         return r.returncode != 0
 
 
-def crystallize(project, spec_rel):
+def seal_rubric(state, lat, rubric_cell, spec_cell, spec_hash):
+    """Promote a teeth-checked rubric (`instantiated`) to `validated` — the ENTAILMENT certification: the
+    independent `entailment-critic` certified the bar faithfully entails the spec prose AND a human sealed
+    it. This is a JUDGEMENT (a live agent + a person), NOT a deterministic check — teeth alone can never
+    establish it (a bar that merely imports the build module has teeth yet tests no behaviour). `--seal`
+    stands in for that judgement: in real use a human runs it after the entailment-critic reviews; in tests
+    it simulates the seal. Without it the rubric stays `instantiated` and the loop's `dispatchable` (which
+    requires a `validated` verifier) correctly refuses to auto-run the ticket."""
+    rc = _lat.find(lat, rubric_cell)
+    if rc is None or rc.get("maturity") != "instantiated":
+        return False
+    ts = datetime.datetime.now().astimezone().isoformat(timespec="seconds").replace(":", "-")
+    sigrel = os.path.join("signals", rubric_cell, f"{ts}--seal.json")
+    sigabs = os.path.join(state, sigrel)
+    os.makedirs(os.path.dirname(sigabs), exist_ok=True)
+    json.dump({"cell_id": rubric_cell, "ts": ts, "harness": "entailment-cert", "kind": "gate", "result": "pass",
+               "evidence": (f"entailment-critic certified {rc.get('asset_ref')} faithfully entails {spec_cell}, "
+                            f"and a human sealed it (the live /app-spec commit judgement, not a deterministic stamp)"),
+               "validated_against": {spec_cell: spec_hash}}, open(sigabs, "w"), indent=2)
+    rc["maturity"] = "validated"
+    rc.setdefault("signal_refs", []).append(sigrel)
+    return True
+
+
+def crystallize(project, spec_rel, seal=False):
     project = os.path.abspath(project)
     state = os.path.join(project, ".factory", "state")
     spec_abs = os.path.join(project, spec_rel)
@@ -139,21 +168,22 @@ def crystallize(project, spec_rel):
                        f"so it does not test the implementation (a tautology / presence-check, not acceptance). "
                        f"Author a bar that fails when the build is absent, then commit.")
 
-        # the rubric cell IS the sealed bar — minted `validated` by a certification signal that records
-        # exactly what was verified deterministically (sealed + teeth), and is HONEST that the entailment-
-        # to-prose fidelity is certified by the live entailment-critic + human seal, not by this script.
+        # The teeth signal records EXACTLY what the deterministic path proved: the bar is sealed and is a
+        # non-trivial check (it fails when the implementation module is absent). It does NOT claim the bar
+        # faithfully entails the spec — teeth alone can't establish that (a bar that merely imports the build
+        # has teeth yet tests no behaviour). So the rubric is minted `instantiated` (structurally present +
+        # non-trivial), NOT `validated`; only `seal_rubric` (the entailment-critic + human seal) promotes it.
         ts = datetime.datetime.now().astimezone().isoformat(timespec="seconds").replace(":", "-")
-        sigrel = os.path.join("signals", rubric_cell, f"{ts}--cert.json")
+        sigrel = os.path.join("signals", rubric_cell, f"{ts}--teeth.json")
         sigabs = os.path.join(state, sigrel)
         os.makedirs(os.path.dirname(sigabs), exist_ok=True)
-        json.dump({"cell_id": rubric_cell, "ts": ts, "harness": "entailment-cert", "kind": "gate",
-                   "result": "pass",
-                   "evidence": (f"acceptance {sealed_rel} sealed + teeth-checked (fails against an empty build, so "
-                                f"it tests the implementation, not mere presence); entailment-to-prose fidelity vs "
-                                f"{spec_cell} is certified by the entailment-critic + human seal in a live commit"),
+        json.dump({"cell_id": rubric_cell, "ts": ts, "harness": "teeth-cert", "kind": "gate", "result": "pass",
+                   "evidence": (f"acceptance {sealed_rel} sealed + teeth-checked: it FAILS when the implementation "
+                                f"module is absent (a non-trivial bar, not a presence-check). This is NOT a fidelity "
+                                f"certification — whether it entails {spec_cell} is the entailment-critic + human seal."),
                    "validated_against": {spec_cell: spec_hash}}, open(sigabs, "w"), indent=2)
         if _lat.find(lat, rubric_cell) is None:
-            lat["cells"].append({"layer": "rubric", "scope": t_scope, "slug": t_slug, "maturity": "validated",
+            lat["cells"].append({"layer": "rubric", "scope": t_scope, "slug": t_slug, "maturity": "instantiated",
                                  "depends_on": [spec_cell], "asset_ref": sealed_rel, "signal_refs": [sigrel],
                                  "validated_against": {spec_cell: spec_hash}})
         if _lat.find(lat, target) is None:
@@ -169,10 +199,18 @@ def crystallize(project, spec_rel):
                     f"The worker writes `build/{t_slug}.py`; the independent `app-validator` runs the sealed "
                     f"acceptance to mint the signal. The worker never runs or edits this bar.\n")
         created.append((tid, target, rubric_cell))
+    sealed = 0
+    if seal:
+        for _tid, _target, rubric_cell in created:
+            sealed += 1 if seal_rubric(state, lat, rubric_cell, spec_cell, spec_hash) else 0
     _lat.save(state, lat)
 
     _led.append(state, {"operation": "crystallize", "actor": "app-commit", "cell_id": spec_cell,
-                        "result": "pass", "rationale": f"committed {spec_rel}; {len(created)} draft ticket(s) decomposed",
+                        "result": "pass",
+                        "rationale": (f"committed {spec_rel}; {len(created)} draft ticket(s) decomposed; "
+                                      f"{sealed} rubric(s) entailment-sealed" if seal
+                                      else f"committed {spec_rel}; {len(created)} draft ticket(s) decomposed "
+                                           f"(rubrics teeth-checked → instantiated, awaiting entailment seal)"),
                         "cost": {"iterations": 1}})
 
     # advance the project stage
@@ -183,10 +221,16 @@ def crystallize(project, spec_rel):
         p.setdefault("docs", {})["spec"] = "committed"
         json.dump(p, open(pj, "w"), indent=2)
 
+    bar_state = ("sealed, entailment-certified bar (validated)" if seal
+                 else "sealed, teeth-checked bar (instantiated — awaiting the entailment seal)")
     lines = [f"COMMITTED {spec_rel} → {spec_cell} validated (gate-minted signal)",
-             f"  {len(created)} draft ticket(s) decomposed, each with a sealed, validated bar:"]
+             f"  {len(created)} draft ticket(s) decomposed, each with a {bar_state}:"]
     for tid, target, rub in created:
-        lines.append(f"    · {tid}: {target}  (verifier {rub}, ready for /app-loop)")
+        ready = "ready for /app-loop" if seal else "run /app-spec seal (entailment-critic + human) to make it loop-ready"
+        lines.append(f"    · {tid}: {target}  (verifier {rub}, {ready})")
+    if not seal:
+        lines.append("  Rubrics are INSTANTIATED, not validated — the loop won't auto-run a teeth-only bar until "
+                     "the entailment-critic certifies fidelity and a human seals it (`--seal` / `/app-spec seal`).")
     return 0, "\n".join(lines)
 
 
@@ -195,9 +239,9 @@ def main(argv):
         return selftest()
     pos = [a for a in argv if not a.startswith("--")]
     if len(pos) < 2:
-        print("usage: app-commit.py <project> <spec-relpath>", file=sys.stderr)
+        print("usage: app-commit.py <project> <spec-relpath> [--seal]", file=sys.stderr)
         return 2
-    rc, msg = crystallize(pos[0], pos[1])
+    rc, msg = crystallize(pos[0], pos[1], seal="--seal" in argv)
     print(msg)
     return rc
 
@@ -230,11 +274,20 @@ def selftest():
         expect(_lat.find(lat, "spec.task.cli")["maturity"] == "validated", "spec cell not validated")
         for cell in ("capability.task.storage", "capability.task.search", "rubric.task.storage", "rubric.task.search"):
             expect(_lat.find(lat, cell) is not None, f"missing decomposed cell {cell}")
+        # HONESTY: a teeth-checked-but-UNSEALED rubric is `instantiated`, NOT `validated` — these bars merely
+        # import their module (teeth) but assert no behaviour, so the loop must not auto-trust them.
+        expect(_lat.find(lat, "rubric.task.storage")["maturity"] == "instantiated",
+               f"a teeth-only rubric must be `instantiated`, not `validated` (got {_lat.find(lat, 'rubric.task.storage')['maturity']})")
         expect(_lat.find(lat, "capability.task.storage").get("validated_against"), "spec→ticket edge not stamped")
         expect(os.path.isfile(os.path.join(proj, "tickets", "t1.md")), "draft ticket file not written")
         chk = subprocess.run([sys.executable, os.path.join(KERNEL, "lattice.py"), "check", "--dir", state],
                              capture_output=True, text=True)
-        expect(chk.returncode == 0, f"crystallized lattice fails check: {chk.stdout.strip()[-300:]}")
+        expect(chk.returncode == 0, f"crystallized (unsealed) lattice fails check: {chk.stdout.strip()[-300:]}")
+        # --seal (the entailment-critic + human seal) promotes the teeth-only rubric to `validated`
+        crystallize(proj, "spec/cli.md", seal=True)
+        lat = _lat.load(state)
+        expect(_lat.find(lat, "rubric.task.storage")["maturity"] == "validated",
+               "`--seal` must promote a teeth-checked rubric instantiated → validated (the entailment seal)")
         # a gate-failing spec is REJECTED
         with open(os.path.join(proj, "spec", "bad.md"), "w") as f:
             f.write("---\nkind: spec\nname: bad\nmaturity: cultivated\n---\nno contract here\n")
@@ -254,9 +307,9 @@ def selftest():
         for f in fails:
             sys.stderr.write(f"  - {f}\n")
         return 1
-    print("app-commit selftest: OK (gate → spec cell validated via the real signal path → draft tickets + ready "
-          "capability/rubric cells + stamped spec→ticket edges; the lattice passes check; a gate-failing spec is "
-          "rejected; a tautology bar with no teeth is rejected by the calibration floor)")
+    print("app-commit selftest: OK (gate → spec cell validated via the real signal path → draft tickets + stamped "
+          "spec→ticket edges; a teeth-checked-but-unsealed rubric is `instantiated` not `validated`, and `--seal` "
+          "promotes it; the lattice passes check; a gate-failing spec and a tautology bar are both rejected)")
     return 0
 
 

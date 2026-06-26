@@ -2,6 +2,24 @@
 
 All notable changes to **app-factory** are documented here.
 
+## [0.11.0] — 2026-06-25
+
+Keystone integrity, hardened. A **confirmation pass** re-ran the same three critics on the *fixed* v0.10.0 code (the discipline: a fix isn't trusted on its author's own green eval) and found the closures were partial — the claims were still ahead of what was enforced. This makes them honest.
+
+### Fixed
+- **A teeth-only bar is no longer minted `validated` (C2, deeper — lifts the H2 cap).** The teeth floor catches `exit 0` but not `import thing; sys.exit(0)` (an ImportError against an empty build counts as "teeth", yet the bar asserts no behaviour). Minting `validated` on teeth-alone overclaimed. Now `app-commit.py` mints the rubric **`instantiated`** (structurally present + non-trivial, via a `teeth-cert` signal that says exactly that), and only an explicit **`--seal`** — the `entailment-critic`'s fidelity certification + the human seal (`seal_rubric`) — promotes it to `validated`. The loop's `dispatchable` requires a `validated` verifier, so it **refuses to auto-run a teeth-only ticket** until sealed. This finally enforces the keystone's documented human-seal instead of rubber-stamping it deterministically.
+- **The deny-gate claim is narrowed to what it enforces (C1).** The gate is a `PreToolUse(Write|Edit)` matcher, so it binds the **executor** (`app-worker`, no Bash) — but it does NOT intercept Bash, so the independent Bash-carrying critics (`app-validator`/`app-refuter`/`app-distiller`) are constrained by role-separation + the validate path, not by this hook. `hooks.json`, the eval's `keystone-enforcement` dimension, and the docs now say so plainly (mechanical for the executor, trusted-by-role for the critics) rather than claiming the whole substrate is gated against every agent.
+- **A vanished committed spec now cascades stale (C3).** `recompute_staleness` had silently skipped a spec whose file was missing; a deleted spec is maximally stale, so it now cascades its dependents via a sentinel hash.
+
+### Added
+- **`app-commit.py --seal`** / the two-gesture `/app-spec … commit` then `--seal` flow (documented), making the human seal a real gesture, not a flag the crystallizer grants itself.
+- **The eval tests the deeper property:** `keystone-teeth-not-validated` (an import-only bar mints `instantiated`, not `validated`), `keystone-teeth-undispatchable` (the loop won't run it), `keystone-seal-validates` (the seal promotes it). **25/25 scenarios, score 1.00**, clean-checkout-replayed. The dev-server fixtures now `--seal` so they stay loop-ready.
+
+### Known limitations (named, not hidden)
+- The **QA plan (`qa.md`) is not a lattice cell**, so a spec edit doesn't auto-stale it — `/app-qa emit` re-derives it manually. Making QA a tracked cell is scheduled.
+- **Transitive staleness** (a cell validated against a *capability* rather than the spec) is caught by the kernel's `check()` sweep when the intermediate rebuilds, not at spec-edit time; the cascade is single-hop by design. Latent until a project grows past the flat spec→ticket shape.
+- Mechanical **Bash-write** protection of `.factory/` would require kernel changes (the vendored kernel is drift-checked against harness-forge), so the Bash-carrying critics remain trusted-by-role for now.
+
 ## [0.10.0] — 2026-06-25
 
 Keystone integrity, verified on the BUILT code. A harness-council red-team of v0.9.0 found the keystone was **claimed but not wired** — passing selftests and 1.00 evals had masked it because they tested the gate's *logic* and used *stub bars*. This closes all three Criticals, and the eval now tests wiring, not logic.

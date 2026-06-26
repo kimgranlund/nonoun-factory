@@ -66,9 +66,9 @@ def recompute_staleness(state, project):
     for c in list(lat["cells"]):
         if c.get("layer") != "spec" or not c.get("asset_ref"):
             continue
-        cur = _hash(os.path.join(project, c["asset_ref"]))
-        if not cur:
-            continue
+        # a vanished committed spec is MAXIMALLY stale, not exempt — a sentinel hash matches no real stamp,
+        # so every dependent validated against the old spec cascades stale (rather than being silently skipped)
+        cur = _hash(os.path.join(project, c["asset_ref"])) or "sha256:MISSING-SPEC"
         cid = _lat.cid(c)
         edited = any(dep.get("validated_against", {}).get(cid) not in (None, cur) for dep in lat["cells"])
         if not edited:
