@@ -2,6 +2,17 @@
 
 All notable changes to **app-factory** are documented here.
 
+## [0.12.0] — 2026-06-26
+
+Verifier calibration (M2). The deterministic teeth floor + the human `--seal` are honest about WHAT they prove, but the `--seal` trusts the **entailment-critic**'s fidelity judgement, which was asserted, not measured. This calibrates it against a corpus and records the result — and the calibration immediately earned its keep.
+
+### Added
+- **`evals/calibration/`** — a calibration corpus + scorer for the entailment-critic (the predicate-honesty judge, the half of the keystone the teeth floor cannot establish). `exemplars.json` pairs a spec with proposed bars of known-correct verdict — seven REFUSE failure modes (import-only · presence-attribute · contradicts-spec · partial-coverage · nondeterministic · single-key-memorizable · multikey-hardcoded-literals) and two CERTIFY shapes (seeded-multikey · seeded-overwrite). `score-calibration.py` (selftested, headless) grades a run and **fails calibration on ANY false certify** — a hollow bar waved through — independent of agreement, because that is the one fatal direction for a fidelity gate.
+- **First calibration run (`runs/2026-06-26.json`): CALIBRATED, 9/9, zero false-certifies.** The critic refused all five hollow bars — crucially the `import-only` bar (`import storage; sys.exit(0)`), the exact shape the teeth floor passes — and still CERTIFIED both genuinely-faithful bars (so `--seal` can be earned; the gate discriminates, it isn't refuse-everything).
+
+### Changed
+- **The corpus + the acceptance-deriver were hardened by what the run found.** The critic REFUSED two bars first labelled CERTIFY because hardcoded LITERAL keys/values are memorizable — a stub `load(k): return 'v' if k=='k' else None` passes a single-key round-trip without ever storing. That standard is now the corpus's (E1/E6 are REFUSE) and a new acceptance-deriver hard rule: **a faithful bar exercises multiple distinct keys with non-literal (seeded-deterministic) values, all stores before all reads, `is None` for absent-key, and an overwrite/re-read where the prose implies update semantics** — so the bar resists the memorizing stub, not just the `exit 0` tautology.
+
 ## [0.11.0] — 2026-06-25
 
 Keystone integrity, hardened. A **confirmation pass** re-ran the same three critics on the *fixed* v0.10.0 code (the discipline: a fix isn't trusted on its author's own green eval) and found the closures were partial — the claims were still ahead of what was enforced. This makes them honest.

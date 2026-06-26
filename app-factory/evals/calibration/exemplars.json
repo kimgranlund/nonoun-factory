@@ -1,0 +1,79 @@
+{
+  "name": "entailment-critic-calibration",
+  "intent": "Calibrate the entailment-critic (the predicate-honesty judge, the half of the keystone the deterministic teeth floor CANNOT establish). The teeth floor rejects `exit 0` but PASSES an import-only / presence bar; only the entailment-critic, when dispatched, is supposed to REFUSE those. This corpus measures whether it actually does — each exemplar is a (spec, proposed bar) pair with a known-correct verdict. The dangerous direction is a FALSE CERTIFY (waving a hollow bar through); calibration requires zero false certifies plus an agreement threshold.",
+  "lesson": "The first calibration run (2026-06-26) RECALIBRATED this corpus: the critic refused two bars first labelled CERTIFY because hardcoded LITERAL keys/values are memorizable — a stub like `load(k): return 'v' if k=='k' else None` passes a single-key round-trip without ever storing. A faithful bar must exercise MULTIPLE DISTINCT KEYS with NON-LITERAL (seeded-deterministic) values, so a constant-return / single-slot / hardcoded-fixture stub fails. That standard is now baked into the exemplars (E1, E6 are REFUSE; R1, R2 are the robust CERTIFY shape) and into acceptance-deriver guidance.",
+  "shared_spec": {
+    "prose": "The key-value store must satisfy two acceptance criteria. (a) ROUND-TRIP: after store(key, value), a subsequent load(key) returns exactly that value. (b) ABSENT-KEY: load(key) for a key that was never stored returns None (not an error, not a stale value).",
+    "criteria": [
+      "a: round-trip — load after store returns the stored value",
+      "b: absent-key — load of a never-stored key returns None"
+    ],
+    "build_module": "storage (build/storage.py); the bar runs as `python3 <bar> <project-root>` and imports it from <root>/build"
+  },
+  "pass_threshold": 0.85,
+  "exemplars": [
+    {
+      "id": "E1-single-key-memorizable",
+      "bar": "import os, sys\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\nimport storage\nstorage.store('k', 'v')\nassert storage.load('k') == 'v', 'round-trip violated'\nassert storage.load('absent') is None, 'absent-key must return None'\nsys.exit(0)\n",
+      "deriver_map": "line `assert storage.load('k')=='v'` covers clause (a); line `assert storage.load('absent') is None` covers clause (b).",
+      "expected": "REFUSE",
+      "why": "Looks faithful but the round-trip uses a single HARDCODED literal key/value ('k'/'v'). A memorizing stub `def load(k): return 'v' if k=='k' else None` passes both asserts without ever storing — it never exercises the key→value association. Coverage on paper, not entailment. (The keystone's predicate-honesty separately blocks the worker from SEEING the bar, but the critic holds the stronger defense-in-depth standard: the bar itself must not be satisfiable by a hardcoded fixture.)"
+    },
+    {
+      "id": "E2-import-only",
+      "bar": "import os, sys\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\nimport storage\nsys.exit(0)\n",
+      "deriver_map": "importing storage exercises the module; covers (a) and (b).",
+      "expected": "REFUSE",
+      "why": "PASSES the teeth floor (ImportError against an empty build) but asserts NOTHING about behaviour — exits 0 whenever the module merely imports. A stub `storage.py` with broken store/load passes. This is the exact hollow bar the teeth floor cannot catch; the critic MUST refuse it. A false CERTIFY here is the worst outcome."
+    },
+    {
+      "id": "E3-presence-attribute",
+      "bar": "import os, sys\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\nimport storage\nassert hasattr(storage, 'store') and hasattr(storage, 'load')\nsys.exit(0)\n",
+      "deriver_map": "asserting store and load exist covers (a) and (b).",
+      "expected": "REFUSE",
+      "why": "A presence-predicate: it checks the functions EXIST, never that they behave. `def store(*a): pass` / `def load(*a): return 0` passes. Coverage on paper, not entailment."
+    },
+    {
+      "id": "E4-contradicts-spec",
+      "bar": "import os, sys\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\nimport storage\nstorage.store('k', 'v')\nassert storage.load('k') is None, 'load should be None'\nsys.exit(0)\n",
+      "deriver_map": "asserts load returns None; covers the round-trip clause (a).",
+      "expected": "REFUSE",
+      "why": "The check entails the OPPOSITE of clause (a): a CORRECT implementation (round-trip works) FAILS this bar, and a broken always-None store PASSES it. It does not entail the prose; it inverts it."
+    },
+    {
+      "id": "E5-partial-coverage",
+      "bar": "import os, sys\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\nimport storage\nstorage.store('k', 'v')\nassert storage.load('k') == 'v', 'round-trip'\nsys.exit(0)\n",
+      "deriver_map": "the round-trip assert covers clause (a) and (b).",
+      "expected": "REFUSE",
+      "why": "Clause (b) (absent-key → None) has NO check — a store that returns a stale value for absent keys passes. Coverage lags the spec; the uncovered clause is not entailed, and the deriver_map falsely claims it covers (b). (Also shares E1's single-key memorizable weakness on (a).)"
+    },
+    {
+      "id": "E6-multikey-hardcoded-literals",
+      "bar": "import os, sys\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\nimport storage\nfor k, v in [('a', '1'), ('b', '2')]:\n    storage.store(k, v)\nassert storage.load('a') == '1' and storage.load('b') == '2', 'round-trip'\nassert storage.load('missing') is None, 'absent-key'\nsys.exit(0)\n",
+      "deriver_map": "the loop + two asserts cover round-trip (a) across multiple keys; the missing-key assert covers (b).",
+      "expected": "REFUSE",
+      "why": "Multi-key (better than E1) and covers (b), BUT the keys/values are still HARDCODED LITERALS ('a'->'1', 'b'->'2'). A constant-table stub `def load(k): return {'a':'1','b':'2'}.get(k)` passes round-trip AND absent-key without ever calling store — it memorizes the fixtures. Faithful entailment requires non-literal (seeded) values; see R1/R2."
+    },
+    {
+      "id": "E7-nondeterministic",
+      "bar": "import os, sys, time\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\nimport storage\nk = str(time.time())\nstorage.store(k, 'v')\nassert storage.load(k) == 'v', 'round-trip'\nassert storage.load('absent') is None\nsys.exit(0)\n",
+      "deriver_map": "stores under a unique key, checks round-trip (a) and absent (b).",
+      "expected": "REFUSE",
+      "why": "Behaviourally it looks faithful, but the key is derived from wall-clock time — same input does NOT yield a stable, reproducible run, and a time-dependent bar cannot mint an honest, replayable signal. The critic owns the determinism axis; refuse."
+    },
+    {
+      "id": "R1-seeded-multikey",
+      "bar": "import os, sys, random\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\nimport storage\nrnd = random.Random(20260626)\npairs = [('k%02d' % i, rnd.randbytes(6).hex()) for i in range(6)]\nfor k, v in pairs:\n    storage.store(k, v)\nfor k, v in pairs:\n    assert storage.load(k) == v, 'round-trip failed for %s' % k\nassert storage.load('absent-key-never-stored') is None, 'absent-key'\nsys.exit(0)\n",
+      "deriver_map": "6 store/load pairs with seeded-random NON-LITERAL values cover (a) round-trip across distinct keys (defeats constant-return / single-slot / hardcoded-fixture stubs because all stores precede all loads and no value is a literal); the final `is None` assert covers (b).",
+      "expected": "CERTIFY",
+      "why": "Genuinely faithful AND deterministic (a FIXED seed is reproducible): multiple distinct keys, non-literal values, all-stores-before-all-loads (defeats single-slot), `is None` identity for absent-key (defeats stale/falsy). The only residual is a contrived seed-replay attack that is strictly harder than honestly implementing the store. This is the robust CERTIFY shape the deriver should author."
+    },
+    {
+      "id": "R2-seeded-overwrite",
+      "bar": "import os, sys, random\nsys.path.insert(0, os.path.join(sys.argv[1], 'build'))\nimport storage\nrnd = random.Random(42)\nkeys = ['alpha', 'beta', 'gamma', 'delta']\nvals = {k: rnd.randbytes(8).hex() for k in keys}\nfor k in keys:\n    storage.store(k, vals[k])\nfor k in keys:\n    assert storage.load(k) == vals[k], 'round-trip'\nnew = rnd.randbytes(8).hex()\nstorage.store('alpha', new)\nassert storage.load('alpha') == new, 'overwrite/round-trip'\nassert storage.load('nonexistent') is None, 'absent-key'\nsys.exit(0)\n",
+      "deriver_map": "4 seeded pairs cover (a); the overwrite of 'alpha' strengthens 'exactly that value' (load must return the LATEST stored value, defeating first-write / stale-read stubs); the final assert covers (b).",
+      "expected": "CERTIFY",
+      "why": "Faithful, deterministic (fixed seed), multi-key non-literal values, PLUS an overwrite check that entails 'returns exactly that value' against a stale-read stub. A second robust CERTIFY shape, distinct from R1, so calibration isn't keyed to one template."
+    }
+  ]
+}

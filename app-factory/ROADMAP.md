@@ -43,8 +43,12 @@ Installable plugin; vendored spine selftests green; `/app-new` scaffolds a corpu
 - Eval hardened: `keystone-teeth-not-validated` · `keystone-teeth-undispatchable` · `keystone-seal-validates` → **25/25, 1.00**.
 - **Named, not hidden:** the QA plan isn't yet a lattice cell (manual re-emit); transitive staleness is caught at rebuild by `check()`, not at edit time; mechanical Bash-write protection awaits a kernel change (the kernel is drift-checked against harness-forge).
 
+## 0.12.0 (done) — verifier calibration (M2, part 1)
+- **The entailment-critic is now calibrated, not asserted.** `evals/calibration/` (corpus + `score-calibration.py`, which fails on ANY false certify) measured the critic against 9 exemplars: **CALIBRATED, 9/9, zero false-certifies** — it refuses every hollow bar (including the `import-only` bar the teeth floor passes) and still certifies a genuinely-faithful one.
+- The run hardened the system: it caught a memorizable-hardcoded-fixture weakness, so the corpus (E1/E6 → REFUSE) and a new **acceptance-deriver hard rule** (multi-key, non-literal seeded values, all-stores-before-reads, `is None`, overwrite-where-implied) now demand bars that resist the memorizing stub, not just `exit 0`.
+
 ## Next (M2 remainder)
-- **Calibrate the verifiers further** — vendor/adapt dev-kernel's `evals/calibration` so the entailment-critic's fidelity check and the rubrics are calibrated (the bar-teeth floor + the human seal are the deterministic/judgement halves; agreement-calibration is the rest).
+- **Calibrate the rubrics + re-run with the registered agent** — extend calibration from the entailment-critic to the loop's rubric cells; re-run the corpus via the registered `app-factory:entailment-critic` (this run used its contract through a general agent).
 - **Make the QA plan a tracked cell** so a spec edit cascades staleness to it (closes the named limitation).
 - **Vendor the full dev-kernel authoring rigor** (spec-author discipline, the spec-council lens critics, `gate-ticket-ready`) behind the live deriver/critic/refuter agents.
 

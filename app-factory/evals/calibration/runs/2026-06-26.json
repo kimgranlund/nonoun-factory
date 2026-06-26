@@ -1,0 +1,11 @@
+{
+  "E1-single-key-memorizable": "REFUSE",
+  "E2-import-only": "REFUSE",
+  "E3-presence-attribute": "REFUSE",
+  "E4-contradicts-spec": "REFUSE",
+  "E5-partial-coverage": "REFUSE",
+  "E6-multikey-hardcoded-literals": "REFUSE",
+  "E7-nondeterministic": "REFUSE",
+  "R1-seeded-multikey": "CERTIFY",
+  "R2-seeded-overwrite": "CERTIFY"
+}
