@@ -209,20 +209,24 @@ def _hooks_by_event(plugin_dir):
     return by_event
 
 
-def _run_hook(cmd, root, event, file_path, content):
+def _run_hook(cmd, root, event, file_path, content, cwd=None):
     import subprocess
     import uuid
     # A REALISTIC, per-call session id — NOT a constant beacon. A hostile gate must not be able to detect it is
     # being probed by the contract checker and behave narrowly only then (the grade-differently-when-observed hack).
     # `tool_response` is included ONLY for PostToolUse (a real PreToolUse payload has none — the tool hasn't run),
-    # so a `'tool_response' in d` test can't distinguish the probe from a real PreToolUse call.
+    # so a `'tool_response' in d` test can't distinguish the probe from a real PreToolUse call. Callers pass a
+    # RELATIVE `file_path` + `cwd` = a realistic project tree, so the path string the gate inspects has no tempdir
+    # (/tmp) tell to key on. (A maximally-paranoid gate that resolves to abspath + inspects cwd is a residual inherent
+    # to ALL sandboxed behavioral verification — the "behave under eval, defect in deployment" limit — not closable
+    # without running the verifier in production, which defeats the point.)
     payload = {"session_id": uuid.uuid4().hex, "hook_event_name": event, "tool_name": "Write",
                "tool_input": {"file_path": file_path, "content": content or ""}}
     if event not in DENYING_EVENTS:
         payload["tool_response"] = {"success": True}
     real = cmd.replace("${CLAUDE_PLUGIN_ROOT}", root)
     return subprocess.run(real, shell=True, input=json.dumps(payload), capture_output=True, text=True, timeout=25,
-                          env=dict(os.environ, CLAUDE_PLUGIN_ROOT=root))
+                          cwd=cwd, env=dict(os.environ, CLAUDE_PLUGIN_ROOT=root))
 
 
 def check_hook_behavioral(plugin_dir, name):
@@ -249,14 +253,17 @@ def check_hook_behavioral(plugin_dir, name):
         return r.returncode != 0 or bool(_BLOCK_RE.search((r.stdout or "") + "\n" + (r.stderr or "")))
 
     with tempfile.TemporaryDirectory() as td:
-        general_fp = (os.path.join(td, fname) if fname else fp_override) or os.path.join(td, "contract-probe.md")
+        advisory_rel = fname or fp_override or "contract-probe.md"   # RELATIVE; hook runs with cwd=td (no /tmp tell)
         if fname:
-            open(general_fp, "w", encoding="utf-8").write(content or "")
+            full = os.path.join(td, advisory_rel)
+            if os.path.dirname(full):
+                os.makedirs(os.path.dirname(full), exist_ok=True)
+            open(full, "w", encoding="utf-8").write(content or "")
         for event, cmds in by_event.items():
             deny_capable = event in DENYING_EVENTS
             for cmd in cmds:
                 try:
-                    rg = _run_hook(cmd, root, event, general_fp, content)
+                    rg = _run_hook(cmd, root, event, advisory_rel, content, cwd=td)
                 except (subprocess.SubprocessError, OSError) as e:
                     out.append(("FAIL", "bundled hook did not run ({}): {}".format(cmd[:50], e)))
                     continue
@@ -270,7 +277,9 @@ def check_hook_behavioral(plugin_dir, name):
                     # residual; the deeper tell is that the probe runs in a tempdir, which a gate keying on a /tmp path
                     # shape could detect — both rely on a deliberately, implausibly selective hostile gate). The one
                     # out-of-namespace deny permitted is `.claude/settings.json` (protecting the wiring that enforces
-                    # the gate is not blocking general work).
+                    # the gate is not blocking general work). Paths are RELATIVE and the hook runs with cwd = the
+                    # temp project, so the gate sees realistic project-relative paths with no /tmp tell (a residual
+                    # remains only for a gate that abspaths + inspects cwd — the inherent sandbox limit, see _run_hook).
                     general = ["src/feature_{}.ts".format(tok), "lib/{}_util.py".format(tok),
                                "docs/{}/guide.md".format(tok), "components/Btn{}.tsx".format(tok),
                                "{}.config.js".format(tok), "data/{}.json".format(tok),
@@ -280,13 +289,13 @@ def check_hook_behavioral(plugin_dir, name):
                                "Dockerfile", "Makefile", "package.json"]
                     blocked = None
                     for rel in general:
-                        gp = os.path.join(td, rel)
+                        full = os.path.join(td, rel)
                         try:
-                            if os.path.dirname(gp):
-                                os.makedirs(os.path.dirname(gp), exist_ok=True)
-                            if not os.path.exists(gp):
-                                open(gp, "w", encoding="utf-8").write("x")
-                            if denied(_run_hook(cmd, root, event, gp, "x")):
+                            if os.path.dirname(full):
+                                os.makedirs(os.path.dirname(full), exist_ok=True)
+                            if not os.path.exists(full):
+                                open(full, "w", encoding="utf-8").write("x")
+                            if denied(_run_hook(cmd, root, event, rel, "x", cwd=td)):   # RELATIVE path, cwd = temp project
                                 blocked = rel
                                 break
                         except (subprocess.SubprocessError, OSError):
@@ -299,11 +308,12 @@ def check_hook_behavioral(plugin_dir, name):
                     # and it SHOULD actually deny a write to its declared perimeter (proves it gates what it claims).
                     if ns:
                         ns_segs = [p for p in ns.strip("/").split("/") if p]
-                        ns_fp = os.path.join(td, *ns_segs, tok, "probe.json")
+                        ns_rel = os.path.join(*ns_segs, tok, "probe.json")
                         try:
-                            os.makedirs(os.path.dirname(ns_fp), exist_ok=True)
-                            open(ns_fp, "w").write("{}")
-                            if not denied(_run_hook(cmd, root, event, ns_fp, "{}")):
+                            full = os.path.join(td, ns_rel)
+                            os.makedirs(os.path.dirname(full), exist_ok=True)
+                            open(full, "w").write("{}")
+                            if not denied(_run_hook(cmd, root, event, ns_rel, "{}", cwd=td)):   # RELATIVE namespace path
                                 out.append(("WARN", "bundled {} gate did NOT deny a write to its declared namespace {!r} "
                                                     "({}) — confirm it protects the perimeter it declares".format(event, ns, cmd[:50])))
                         except (subprocess.SubprocessError, OSError):
@@ -570,7 +580,7 @@ def cmd_selftest():
                 {"hooks": {"PreToolUse": [{"matcher": "Write|Edit", "hooks": [{"type": "command",
                  "command": 'python3 "${CLAUDE_PLUGIN_ROOT}/bin/gate.py" --hook'}]}]}}))
 
-        gate_plugin("sys.exit(2 if '/.factory/' in p or p.endswith('/.factory') else 0)")        # NARROW → PASS
+        gate_plugin("sys.exit(2 if '.factory' in p.split('/') else 0)")        # NARROW (segment-match, like gate-protect) → PASS
         expect(not any(s == "FAIL" for s, m in check_hook_behavioral(tmp, "x")),
                "a narrow-perimeter PreToolUse gate (allows a general write, denies its namespace) was failed")
         gate_plugin("sys.exit(2)")                                                               # broad: denies EVERYTHING → FAIL
