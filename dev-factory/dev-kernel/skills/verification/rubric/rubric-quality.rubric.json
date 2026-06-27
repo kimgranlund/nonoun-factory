@@ -3,7 +3,7 @@
   "$id": "RubricQualityRubric",
   "title": "rubric-quality",
   "cell": "rubric.system.rubric-quality",
-  "description": "The verifier OF verifiers. A rubric cell advances to `validated` only by clearing this rubric — scored as an artifact. This rubric must itself be `validated` (deterministic across repeated runs; calibrated against its exemplar set) before it gates any rubric. The recursion bottoms out in code: the ultimate judge of a calibrated rubric in production is ledger.py false_pass_rate, not self-assessment. Gate dimensions are mechanical; review dimensions need a calibrated critic that is NOT the rubric's authoring agent.",
+  "description": "The verifier OF verifiers — the kernel-level STANDARD a rubric cell is scored against to advance to `validated`. Its [gate] dimensions are MECHANIZED, not eyeballed: the corpus `rubric-calibration-check` adapter (`dev-kit-corpus/bin/rubric-check.py`) is the code that enforces the structural floor (a real `[gate]` dimension naming a mechanized gate, a `pristine_reference` the worker cannot reach, a labeled exemplar set the bound gate DISCRIMINATES on — reject the planted defects, pass the clean ones, deterministically), and `dev-kit-corpus/evals/rubric-teeth` regression-guards that every shipped rubric clears it. The higher-order / calibration-evidence / exploit-resistance dimensions are the calibrated critic's job (not the rubric's authoring agent). The recursion bottoms out in code: this standard is enforced by rubric-check.py, and the ultimate judge of a calibrated rubric in production is `ledger.py false_pass_rate`, not self-assessment. (This file is the human-readable standard the rubric-architect authors to; rubric-check.py is its mechanization — they must not drift.)",
   "binds_to_layer": "rubric",
   "maturity_precondition": "This rubric cell must be validated (deterministic on fixed input; calibrated) before it gates any rubric. The meta-verifier is verified.",
   "calibration": {
@@ -12,7 +12,9 @@
   },
   "pristine_reference": {
     "field": "exemplar_reference_scores",
-    "note": "The reference scores on the exemplar set are supplied read-only and the authoring agent cannot reach them — the agreement measurement is computed against a reference the worker cannot edit."
+    "writable_by_worker": false,
+    "enforced_by": "the exemplar set + reference scores are PLUGIN-STATIC (dev-kit-corpus/rubric/exemplars/, resolved by the corpus meta-verifier relative to the kit) — the rubric-authoring agent cannot reach or edit the answer key it is graded against",
+    "note": "The reference scores on the exemplar set are supplied read-only and the authoring agent cannot reach them — the agreement measurement is computed against a reference the worker cannot edit. (The verifier-of-verifiers must itself satisfy `pristine-reference-present`; this declares the deny-on-write the gate dimension requires.)"
   },
   "dimensions": [
     {
@@ -21,6 +23,7 @@
       "weight": 1.0,
       "threshold": "pass",
       "check": "The rubric is a well-formed rubric cell: cell id excludes maturity, binds_to_layer set, every dimension labeled gate|review, every review dimension carries a numeric threshold and scale, the signal contract is stated.",
+      "mechanized_by": "bin/rubric-check.py (parses the rubric; a non-object / malformed rubric is rejected)",
       "fail_meaning": "Not instantiable as a typed verifier."
     },
     {
@@ -29,6 +32,7 @@
       "weight": 3.0,
       "threshold": "pass",
       "check": "At least one [gate] dimension exists with a mechanical pass/fail check. A rubric of review-only dimensions grades taste and can cap nothing.",
+      "mechanized_by": "bin/rubric-check.py (rejects a rubric whose dimensions name no `mechanized_by: bin/<gate>.py` — a [review]-only rubric is scoring vibes)",
       "fail_meaning": "Reward-hackable by construction: with no mechanical gate, a worker games the graded surface and nothing caps the score."
     },
     {
@@ -37,6 +41,7 @@
       "weight": 4.0,
       "threshold": "pass",
       "check": "At least one [gate] check is computed from reference material the worker cannot reach (supplied read-only, outside the worktree, deny-on-write). The reference path is named and confirmed NOT writable by a worker under gate-verifier.",
+      "mechanized_by": "bin/rubric-check.py (requires `pristine_reference.writable_by_worker == false`, and resolves the exemplar set PLUGIN-STATIC so a worker cannot reach it)",
       "fail_meaning": "Extensional pass/fail a worker can see is pass/fail it can game; without a pristine reference the verifier scores only what the worker controls (TDD §14.3.2)."
     },
     {

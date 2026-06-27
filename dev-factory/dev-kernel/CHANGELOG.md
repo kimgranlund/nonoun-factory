@@ -2,6 +2,23 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.29] — 2026-06-26
+
+### Fixed (the verifier-OF-verifiers meets its own bar — harness-council verifier-integrity follow-up)
+
+- **`skills/verification/rubric/rubric-quality.rubric.json` was itself a presence-predicate** by the very standard
+  it sets: its [gate] dimensions named no `mechanized_by`, and its `pristine_reference` lacked the
+  `writable_by_worker: false` that its own `pristine-reference-present` gate demands. The council flagged that the
+  rubric the rubric-architect scores NEW rubrics against would FAIL its own bar if run through the meta-verifier.
+  Now honest + self-consistent: the structural [gate] dimensions (schema-valid, has-gate-dimension,
+  pristine-reference-present) name their mechanization — the corpus `bin/rubric-check.py` (the `rubric-calibration-check`
+  adapter that mints a rubric cell's signal) — the `pristine_reference` declares `writable_by_worker: false`, and the
+  description states plainly that this file is the kernel-level STANDARD that rubric-check.py mechanizes (structural
+  floor) + `evals/rubric-teeth` regression-guards, with the higher-order / calibration / exploit-resistance dimensions
+  the calibrated critic's job and the recursion grounding in `ledger.false_pass_rate`. Enforced, not just documented:
+  `rubric-teeth` (dev-kit-corpus 0.3.2) now asserts rubric-quality satisfies its own structural floor in CI. No code
+  behavior change. plugin.json 0.2.28 → 0.2.29.
+
 ## [0.2.28] — 2026-06-25
 
 ### Changed (the bound KIT is read-only to a worker — harness-council reward-hacking CRITICAL)

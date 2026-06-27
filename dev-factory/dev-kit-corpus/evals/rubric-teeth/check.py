@@ -59,6 +59,24 @@ def main():
         if not ok:
             fails.append(f"hollow: the meta-verifier must REJECT a shape-only rubric (teeth), got exit {code}")
 
+    # rubric-quality — the verifier-OF-verifiers (the kernel-level standard a rubric cell is scored against) must
+    # itself meet the structural floor it SETS, or it is the presence-predicate it exists to catch. We assert its
+    # own has-gate-dimension (a [gate] dim naming a mechanized gate) + pristine-reference-present (writable_by_worker
+    # false) hold — the structural part rubric-check.py mechanizes; the deeper dims are the calibrated critic's job.
+    print("· rubric-quality — the verifier-OF-verifiers must itself satisfy the structural floor it sets")
+    rq = os.path.normpath(os.path.join(_KIT, "..", "dev-kernel", "skills", "verification", "rubric", "rubric-quality.rubric.json"))
+    if not os.path.isfile(rq):
+        fails.append(f"rubric-quality.rubric.json not found at {rq}")
+    else:
+        d = json.load(open(rq, encoding="utf-8"))
+        gate_mech = [dim for dim in d.get("dimensions", []) if dim.get("kind") == "gate" and dim.get("mechanized_by")]
+        pr_closed = (d.get("pristine_reference") or {}).get("writable_by_worker") is False
+        ok = bool(gate_mech) and pr_closed
+        print(f"  {'PASS' if ok else 'FAIL'}  rubric-quality     -> {len(gate_mech)} mechanized [gate] dim(s) + worker-unreachable pristine reference={pr_closed}")
+        if not ok:
+            fails.append("rubric-quality must satisfy its OWN has-gate-dimension (a [gate] dim with `mechanized_by`) + "
+                         "pristine-reference-present (`writable_by_worker: false`) — the verifier-of-verifiers cannot be a presence-predicate")
+
     if fails:
         sys.stderr.write("rubric-teeth: FAIL\n")
         for f in fails:
