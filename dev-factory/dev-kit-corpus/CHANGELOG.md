@@ -2,6 +2,17 @@
 
 All notable changes to **dev-kit-corpus** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.3.2] — 2026-06-26
+
+### Added (rubric-teeth guards the verifier-OF-verifiers too)
+
+- **`evals/rubric-teeth/check.py` now asserts `rubric-quality` (the kernel verifier-of-verifiers) meets the
+  structural floor it sets** — a `[gate]` dimension naming a `mechanized_by` gate, and a `pristine_reference` with
+  `writable_by_worker: false`. The council noted the standard the rubric-architect scores new rubrics against was
+  itself a presence-predicate; dev-kernel 0.2.29 made it conformant, and this regression-guards it in CI so it can't
+  rot back. The structural floor is what `rubric-check.py` mechanizes; the deeper (higher-order / calibration) dimensions
+  remain the calibrated critic's job. plugin.json 0.3.1 → 0.3.2.
+
 ## [0.3.1] — 2026-06-25
 
 ### Changed (the rubric meta-verifier earns its teeth — harness-council verifier-integrity CRITICAL)
