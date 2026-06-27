@@ -54,7 +54,7 @@ the depth is `references/acceptance.md`.>
   "acceptance_criteria": [
     { "id": "cm-01", "check": "documentElement carries data-theme matching the chosen mode" },
     { "id": "cm-02", "check": "the choice survives a reload (persisted in localStorage)" },
-    { "id": "cm-03", "rubric_cell": "rubric.system.color-contrast" }
+    { "id": "cm-03", "rubric_cell": "rubric.system.color-contrast", "scored_by": [ "contrast-all-pairs" ] }
   ],
   "non_goals": [ "per-component theme overrides", "server-rendered theme negotiation" ],
   "decomposition": {
@@ -88,7 +88,7 @@ embedded in the skill, not a parallel artifact). It carries exactly the fields t
 | Field | Required | Gate dimension |
 |---|---|---|
 | `cell` | yes | `schema-valid` — `{layer}.{scope}.{slug}`, layer == `spec`, excludes maturity |
-| `acceptance_criteria` | yes, ≥1 | `criteria-checkable` — every item has an `id` AND **either** `check` (an executable predicate) **or** `rubric_cell` (a validated rubric binding). **Zero prose-only criteria.** |
+| `acceptance_criteria` | yes, ≥1 | `criteria-checkable` — every item has an `id` AND **either** `check` (an executable predicate) **or** `rubric_cell` (a validated rubric binding). **Zero prose-only criteria.** A `rubric_cell`-bound criterion ALSO declares **`scored_by: [<dimension-id>, ...]`** — which dimension(s) of that rubric score it — or it fails `criteria-rubric-coverage` (a criterion cannot bind a rubric whose relevance to it is unverifiable; `critic-spec-coverage` then checks the named dimension actually measures the criterion's observable). |
 | `binds_rubric` | yes | `rubric-binds` — names a `rubric.*` cell. **The spec gate checks only the *binding*** (that it points at a `rubric.*` cell). That the bound rubric is itself **`validated`** is enforced *not by this gate* (it runs standalone, with no lattice) but by the **lattice partial order** — `lattice.py` validity refuses a cell that advances against a non-validated verifier rubric (`lattice.py:157`), and `gate-ticket-ready` denies an unvalidated-rubric ticket (`lifecycle.py:108`). Binding here, maturity there. |
 | `non_goals` | yes, ≥1 | `non-goals-present` — the boundary is declared, not implied |
 | `decomposition` | when the spec is decomposed | `decomposition-entailment` — `_entailment_check.py` proves the carving **covers** every parent criterion under the partial order (each parent criterion bound to ≥1 child that itself binds a rubric); a deeper "does the child *entail* (not merely cover) the parent" judgment is the `critic-spec-entailment` lens, not the script |

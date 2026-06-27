@@ -35,12 +35,15 @@ GATE_EXPECT = {
     "no-non-goals": "non-goals-present",
     "wrong-layer": "not a spec",
     "unsound-decomposition": "decomposition-entailment",
+    "unscored-criterion": "criteria-rubric-coverage",
+    "phantom-dimension": "criteria-rubric-coverage",
 }
 # council/ fixture -> the lens whose job is to BLOCK it (the answer key; the gate does NOT catch these)
 COUNCIL_LENS = {
     "hackable-criterion": "critic-spec-hackability",
     "incomplete-coverage": "critic-spec-completeness",
     "weak-entailment": "critic-spec-entailment",
+    "mismapped-coverage": "critic-spec-coverage",
 }
 
 

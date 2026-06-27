@@ -169,6 +169,70 @@ def _gate_skill_shape(spec, fm):
     return True, f"skill-shape: name={fm['name']!r}, intent surface present"
 
 
+def _resolve_rubric_dims(rubric_cell, spec_path):
+    """Best-effort: the set of dimension `id`s of the bound rubric, loaded from disk — or None when it does not
+    resolve (the gate then holds only the declaration floor; the critic does the cross-file check). Looks in the
+    kit's own rubric/ dir (beside this script) and the spec's project rubric dirs (`rubric/`, `.factory/rubric/`)."""
+    slug = str(rubric_cell).rsplit(".", 1)[-1]
+    if not slug:
+        return None
+    here = os.path.dirname(os.path.abspath(__file__))
+    cands = [os.path.join(here, "..", "rubric", f"{slug}.rubric.json")]
+    d = os.path.dirname(os.path.abspath(spec_path)) if spec_path else None
+    for _ in range(6):
+        if not d:
+            break
+        cands.append(os.path.join(d, "rubric", f"{slug}.rubric.json"))
+        cands.append(os.path.join(d, ".factory", "rubric", f"{slug}.rubric.json"))
+        nd = os.path.dirname(d)
+        if nd == d:
+            break
+        d = nd
+    for p in cands:
+        if os.path.isfile(p):
+            try:
+                doc = json.load(open(p, encoding="utf-8"))
+                return {dim.get("id") for dim in doc.get("dimensions", []) if isinstance(dim, dict) and dim.get("id")}
+            except (OSError, ValueError):
+                return None
+    return None
+
+
+def _gate_criteria_rubric_coverage(spec, path=None):
+    """Per-cell coverage (harness-council MAJOR-V2): a criterion that binds a `rubric_cell` (rather than carrying
+    its own executable `check`) must NAME which dimension(s) of that rubric score it — `scored_by: [<dim-id>, ...]`.
+    Two stages, mirroring the decomposition gate (which both checks `covers` is declared AND resolves the cells):
+      (1) DECLARATION floor — a rubric-bound criterion must declare a non-empty `scored_by` (in-doc, always checked).
+      (2) RESOLUTION — when the bound rubric resolves on disk, every `scored_by` id must EXIST among its dimensions;
+          a PHANTOM dimension is caught mechanically HERE, not left to the model. When the rubric is not on disk
+          (a standalone run, or an instance-only rubric), the gate holds only the declaration floor.
+    That the named dimension actually MEASURES the criterion's observable (a narrowed/weaker-bar mapping) stays the
+    semantic, cross-file job of the `critic-spec-coverage` lens — the irreducible judgment half of the split."""
+    unscored, phantom = [], []
+    for c in spec.get("acceptance_criteria") or []:
+        if not isinstance(c, dict):
+            continue
+        rubric_bound = bool(c.get("rubric_cell") or c.get("rubric"))
+        executable = bool(c.get("check") or c.get("verifier") or c.get("executable"))
+        if not rubric_bound or executable:
+            continue
+        sb = c.get("scored_by")
+        named = [x for x in sb if isinstance(x, str) and x.strip()] if isinstance(sb, list) else []
+        if not named:
+            unscored.append(c.get("id", "<unnamed>"))
+            continue
+        dims = _resolve_rubric_dims(c.get("rubric_cell") or c.get("rubric"), path)
+        if dims is not None:
+            phantom += [f"{c.get('id', '<unnamed>')}→{x}" for x in named if x not in dims]
+    if unscored:
+        return False, (f"rubric-bound criteria name no scoring dimension (`scored_by`): {unscored} — a criterion "
+                       f"that binds a rubric must say WHICH dimension(s) score it, or its coverage is unverifiable")
+    if phantom:
+        return False, (f"scored_by names dimension(s) absent from the bound rubric: {phantom} — a phantom scoring "
+                       f"dimension gates nothing (resolved the bound rubric on disk)")
+    return True, "every rubric-bound criterion names dimension(s) that score it (scored_by; existing, where the rubric resolves)"
+
+
 GATES = [
     ("schema-valid", _gate_schema_valid),
     ("criteria-checkable", _gate_criteria_checkable),
@@ -176,6 +240,7 @@ GATES = [
     ("non-goals-present", _gate_non_goals_present),
     ("decomposition-entailment", _gate_decomposition_entailment),
 ]
+# criteria-rubric-coverage is run in check() (not here) because it needs the asset PATH to resolve the bound rubric.
 
 
 def check(path):
@@ -192,6 +257,8 @@ def check(path):
     for name, fn in GATES:
         ok, msg = fn(spec)
         (passes if ok else failures).append(f"{name}: {msg}")
+    ok, msg = _gate_criteria_rubric_coverage(spec, path)   # needs the path to resolve the bound rubric on disk
+    (passes if ok else failures).append(f"criteria-rubric-coverage: {msg}")
     ok, msg = _gate_skill_shape(spec, fm)            # the skill surface ↔ contract agreement
     (passes if ok else failures).append(f"skill-shape: {msg}")
     if failures:
@@ -212,7 +279,7 @@ def selftest():
         "cell": "spec.system.user-auth",
         "acceptance_criteria": [
             {"id": "login-works", "check": "POST /login returns 200 for valid creds"},
-            {"id": "rejects-bad", "rubric_cell": "rubric.system.test-suite"},
+            {"id": "rejects-bad", "rubric_cell": "rubric.system.test-suite", "scored_by": ["tests-pass"]},
         ],
         "non_goals": ["password reset", "SSO"],
         "binds_rubric": "rubric.system.spec-quality",
@@ -264,6 +331,26 @@ def selftest():
         json.dump(unsound, open(upath, "w"))
         ok, msg = check(upath)
         expect(not ok and "decomposition-entailment" in msg, f"accepted an unsound decomposition: {msg}")
+
+        # a rubric-bound criterion with NO scored_by -> criteria-rubric-coverage fails (per-cell coverage)
+        uncov = json.loads(json.dumps(good))
+        uncov["acceptance_criteria"] = [{"id": "login-works", "check": "POST /login returns 200"},
+                                        {"id": "rejects-bad", "rubric_cell": "rubric.system.test-suite"}]  # no scored_by
+        uncov.pop("decomposition")  # so the entailment gate doesn't mask this one
+        ucpath = os.path.join(d, "uncov.json")
+        json.dump(uncov, open(ucpath, "w"))
+        ok, msg = check(ucpath)
+        expect(not ok and "criteria-rubric-coverage" in msg, f"accepted a rubric-bound criterion with no scored_by: {msg}")
+
+        # a scored_by naming a PHANTOM dimension of a resolvable rubric -> criteria-rubric-coverage fails (resolution)
+        phantom = json.loads(json.dumps(good))
+        phantom["acceptance_criteria"] = [{"id": "p-01", "rubric_cell": "rubric.system.spec-quality",
+                                           "scored_by": ["no-such-dimension"]}]   # spec-quality resolves; dim does not exist
+        phantom.pop("decomposition")
+        php = os.path.join(d, "phantom.json")
+        json.dump(phantom, open(php, "w"))
+        ok, msg = check(php)
+        expect(not ok and "absent from the bound rubric" in msg, f"accepted a scored_by phantom dimension: {msg}")
 
         # prose-only .md spec (no structured block) -> schema-valid fails
         mdpath = os.path.join(d, "prose.md")
@@ -323,7 +410,8 @@ def selftest():
             sys.stderr.write(f"  - {f}\n")
         return 1
     print("spec-quality-check selftest: OK (a sound structured spec passes; a prose-only criterion, missing "
-          "non-goals, no rubric binding, an unsound decomposition, and a prose-only .md each FAIL the right gate)")
+          "non-goals, no rubric binding, an unsound decomposition, a rubric-bound criterion with no scored_by, and a "
+          "prose-only .md each FAIL the right gate)")
     return 0
 
 

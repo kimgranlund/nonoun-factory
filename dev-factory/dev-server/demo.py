@@ -29,7 +29,8 @@ import autonomy     # noqa: E402
 
 def _structured(title, cell):
     return {"title": title, "cell": cell,
-            "acceptance_criteria": [{"id": "c1", "check": "it works"}, {"id": "c2", "rubric_cell": "rubric.system.test"}],
+            "acceptance_criteria": [{"id": "c1", "check": "it works"},
+                                    {"id": "c2", "rubric_cell": "rubric.system.test", "scored_by": ["tests-pass"]}],
             "non_goals": ["out of scope a", "out of scope b"], "binds_rubric": "rubric.system.spec-quality"}
 
 

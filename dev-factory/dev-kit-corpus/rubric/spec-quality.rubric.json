@@ -86,6 +86,16 @@
       "fail_meaning": "Satisfying the children would not entail satisfying the parent — an unsound decomposition that ships gaps."
     },
     {
+      "id": "criteria-rubric-coverage",
+      "kind": "gate",
+      "label": "[gate]",
+      "weight": 3.0,
+      "threshold": "pass",
+      "check": "Every acceptance criterion that binds a `rubric_cell` (rather than carrying its own executable `check`) names the dimension(s) of that rubric which score it — `scored_by: [<dimension-id>, ...]`. The structural floor of per-cell coverage: a criterion cannot silently bind a rubric whose relevance to it is unverifiable.",
+      "mechanized_by": "bin/spec-quality-check.py (criteria-rubric-coverage)",
+      "fail_meaning": "A criterion binding a rubric with no named scoring dimension is effectively ungated — the rubric could score something else entirely. (That the named dimension EXISTS and actually measures the observable is the critic-spec-coverage lens's job.)"
+    },
+    {
       "id": "intent-fidelity",
       "kind": "review",
       "label": "[review]",

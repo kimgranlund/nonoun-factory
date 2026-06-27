@@ -2,6 +2,20 @@
 
 All notable changes to **dev-kernel** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.2.30] — 2026-06-26
+
+### Added (per-cell coverage — the judged half; harness-council MAJOR-V2)
+
+- **New spec-council lens `critic-spec-coverage`** (`agents/critic-spec-coverage.md`) — the seventh lens. It
+  pressure-tests the new mechanical `criteria-rubric-coverage` gate (dev-kit-corpus 0.3.3): the gate proves a
+  rubric-bound criterion DECLARES a `scored_by` dimension; the lens reads the bound rubric and hunts whether
+  the named dimension actually EXISTS and MEASURES the criterion's observable — a phantom dimension, a
+  mismeasured/narrower observable, a weaker bar, a [review]-only mapping for a hard criterion. Wired into
+  `agents/spec-council.md` (roster + parallel dispatch as `dev-kernel:critic-spec-coverage`; six→seven lenses).
+  This is the gate/review split the decomposition layer already uses (an entailment GATE + a soundness-judgment
+  REVIEW). `scored_by` is documented in `skills/spec-author/references/spec-format.md`; the README + spec-review
+  methodology updated for the seventh lens. plugin.json 0.2.29 → 0.2.30.
+
 ## [0.2.29] — 2026-06-26
 
 ### Fixed (the verifier-OF-verifiers meets its own bar — harness-council verifier-integrity follow-up)
