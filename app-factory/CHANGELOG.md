@@ -2,6 +2,19 @@
 
 All notable changes to **app-factory** are documented here.
 
+## [0.12.1] — 2026-06-26
+
+### Fixed (gate-protect hardening — harness-council security review)
+
+- **`gate-protect` now fails CLOSED on an unparseable PreToolUse payload.** It previously `return 0` (fail-OPEN)
+  on any parse error — a malformed payload, the one case where the gate is blind to the write target, silently
+  ALLOWED the write to the `.factory/` verifier substrate. It now denies (exit 2), matching the dev-kernel gate
+  posture (a blind gate must never allow a possible forged-signal/ledger/bar write).
+- **Recognizes `notebook_path`** in addition to `file_path`/`path`/`file`, so a `NotebookEdit` into the substrate
+  is caught too (previously an unrecognized path key fell through to allow). The parse is refactored into a
+  testable `_hook_path` helper; selftest covers the fail-closed + notebook_path + the writable happy path.
+- No change to the protected set or the always-on bundling (the keystone + the outer-loop eval are unchanged).
+
 ## [0.12.0] — 2026-06-26
 
 Verifier calibration (M2). The deterministic teeth floor + the human `--seal` are honest about WHAT they prove, but the `--seal` trusts the **entailment-critic**'s fidelity judgement, which was asserted, not measured. This calibrates it against a corpus and records the result — and the calibration immediately earned its keep.
