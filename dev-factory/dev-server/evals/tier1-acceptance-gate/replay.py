@@ -40,7 +40,8 @@ import lattice as _lat      # noqa: E402
 CELL = "spec.system.feature"
 STRUCTURED = {
     "title": "First feature", "cell": CELL,
-    "acceptance_criteria": [{"id": "c1", "check": "POST /x returns 200"}, {"id": "c2", "rubric_cell": "rubric.system.test"}],
+    "acceptance_criteria": [{"id": "c1", "check": "POST /x returns 200"},
+                            {"id": "c2", "rubric_cell": "rubric.system.test", "scored_by": ["tests-pass"]}],
     "non_goals": ["password reset", "SSO"],
     "binds_rubric": "rubric.system.spec-quality",
 }

@@ -23,6 +23,12 @@ All notable changes to **dev-kit-corpus** are documented here. Format follows [K
   — a cold-run baseline is recorded in the README). All three are added to `spec-quality`'s **exemplar manifest**
   so `rubric-teeth` guards the new dimension against being hollowed (it can't pass while the gate is silently
   weakened). `check.py` + README updated. plugin.json 0.3.2 → 0.3.3.
+- **Downstream fixture migration:** the new gate fires on every rubric-bound, non-executable acceptance criterion,
+  so the canonical "structured spec" fixture shared by the dev-server replays (`integration-milestone`,
+  `tier1-acceptance-gate`) and `demo.py` now declares `scored_by` on its `rubric_cell` criterion (`c2`). The bound
+  `rubric.system.test` is an instance-only cell that never resolves on disk, so only the declaration floor applies —
+  the migration is purely additive (the structured spec is now *more* complete; the prose-spec negative case is
+  unchanged). The full replay battery is green.
 
 ## [0.3.2] — 2026-06-26
 
