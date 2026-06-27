@@ -52,6 +52,24 @@ def is_protected(path, extra=None):
     return False
 
 
+def _hook_path(raw):
+    """Extract the write target from a PreToolUse payload. Returns (path, parsed). `parsed` is False when the
+    payload does not parse as a JSON object — the gate is then BLIND to the target and MUST fail CLOSED (deny),
+    never open: a malformed payload is the one case where allowing could let a forged `.factory/` write slip
+    (the dev-kernel gate takes the same posture). Recognizes the host path keys file_path / path / notebook_path
+    / file, so a NotebookEdit (notebook_path) into the substrate is caught too."""
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return None, False
+    if not isinstance(data, dict):
+        return None, False
+    ti = data.get("tool_input") or data.get("toolInput") or {}
+    if not isinstance(ti, dict):
+        ti = {}
+    return (ti.get("file_path") or ti.get("path") or ti.get("notebook_path") or ti.get("file")), True
+
+
 def selftest():
     fails = []
     def expect(c, m):
@@ -74,13 +92,22 @@ def selftest():
               "a/.factoryx/y"):                                                             # not the `.factory` segment
         expect(not is_protected(p), f"wrongly protected a writable path: {p}")
     expect(is_protected("projects/x/spec/cli.md", ["spec/**"]), "opt-in glob (spec/**) did not protect")
+    # --hook payload handling: a malformed payload fails CLOSED (deny); recognized path keys are extracted
+    expect(_hook_path("{ not json")[1] is False, "an unparseable payload must report parsed=False (the gate fails closed)")
+    expect(_hook_path("not even close")[1] is False, "non-JSON stdin must report parsed=False (fail closed)")
+    expect(_hook_path("[1,2,3]")[1] is False, "a non-object JSON payload must report parsed=False (fail closed)")
+    p_nb, ok_nb = _hook_path(json.dumps({"tool_input": {"notebook_path": "x/.factory/state/lattice.json"}}))
+    expect(ok_nb and is_protected(p_nb), "a notebook_path under .factory/ must be extracted AND protected (NotebookEdit gap)")
+    p_w, ok_w = _hook_path(json.dumps({"tool_input": {"file_path": "projects/q/build/x.py"}}))
+    expect(ok_w and not is_protected(p_w), "a normal file_path must parse + stay writable")
     if fails:
         sys.stderr.write("gate-protect selftest: FAIL\n")
         for f in fails:
             sys.stderr.write(f"  - {f}\n")
         return 1
     print("gate-protect selftest: OK (denies Write/Edit to the whole .factory/ verifier substrate — signals, "
-          "ledger, lattice, budget, sealed bars, manifests — plus the wiring; build/, specs, and the bar SOURCE stay writable)")
+          "ledger, lattice, budget, sealed bars, manifests — plus the wiring; build/, specs, and the bar SOURCE stay "
+          "writable; an unparseable hook payload fails CLOSED, and a notebook_path into the substrate is caught)")
     return 0
 
 
@@ -90,12 +117,12 @@ def main(argv):
     if argv and argv[0] == "check" and len(argv) > 1:
         return 1 if is_protected(argv[1]) else 0
     if argv and argv[0] == "--hook":
-        try:
-            data = json.load(sys.stdin)
-            ti = data.get("tool_input") or data.get("toolInput") or {}
-            path = ti.get("file_path") or ti.get("path") or ti.get("file")
-        except Exception:
-            return 0                                          # malformed input → fail-open on parse
+        path, parsed = _hook_path(sys.stdin.read())
+        if not parsed:
+            sys.stderr.write("gate-protect: DENY — unparseable PreToolUse payload; failing CLOSED. The gate cannot "
+                             "see the write target, so it must not allow a possible write to the .factory/ verifier "
+                             "substrate (a malformed payload is the one blind case; the dev-kernel gate fails closed too).\n")
+            return 2                                           # malformed input → fail CLOSED (was: fail-open return 0)
         if is_protected(path):
             sys.stderr.write(f"gate-protect: DENY — `{path}` is under the .factory/ verifier substrate; agents are "
                              f"deny-on-write to it. Signals/ledger/lattice/bars are written only by the kernel path "
