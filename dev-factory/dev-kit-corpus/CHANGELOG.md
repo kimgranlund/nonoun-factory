@@ -2,6 +2,28 @@
 
 All notable changes to **dev-kit-corpus** are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [0.3.3] — 2026-06-26
+
+### Added (per-cell coverage — the mechanical floor + its calibration; harness-council MAJOR-V2)
+
+- **New spec-quality `[gate]` dimension `criteria-rubric-coverage`** (`bin/spec-quality-check.py` + the
+  `spec-quality` / `prd-quality` rubrics). An acceptance criterion that binds a `rubric_cell` (rather than
+  carrying its own executable `check`) must NAME the dimension(s) of that rubric which score it —
+  `scored_by: [<dimension-id>, ...]`. **Two stages, mirroring the decomposition-entailment gate** (which both
+  checks `covers` is declared AND resolves the cells): (1) the in-doc DECLARATION floor — a rubric-bound
+  criterion with no `scored_by` is rejected; (2) RESOLUTION — when the bound rubric resolves on disk, every
+  `scored_by` id must EXIST among its dimensions, so a PHANTOM scoring dimension is caught MECHANICALLY, not
+  left to the model (it falls back to the declaration floor for an unresolvable/instance-only rubric). That
+  the named dimension actually MEASURES the criterion's observable (a narrowed/weaker-bar mapping) stays the
+  semantic job of the new `critic-spec-coverage` spec-council lens — the irreducible judgment half.
+- **Calibration (anti-hollow):** new gate fixtures `evals/spec-review-calibration/fixtures/gate/unscored-criterion.md`
+  (no `scored_by` → rejected on the declaration floor) + `.../gate/phantom-dimension.md` (a `scored_by` naming a
+  dimension absent from a *resolvable* rubric → rejected mechanically on resolution) + council fixture
+  `.../council/mismapped-coverage.md` (gate PASSES; only `critic-spec-coverage` catches the narrowed observable
+  — a cold-run baseline is recorded in the README). All three are added to `spec-quality`'s **exemplar manifest**
+  so `rubric-teeth` guards the new dimension against being hollowed (it can't pass while the gate is silently
+  weakened). `check.py` + README updated. plugin.json 0.3.2 → 0.3.3.
+
 ## [0.3.2] — 2026-06-26
 
 ### Added (rubric-teeth guards the verifier-OF-verifiers too)

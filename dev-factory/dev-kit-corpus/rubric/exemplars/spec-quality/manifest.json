@@ -5,8 +5,11 @@
     { "file": "../../../evals/spec-review-calibration/fixtures/gate/no-non-goals.md", "expect": "fail", "dimension": "non-goals-present" },
     { "file": "../../../evals/spec-review-calibration/fixtures/gate/wrong-layer.md", "expect": "fail", "dimension": "not a spec" },
     { "file": "../../../evals/spec-review-calibration/fixtures/gate/unsound-decomposition.md", "expect": "fail", "dimension": "decomposition-entailment" },
+    { "file": "../../../evals/spec-review-calibration/fixtures/gate/unscored-criterion.md", "expect": "fail", "dimension": "criteria-rubric-coverage" },
+    { "file": "../../../evals/spec-review-calibration/fixtures/gate/phantom-dimension.md", "expect": "fail", "dimension": "criteria-rubric-coverage" },
     { "file": "../../../evals/spec-review-calibration/fixtures/council/hackable-criterion.md", "expect": "pass" },
     { "file": "../../../evals/spec-review-calibration/fixtures/council/incomplete-coverage.md", "expect": "pass" },
-    { "file": "../../../evals/spec-review-calibration/fixtures/council/weak-entailment.md", "expect": "pass" }
+    { "file": "../../../evals/spec-review-calibration/fixtures/council/weak-entailment.md", "expect": "pass" },
+    { "file": "../../../evals/spec-review-calibration/fixtures/council/mismapped-coverage.md", "expect": "pass" }
   ]
 }

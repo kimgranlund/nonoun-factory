@@ -55,6 +55,16 @@
       "fail_meaning": "Unbounded product scope; the PRD admits experience it was never meant to authorize."
     },
     {
+      "id": "criteria-rubric-coverage",
+      "kind": "gate",
+      "label": "[gate]",
+      "weight": 2.0,
+      "threshold": "pass",
+      "check": "Every user-acceptance criterion that binds a `rubric_cell` (rather than an executable `check`) names the dimension(s) of that rubric which score it — `scored_by: [<dimension-id>, ...]`. A user-facing criterion cannot bind a rubric whose relevance to it is unverifiable.",
+      "mechanized_by": "bin/spec-quality-check.py (criteria-rubric-coverage)",
+      "fail_meaning": "A criterion binding a rubric with no named scoring dimension is effectively ungated. (Existence + fidelity of the named dimension is the critic-spec-coverage lens's job.)"
+    },
+    {
       "id": "target-users-and-jobs",
       "kind": "review",
       "label": "[review]",
